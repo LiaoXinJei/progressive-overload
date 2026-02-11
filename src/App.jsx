@@ -109,9 +109,10 @@ const RPFocusPro = () => {
    * PRD 2.2 節邏輯：
    * - 維持模式：上肢遞增（追求 MAV），下肢固定（MEV）
    * - 增重模式：上肢額外 +1 且遞增，下肢每 4 週 +1
+   * - 單動作天花板機制：防止垃圾容量（預設 6 組，小肌群 8 組）
    */
   const calculateSets = (week, exercise, trainingMode) => {
-    const { baseSets, isUpper } = exercise;
+    const { baseSets, isUpper, muscle } = exercise;
 
     // 減量週 (W5, W10)：所有肌群 50% 組數
     if (week === 5 || week === 10) {
@@ -121,25 +122,35 @@ const RPFocusPro = () => {
     // 計算當前 Meso 週次 (W1-W4 為 Meso 1；W6-W9 為 Meso 2)
     const mesoWeek = week <= 4 ? week : (week - 5);
 
+    let calculatedSets;
+
     if (trainingMode === 'maintenance') {
       if (isUpper) {
         // 上肢：每週 +1 組（W1: baseSets, W2: baseSets+1, ...）
-        return baseSets + (mesoWeek - 1);
+        calculatedSets = baseSets + (mesoWeek - 1);
       } else {
         // 下肢：固定 MEV，組數不增加
-        return baseSets;
+        calculatedSets = baseSets;
       }
     } else { // bulking
       if (isUpper) {
         // 上肢：起始容量 +1（W6 後額外 +1），每週 +1 組
         const bonus = week > 5 ? 1 : 0;
-        return baseSets + bonus + (mesoWeek - 1);
+        calculatedSets = baseSets + bonus + (mesoWeek - 1);
       } else {
         // 下肢：每 4 週 +1 組
         const bonus = Math.floor((week - 1) / 4);
-        return baseSets + bonus;
+        calculatedSets = baseSets + bonus;
       }
     }
+
+    // 單動作天花板機制 (Per-Exercise Ceiling)
+    // 防止神經疲勞導致的垃圾容量，確保訓練質量
+    // 小肌群例外（側三角、後三角、小腿）：恢復快、CNS 負擔低，可承受更高容量
+    const isSmallMuscle = muscle === 'SIDE_DELT' || muscle === 'REAR_DELT' || muscle === 'CALVES';
+    const ceiling = isSmallMuscle ? 8 : 6;
+
+    return Math.min(calculatedSets, ceiling);
   };
 
   /**
