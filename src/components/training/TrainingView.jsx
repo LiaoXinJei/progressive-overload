@@ -4,7 +4,7 @@ import {
   TrendingUp, ShieldCheck, Plus, Minus, Check,
   Edit2, Save
 } from 'lucide-react';
-import { WORKOUTS, MUSCLE_GROUPS, VOLUME_CONFIG, PHASE_CONFIG, MUSCLE_SESSION_MAP } from '../../constants/workouts';
+import { WORKOUTS, MUSCLE_GROUPS, VOLUME_CONFIG, PHASE_CONFIG, MUSCLE_SESSION_MAP, MAX_SETS_PER_EXERCISE } from '../../constants/workouts';
 
 const TrainingView = ({
   logs, setLogs,
@@ -74,7 +74,7 @@ const TrainingView = ({
       muscleSessionTargets[muscle] = base + (sessionIdx < remainder ? 1 : 0);
     }
 
-    // 分配到各動作（保持原始順序，同肌群第一個動作優先拿多的）
+    // 分配到各動作（餘數優先給後面的隔離/次要動作，不灌給主項複合動作）
     const muscleAssigned = {};
     return workout.exercises.map(ex => {
       const sessionTarget = muscleSessionTargets[ex.muscle];
@@ -84,7 +84,8 @@ const TrainingView = ({
 
       const base = Math.floor(sessionTarget / exCount);
       const remainder = sessionTarget % exCount;
-      const sets = base + (idx < remainder ? 1 : 0);
+      // idx >= exCount - remainder → 後面的動作拿餘數
+      const sets = Math.min(base + (idx >= exCount - remainder ? 1 : 0), MAX_SETS_PER_EXERCISE);
 
       return { exercise: ex, sets };
     });
