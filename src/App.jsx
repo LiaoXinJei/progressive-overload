@@ -101,6 +101,7 @@ const RPFocusPro = () => {
 
   useEffect(() => {
     const state = {
+      schemaVersion: 2,
       logs, history, mode,
       viewState: { currentWeek, currentDay, showStats },
       customExerciseNames, weightIncrement, activeTab,

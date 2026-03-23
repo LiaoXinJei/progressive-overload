@@ -20,37 +20,49 @@ const TrainingView = ({
   // ==================== 核心邏輯函數 ====================
 
   const getWorkoutForDay = (week, dayIndex) => {
-    const offset = ((week - 1) * 4) % 5;
-    const workoutIndex = (offset + dayIndex) % 5;
-    const workoutKeys = ['A', 'B', 'C', 'D', 'E'];
-    return workoutKeys[workoutIndex];
+    return ['A', 'B', 'C', 'D'][dayIndex];
   };
 
-  const calculateSets = (week, exercise, trainingMode) => {
-    const { baseSets, isUpper, muscle } = exercise;
+  const SESSION_CEILING = 15;
+
+  const calculateRawSets = (week, exercise, trainingMode) => {
+    const { baseSets, increments } = exercise;
+    // 減量週 (W5, W10)
     if (week === 5 || week === 10) {
       return Math.max(1, Math.floor(baseSets * 0.5));
     }
+    // 隔離動作：固定組數
+    if (!increments) {
+      return baseSets;
+    }
+    // 複合動作：每週遞增
     const mesoWeek = week <= 4 ? week : (week - 5);
-    let calculatedSets;
     if (trainingMode === 'maintenance') {
-      if (isUpper) {
-        calculatedSets = baseSets + (mesoWeek - 1);
-      } else {
-        calculatedSets = baseSets;
-      }
+      return baseSets + (mesoWeek - 1);
     } else {
-      if (isUpper) {
-        const bonus = week > 5 ? 1 : 0;
-        calculatedSets = baseSets + bonus + (mesoWeek - 1);
-      } else {
-        const bonus = Math.floor((week - 1) / 4);
-        calculatedSets = baseSets + bonus;
+      // 增重模式：起始 +1
+      const base = baseSets + 1;
+      return base + (mesoWeek - 1);
+    }
+  };
+
+  const getSessionPlan = (week, workoutKey, trainingMode) => {
+    const workout = WORKOUTS[workoutKey];
+    const plan = workout.exercises.map(ex => ({
+      exercise: ex,
+      sets: calculateRawSets(week, ex, trainingMode)
+    }));
+    let total = plan.reduce((sum, e) => sum + e.sets, 0);
+    if (total <= SESSION_CEILING) return plan;
+    // 超過上限：從複合動作扣減（優先扣副動作）
+    const compounds = plan.filter(e => e.exercise.increments).reverse();
+    for (const compound of compounds) {
+      while (total > SESSION_CEILING && compound.sets > 1) {
+        compound.sets--;
+        total--;
       }
     }
-    const isSmallMuscle = muscle === 'SIDE_DELT' || muscle === 'REAR_DELT' || muscle === 'CALVES';
-    const ceiling = isSmallMuscle ? 8 : 6;
-    return Math.min(calculatedSets, ceiling);
+    return plan;
   };
 
   const getWeeklyGuidance = (week) => {
@@ -145,10 +157,9 @@ const TrainingView = ({
     Object.keys(MUSCLE_GROUPS).forEach(k => vol[k] = 0);
     [0, 1, 2, 3].forEach(dayIndex => {
       const workoutKey = getWorkoutForDay(currentWeek, dayIndex);
-      const workout = WORKOUTS[workoutKey];
-      workout.exercises.forEach(ex => {
-        const sets = calculateSets(currentWeek, ex, mode);
-        vol[ex.muscle] = (vol[ex.muscle] || 0) + sets;
+      const plan = getSessionPlan(currentWeek, workoutKey, mode);
+      plan.forEach(({ exercise, sets }) => {
+        vol[exercise.muscle] = (vol[exercise.muscle] || 0) + sets;
       });
     });
     return vol;
@@ -158,6 +169,7 @@ const TrainingView = ({
 
   const workoutKey = getWorkoutForDay(currentWeek, currentDay);
   const currentWorkout = WORKOUTS[workoutKey];
+  const currentSessionPlan = getSessionPlan(currentWeek, workoutKey, mode);
   const guidance = getWeeklyGuidance(currentWeek);
 
   return (
@@ -214,8 +226,7 @@ const TrainingView = ({
           </div>
 
           <div className="divide-y divide-neutral-800">
-            {currentWorkout.exercises.map((ex, exIdx) => {
-              const setsCount = calculateSets(currentWeek, ex, mode);
+            {currentSessionPlan.map(({ exercise: ex, sets: setsCount }, exIdx) => {
               const completedCount = [...Array(setsCount)].filter((_, idx) => {
                 const logKey = `w${currentWeek}-d${currentDay}-${ex.id}-s${idx}`;
                 return logs[logKey]?.done;
@@ -227,9 +238,8 @@ const TrainingView = ({
               let previousExerciseLastSetKey = null;
 
               if (exIdx > 0) {
-                const prevEx = currentWorkout.exercises[exIdx - 1];
-                const prevSetsCount = calculateSets(currentWeek, prevEx, mode);
-                previousExerciseLastSetKey = `w${currentWeek}-d${currentDay}-${prevEx.id}-s${prevSetsCount - 1}`;
+                const prevPlan = currentSessionPlan[exIdx - 1];
+                previousExerciseLastSetKey = `w${currentWeek}-d${currentDay}-${prevPlan.exercise.id}-s${prevPlan.sets - 1}`;
               }
 
               return (
@@ -278,9 +288,21 @@ const TrainingView = ({
                           </>
                         )}
                       </div>
-                      <span className="text-[10px] font-black bg-neutral-800 text-neutral-400 px-2 py-1 rounded mt-2 inline-block uppercase tracking-wider">
-                        {MUSCLE_GROUPS[ex.muscle]}
-                      </span>
+                      <div className="flex items-center gap-2 mt-2">
+                        <span className="text-[10px] font-black bg-neutral-800 text-neutral-400 px-2 py-1 rounded inline-block uppercase tracking-wider">
+                          {MUSCLE_GROUPS[ex.muscle]}
+                        </span>
+                        {ex.repRange && (
+                          <span className="text-[10px] font-mono bg-neutral-800 text-neutral-500 px-2 py-1 rounded inline-block">
+                            {ex.repRange} 下
+                          </span>
+                        )}
+                        {ex.increments && (
+                          <span className="text-[10px] text-emerald-500 font-bold">
+                            <TrendingUp size={10} className="inline" /> 遞增
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <div className="text-right">
                       <div className="text-2xl font-black font-mono text-neutral-700">
@@ -467,9 +489,9 @@ const TrainingView = ({
                   <TrendingUp size={12}/> 模式說明
                 </p>
                 {mode === 'maintenance' ? (
-                  <p>維持模式：上肢每週遞增組數（追求 MAV），下肢固定最低維持量（MEV）。專注於上肢發展，適合不希望體重增加的時期。</p>
+                  <p>維持模式：複合動作每週遞增組數（追求 MAV），隔離動作固定組數。每日上限 {SESSION_CEILING} 組，降低 CNS 負擔。</p>
                 ) : (
-                  <p>增重模式：上肢起始容量 +1 且每週遞增，下肢每 4 週 +1 組。全面進攻，確保盈餘熱量支持恢復。</p>
+                  <p>增重模式：複合動作起始容量 +1 且每週遞增，隔離動作固定。每日上限 {SESSION_CEILING} 組，確保盈餘熱量支持恢復。</p>
                 )}
               </div>
 
