@@ -4,7 +4,7 @@ import {
   TrendingUp, ShieldCheck, Plus, Minus, Check,
   Edit2, Save
 } from 'lucide-react';
-import { WORKOUTS, MUSCLE_GROUPS } from '../../constants/workouts';
+import { WORKOUTS, MUSCLE_GROUPS, VOLUME_CONFIG, PHASE_CONFIG, MUSCLE_SESSION_MAP } from '../../constants/workouts';
 
 const TrainingView = ({
   logs, setLogs,
@@ -23,52 +23,80 @@ const TrainingView = ({
     return ['A', 'B', 'C', 'D'][dayIndex];
   };
 
-  const SESSION_CEILING = 15;
-
-  const calculateRawSets = (week, exercise, trainingMode) => {
-    const { baseSets, increments } = exercise;
-    // 減量週 (W5, W10)
-    if (week === 5 || week === 10) {
-      return Math.max(1, Math.floor(baseSets * 0.5));
-    }
-    // 隔離動作：固定組數
-    if (!increments) {
-      return baseSets;
-    }
-    // 複合動作：每週遞增
-    const mesoWeek = week <= 4 ? week : (week - 5);
-    if (trainingMode === 'maintenance') {
-      return baseSets + (mesoWeek - 1);
-    } else {
-      // 增重模式：起始 +1
-      const base = baseSets + 1;
-      return base + (mesoWeek - 1);
-    }
+  // 取得當前週次的訓練階段
+  const getPhase = (week) => {
+    if (week === 5 || week === 10) return 'deload';
+    if (week <= 4) return 'hypertrophy';
+    return 'strength';
   };
 
-  const getSessionPlan = (week, workoutKey, trainingMode) => {
-    const workout = WORKOUTS[workoutKey];
-    const plan = workout.exercises.map(ex => ({
-      exercise: ex,
-      sets: calculateRawSets(week, ex, trainingMode)
-    }));
-    let total = plan.reduce((sum, e) => sum + e.sets, 0);
-    if (total <= SESSION_CEILING) return plan;
-    // 超過上限：從複合動作扣減（優先扣副動作）
-    const compounds = plan.filter(e => e.exercise.increments).reverse();
-    for (const compound of compounds) {
-      while (total > SESSION_CEILING && compound.sets > 1) {
-        compound.sets--;
-        total--;
-      }
+  // 取得某肌群在某週的目標組數
+  const getWeeklyMuscleVolume = (muscle, week) => {
+    const targets = VOLUME_CONFIG[muscle];
+    if (!targets) return 0;
+    const phase = getPhase(week);
+    if (phase === 'deload') {
+      return Math.max(2, Math.floor(targets[0] * 0.5));
     }
-    return plan;
+    if (phase === 'strength') {
+      return targets[0]; // 固定在 MEV，重量遞增
+    }
+    // 肌肥大期：W1-W4 對應 targets[0]-targets[3]
+    return targets[week - 1];
+  };
+
+  // 取得動作的建議次數範圍（依階段和動作類型）
+  const getRepRange = (exerciseType, week) => {
+    const phase = getPhase(week);
+    const config = PHASE_CONFIG[phase];
+    return exerciseType === 'compound' ? config.compound : config.isolation;
+  };
+
+  // 計算某日的完整訓練計畫（肌群週容量 → 分配到 session → 分配到動作）
+  const getSessionPlan = (week, workoutKey) => {
+    const workout = WORKOUTS[workoutKey];
+
+    // 統計此 session 中每個肌群有幾個動作
+    const muscleExCounts = {};
+    workout.exercises.forEach(ex => {
+      muscleExCounts[ex.muscle] = (muscleExCounts[ex.muscle] || 0) + 1;
+    });
+
+    // 計算每個肌群在此 session 分到的組數
+    const muscleSessionTargets = {};
+    for (const muscle of Object.keys(muscleExCounts)) {
+      const weeklyTarget = getWeeklyMuscleVolume(muscle, week);
+      const sessions = MUSCLE_SESSION_MAP[muscle];
+      const totalSessions = sessions.length;
+      const sessionIdx = sessions.indexOf(workoutKey);
+      const base = Math.floor(weeklyTarget / totalSessions);
+      const remainder = weeklyTarget % totalSessions;
+      muscleSessionTargets[muscle] = base + (sessionIdx < remainder ? 1 : 0);
+    }
+
+    // 分配到各動作（保持原始順序，同肌群第一個動作優先拿多的）
+    const muscleAssigned = {};
+    return workout.exercises.map(ex => {
+      const sessionTarget = muscleSessionTargets[ex.muscle];
+      const exCount = muscleExCounts[ex.muscle];
+      const idx = muscleAssigned[ex.muscle] || 0;
+      muscleAssigned[ex.muscle] = idx + 1;
+
+      const base = Math.floor(sessionTarget / exCount);
+      const remainder = sessionTarget % exCount;
+      const sets = base + (idx < remainder ? 1 : 0);
+
+      return { exercise: ex, sets };
+    });
   };
 
   const getWeeklyGuidance = (week) => {
-    if (week === 5 || week === 10) return { rir: '4+', label: 'Deload', color: 'text-amber-400' };
-    if (week === 4 || week === 9) return { rir: '0-1', label: 'Overreach', color: 'text-rose-500' };
-    return { rir: '2-3', label: 'Accumulation', color: 'text-emerald-400' };
+    const phase = getPhase(week);
+    if (phase === 'deload') return { rir: '4+', label: 'Deload', color: 'text-amber-400' };
+    if (week === 4) return { rir: '0-1', label: '肌肥大 · Overreach', color: 'text-rose-500' };
+    if (week === 9) return { rir: '0-1', label: '肌力 · Overreach', color: 'text-rose-500' };
+    if (phase === 'hypertrophy') return { rir: '2-3', label: '肌肥大 · Accumulation', color: 'text-emerald-400' };
+    return { rir: '2-3', label: '肌力 · Accumulation', color: 'text-cyan-400' };
   };
 
   // ==================== 工具函數 ====================
@@ -157,19 +185,19 @@ const TrainingView = ({
     Object.keys(MUSCLE_GROUPS).forEach(k => vol[k] = 0);
     [0, 1, 2, 3].forEach(dayIndex => {
       const workoutKey = getWorkoutForDay(currentWeek, dayIndex);
-      const plan = getSessionPlan(currentWeek, workoutKey, mode);
+      const plan = getSessionPlan(currentWeek, workoutKey);
       plan.forEach(({ exercise, sets }) => {
         vol[exercise.muscle] = (vol[exercise.muscle] || 0) + sets;
       });
     });
     return vol;
-  }, [currentWeek, mode]);
+  }, [currentWeek]);
 
   // ==================== 渲染 ====================
 
   const workoutKey = getWorkoutForDay(currentWeek, currentDay);
   const currentWorkout = WORKOUTS[workoutKey];
-  const currentSessionPlan = getSessionPlan(currentWeek, workoutKey, mode);
+  const currentSessionPlan = getSessionPlan(currentWeek, workoutKey);
   const guidance = getWeeklyGuidance(currentWeek);
 
   return (
@@ -292,16 +320,12 @@ const TrainingView = ({
                         <span className="text-[10px] font-black bg-neutral-800 text-neutral-400 px-2 py-1 rounded inline-block uppercase tracking-wider">
                           {MUSCLE_GROUPS[ex.muscle]}
                         </span>
-                        {ex.repRange && (
-                          <span className="text-[10px] font-mono bg-neutral-800 text-neutral-500 px-2 py-1 rounded inline-block">
-                            {ex.repRange} 下
-                          </span>
-                        )}
-                        {ex.increments && (
-                          <span className="text-[10px] text-emerald-500 font-bold">
-                            <TrendingUp size={10} className="inline" /> 遞增
-                          </span>
-                        )}
+                        <span className="text-[10px] font-mono bg-neutral-800 text-neutral-500 px-2 py-1 rounded inline-block">
+                          {getRepRange(ex.type, currentWeek)} 下
+                        </span>
+                        <span className={`text-[10px] font-bold ${ex.type === 'compound' ? 'text-cyan-500' : 'text-neutral-600'}`}>
+                          {ex.type === 'compound' ? '複合' : '隔離'}
+                        </span>
                       </div>
                     </div>
                     <div className="text-right">
@@ -486,12 +510,14 @@ const TrainingView = ({
 
               <div className="p-4 bg-neutral-800/50 rounded-2xl border border-neutral-700 text-[11px] leading-relaxed text-neutral-400">
                 <p className="text-white font-bold mb-2 flex items-center gap-2 italic">
-                  <TrendingUp size={12}/> 模式說明
+                  <TrendingUp size={12}/> {PHASE_CONFIG[getPhase(currentWeek)].label}
                 </p>
-                {mode === 'maintenance' ? (
-                  <p>維持模式：複合動作每週遞增組數（追求 MAV），隔離動作固定組數。每日上限 {SESSION_CEILING} 組，降低 CNS 負擔。</p>
+                {getPhase(currentWeek) === 'hypertrophy' ? (
+                  <p>W1-W4 肌肥大期：肌群週容量從 MEV 遞增至 MRV，複合動作 {PHASE_CONFIG.hypertrophy.compound} 下，隔離動作 {PHASE_CONFIG.hypertrophy.isolation} 下。</p>
+                ) : getPhase(currentWeek) === 'strength' ? (
+                  <p>W6-W9 肌力期：總組數固定於 MEV，專注重量遞增。複合動作 {PHASE_CONFIG.strength.compound} 下，隔離動作 {PHASE_CONFIG.strength.isolation} 下。</p>
                 ) : (
-                  <p>增重模式：複合動作起始容量 +1 且每週遞增，隔離動作固定。每日上限 {SESSION_CEILING} 組，確保盈餘熱量支持恢復。</p>
+                  <p>減量週：所有肌群組數降至 MEV 的 50%，降低疲勞累積，為下一階段做準備。</p>
                 )}
               </div>
 
