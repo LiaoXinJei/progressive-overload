@@ -22,11 +22,18 @@ const RPFocusPro = () => {
   const [customExerciseNames, setCustomExerciseNames] = useState({});
   const [weightIncrement, setWeightIncrement] = useState(2);
   const [showSettings, setShowSettings] = useState(false);
+  const [currentTime, setCurrentTime] = useState(Date.now());
+
   // 營養功能狀態
   const [nutritionProfile, setNutritionProfile] = useState(null);
   const [nutritionLogs, setNutritionLogs] = useState({});
 
   // ==================== 計時器邏輯 ====================
+
+  useEffect(() => {
+    const interval = setInterval(() => setCurrentTime(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   // 取得今日訓練的開始（最早）與結束（最晚）完成時間戳
   const workoutTimes = useMemo(() => {
