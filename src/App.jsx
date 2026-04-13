@@ -22,27 +22,21 @@ const RPFocusPro = () => {
   const [customExerciseNames, setCustomExerciseNames] = useState({});
   const [weightIncrement, setWeightIncrement] = useState(2);
   const [showSettings, setShowSettings] = useState(false);
-  const [currentTime, setCurrentTime] = useState(Date.now());
-
   // 營養功能狀態
   const [nutritionProfile, setNutritionProfile] = useState(null);
   const [nutritionLogs, setNutritionLogs] = useState({});
 
   // ==================== 計時器邏輯 ====================
 
-  useEffect(() => {
-    const interval = setInterval(() => setCurrentTime(Date.now()), 1000);
-    return () => clearInterval(interval);
-  }, []);
-
-  // 取得今日最早完成的組次時間戳，作為訓練開始時間
-  const workoutStartTime = useMemo(() => {
+  // 取得今日訓練的開始（最早）與結束（最晚）完成時間戳
+  const workoutTimes = useMemo(() => {
     const prefix = `w${currentWeek}-d${currentDay}-`;
     const timestamps = Object.entries(logs)
       .filter(([key]) => key.startsWith(prefix))
       .map(([, log]) => log?.completedAt)
       .filter(Boolean);
-    return timestamps.length > 0 ? Math.min(...timestamps) : null;
+    if (timestamps.length === 0) return null;
+    return { start: Math.min(...timestamps), end: Math.max(...timestamps) };
   }, [logs, currentWeek, currentDay]);
 
   const formatTime = (seconds) => {
@@ -139,11 +133,11 @@ const RPFocusPro = () => {
 
             {/* Timer & Controls */}
             <div className="flex items-center gap-3">
-              {activeTab === 'training' && workoutStartTime && (
+              {activeTab === 'training' && workoutTimes && (
                 <div className="flex items-center gap-2 bg-neutral-800 px-4 py-2 rounded-full border border-neutral-700">
                   <Timer size={16} className="text-emerald-500" />
                   <span className="font-mono text-sm min-w-[60px] text-center">
-                    {formatTime(Math.floor((currentTime - workoutStartTime) / 1000))}
+                    {formatTime(Math.floor((workoutTimes.end - workoutTimes.start) / 1000))}
                   </span>
                 </div>
               )}
