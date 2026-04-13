@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   RotateCcw, Activity, AlertTriangle, TrendingUp, ShieldCheck,
-  Timer, Play, Pause, RotateCw, Settings
+  Timer, Settings
 } from 'lucide-react';
 import TrainingView from './components/training/TrainingView';
 import NutritionView from './components/nutrition/NutritionView';
@@ -19,7 +19,6 @@ const RPFocusPro = () => {
   const [activeTab, setActiveTab] = useState('training');
 
   // 訓練功能狀態
-  const [timerState, setTimerState] = useState({ startTime: null, elapsed: 0, isRunning: false });
   const [customExerciseNames, setCustomExerciseNames] = useState({});
   const [weightIncrement, setWeightIncrement] = useState(2);
   const [showSettings, setShowSettings] = useState(false);
@@ -32,38 +31,19 @@ const RPFocusPro = () => {
   // ==================== 計時器邏輯 ====================
 
   useEffect(() => {
-    let interval;
-    if (timerState.isRunning) {
-      interval = setInterval(() => {
-        setTimerState(prev => ({
-          ...prev,
-          elapsed: Math.floor((Date.now() - prev.startTime) / 1000)
-        }));
-      }, 1000);
-    }
-    return () => { if (interval) clearInterval(interval); };
-  }, [timerState.isRunning, timerState.startTime]);
-
-  useEffect(() => {
     const interval = setInterval(() => setCurrentTime(Date.now()), 1000);
     return () => clearInterval(interval);
   }, []);
 
-  const toggleTimer = () => {
-    setTimerState(prev => {
-      if (prev.isRunning) {
-        return { ...prev, isRunning: false };
-      } else {
-        const now = Date.now();
-        const startTime = prev.elapsed > 0 ? now - (prev.elapsed * 1000) : now;
-        return { ...prev, isRunning: true, startTime };
-      }
-    });
-  };
-
-  const resetTimer = () => {
-    setTimerState({ startTime: null, elapsed: 0, isRunning: false });
-  };
+  // 取得今日最早完成的組次時間戳，作為訓練開始時間
+  const workoutStartTime = useMemo(() => {
+    const prefix = `w${currentWeek}-d${currentDay}-`;
+    const timestamps = Object.entries(logs)
+      .filter(([key]) => key.startsWith(prefix))
+      .map(([, log]) => log?.completedAt)
+      .filter(Boolean);
+    return timestamps.length > 0 ? Math.min(...timestamps) : null;
+  }, [logs, currentWeek, currentDay]);
 
   const formatTime = (seconds) => {
     const hrs = Math.floor(seconds / 3600);
@@ -159,26 +139,12 @@ const RPFocusPro = () => {
 
             {/* Timer & Controls */}
             <div className="flex items-center gap-3">
-              {activeTab === 'training' && (
+              {activeTab === 'training' && workoutStartTime && (
                 <div className="flex items-center gap-2 bg-neutral-800 px-4 py-2 rounded-full border border-neutral-700">
                   <Timer size={16} className="text-emerald-500" />
                   <span className="font-mono text-sm min-w-[60px] text-center">
-                    {formatTime(timerState.elapsed)}
+                    {formatTime(Math.floor((currentTime - workoutStartTime) / 1000))}
                   </span>
-                  <button
-                    onClick={toggleTimer}
-                    className="text-neutral-400 hover:text-white transition-colors"
-                    title={timerState.isRunning ? '暫停' : '開始'}
-                  >
-                    {timerState.isRunning ? <Pause size={14} /> : <Play size={14} />}
-                  </button>
-                  <button
-                    onClick={resetTimer}
-                    className="text-neutral-400 hover:text-white transition-colors"
-                    title="重置計時器"
-                  >
-                    <RotateCw size={14} />
-                  </button>
                 </div>
               )}
 
