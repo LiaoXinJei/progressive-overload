@@ -177,7 +177,7 @@ const RPFocusPro = () => {
                 return (
                   <button
                     key={w}
-                    onClick={() => setCurrentWeek(w)}
+                    onClick={() => { setCurrentWeek(w); setCurrentDay(0); }}
                     className={`flex-shrink-0 w-12 h-10 rounded-lg text-xs font-bold transition-all border
                     ${isCurrent
                       ? 'bg-white text-black border-white scale-110 shadow-lg'
