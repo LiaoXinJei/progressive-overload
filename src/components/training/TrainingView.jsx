@@ -136,11 +136,14 @@ const TrainingView = ({
     }));
   };
 
-  const adjustWeight = (logKey, direction) => {
+  const adjustWeight = (logKey, direction, fallback = 0) => {
     setLogs(prev => {
       const current = prev[logKey] || {};
       const delta = direction * weightIncrement;
-      const newWeight = (parseFloat(current.weight) || 0) + delta;
+      const base = current.weight !== '' && current.weight !== undefined
+        ? (parseFloat(current.weight) || 0)
+        : (parseFloat(fallback) || 0);
+      const newWeight = base + delta;
       return {
         ...prev,
         [logKey]: { ...current, weight: Math.max(0, newWeight) }
@@ -388,7 +391,7 @@ const TrainingView = ({
                               <label className="text-[10px] text-neutral-500 block mb-1">重量 (kg)</label>
                               <div className="flex items-center gap-1">
                                 <button
-                                  onClick={() => adjustWeight(logKey, -1)}
+                                  onClick={() => adjustWeight(logKey, -1, historyWeight)}
                                   className="p-2 bg-neutral-900 hover:bg-neutral-800 rounded-lg transition-colors"
                                   title={`-${weightIncrement}kg`}
                                 >
@@ -412,7 +415,7 @@ const TrainingView = ({
                                   focus:outline-none focus:ring-2 focus:ring-emerald-500"
                                 />
                                 <button
-                                  onClick={() => adjustWeight(logKey, 1)}
+                                  onClick={() => adjustWeight(logKey, 1, historyWeight)}
                                   className="p-2 bg-neutral-900 hover:bg-neutral-800 rounded-lg transition-colors"
                                   title={`+${weightIncrement}kg`}
                                 >
