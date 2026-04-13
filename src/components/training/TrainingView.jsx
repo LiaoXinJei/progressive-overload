@@ -375,6 +375,7 @@ const TrainingView = ({
                       return (
                         <React.Fragment key={idx}>
                           <div
+                            data-set-row
                             className={`flex items-center gap-3 p-3 rounded-xl transition-all
                             ${logData.done
                               ? 'bg-emerald-500/10 border border-emerald-500/30'
@@ -398,6 +399,14 @@ const TrainingView = ({
                                   step={weightIncrement}
                                   value={logData.weight || ''}
                                   onChange={(e) => updateLog(logKey, 'weight', e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      e.preventDefault();
+                                      const repsInput = e.currentTarget.closest('[data-set-row]')?.querySelector('[data-reps-input]');
+                                      repsInput?.focus();
+                                      repsInput?.select();
+                                    }
+                                  }}
                                   placeholder={historyWeight ? String(historyWeight) : '—'}
                                   className="w-20 bg-neutral-900 px-3 py-2 rounded-lg text-center font-mono text-sm
                                   focus:outline-none focus:ring-2 focus:ring-emerald-500"
@@ -414,6 +423,7 @@ const TrainingView = ({
                             <div className="flex-1">
                               <label className="text-[10px] text-neutral-500 block mb-1">次數</label>
                               <input
+                                data-reps-input
                                 type="number"
                                 value={logData.reps || ''}
                                 onChange={(e) => updateLog(logKey, 'reps', e.target.value)}
