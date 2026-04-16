@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import {
   Activity, BarChart2, ChevronDown, ChevronUp,
-  TrendingUp, ShieldCheck, Plus, Minus, Check,
+  TrendingUp, ShieldCheck, Plus, Minus,
   Edit2, Save
 } from 'lucide-react';
 import { WORKOUTS, MUSCLE_GROUPS, VOLUME_CONFIG, PHASE_CONFIG, MUSCLE_SESSION_MAP, MAX_SETS_PER_EXERCISE } from '../../constants/workouts';
@@ -164,6 +164,25 @@ const TrainingView = ({
         [logKey]: {
           ...current, weight, done: newDone,
           completedAt: newDone ? Date.now() : undefined
+        }
+      };
+    });
+  };
+
+  const handleRepsChange = (logKey, exerciseId, value, historyWeight) => {
+    setLogs(prev => {
+      const current = prev[logKey] || {};
+      const weight = current.weight || historyWeight || '';
+      const shouldComplete = value && weight && !current.done;
+      if (shouldComplete) {
+        setHistory(h => ({ ...h, [exerciseId]: parseFloat(weight) }));
+      }
+      return {
+        ...prev,
+        [logKey]: {
+          ...current,
+          reps: value,
+          ...(shouldComplete ? { weight, done: true, completedAt: Date.now() } : {})
         }
       };
     });
@@ -398,6 +417,7 @@ const TrainingView = ({
                                   <Minus size={14} />
                                 </button>
                                 <input
+                                  data-weight-input
                                   type="number"
                                   step={weightIncrement}
                                   value={logData.weight || ''}
@@ -429,21 +449,25 @@ const TrainingView = ({
                                 data-reps-input
                                 type="number"
                                 value={logData.reps || ''}
-                                onChange={(e) => updateLog(logKey, 'reps', e.target.value)}
+                                onChange={(e) => handleRepsChange(logKey, ex.id, e.target.value, historyWeight)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    const allWeightInputs = document.querySelectorAll('[data-weight-input]');
+                                    const allRepsInputs = document.querySelectorAll('[data-reps-input]');
+                                    const currentIndex = Array.from(allRepsInputs).indexOf(e.currentTarget);
+                                    const nextWeightInput = allWeightInputs[currentIndex + 1];
+                                    if (nextWeightInput) {
+                                      nextWeightInput.focus();
+                                      nextWeightInput.select();
+                                    }
+                                  }
+                                }}
                                 placeholder="—"
                                 className="w-full bg-neutral-900 px-3 py-2 rounded-lg text-center font-mono text-sm
                                 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                               />
                             </div>
-                            <button
-                              onClick={() => completeSet(logKey, ex.id)}
-                              className={`p-3 rounded-lg transition-all flex items-center justify-center
-                              ${logData.done
-                                ? 'bg-emerald-500 text-black shadow-lg'
-                                : 'bg-neutral-700 text-neutral-400 hover:bg-neutral-600'}`}
-                            >
-                              <Check size={20} strokeWidth={3} />
-                            </button>
                           </div>
 
                           {/* Rest Time Display */}
