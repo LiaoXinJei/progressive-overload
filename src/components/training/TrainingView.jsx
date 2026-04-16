@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import {
   Activity, BarChart2, ChevronDown, ChevronUp,
   TrendingUp, ShieldCheck, Plus, Minus,
-  Edit2, Save
+  Edit2, Save, XCircle
 } from 'lucide-react';
 import { WORKOUTS, MUSCLE_GROUPS, VOLUME_CONFIG, PHASE_CONFIG, MUSCLE_SESSION_MAP, MAX_SETS_PER_EXERCISE } from '../../constants/workouts';
 
@@ -151,6 +151,22 @@ const TrainingView = ({
     });
   };
 
+  const skipSet = (logKey) => {
+    setLogs(prev => {
+      const current = prev[logKey] || {};
+      const newSkipped = !current.skipped;
+      return {
+        ...prev,
+        [logKey]: {
+          ...current,
+          skipped: newSkipped,
+          done: false,
+          completedAt: undefined
+        }
+      };
+    });
+  };
+
   const completeSet = (logKey, exerciseId) => {
     setLogs(prev => {
       const current = prev[logKey] || {};
@@ -282,7 +298,11 @@ const TrainingView = ({
                 const logKey = `w${currentWeek}-d${currentDay}-${ex.id}-s${idx}`;
                 return logs[logKey]?.done;
               }).length;
-              const allDone = completedCount === setsCount;
+              const skippedCount = [...Array(setsCount)].filter((_, idx) => {
+                const logKey = `w${currentWeek}-d${currentDay}-${ex.id}-s${idx}`;
+                return logs[logKey]?.skipped;
+              }).length;
+              const allDone = (completedCount + skippedCount) === setsCount;
 
               const firstSetKey = `w${currentWeek}-d${currentDay}-${ex.id}-s0`;
               const firstSetLog = logs[firstSetKey];
@@ -357,6 +377,9 @@ const TrainingView = ({
                       </div>
                       <div className="text-xs text-neutral-600">
                         {completedCount}/{setsCount} 完成
+                        {skippedCount > 0 && (
+                          <span className="ml-1 text-neutral-700">· {skippedCount} 跳過</span>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -399,84 +422,105 @@ const TrainingView = ({
                           <div
                             data-set-row
                             className={`flex items-center gap-3 p-3 rounded-xl transition-all
-                            ${logData.done
-                              ? 'bg-emerald-500/10 border border-emerald-500/30'
-                              : 'bg-neutral-800/30 border border-neutral-800'}`}
+                            ${logData.skipped
+                              ? 'bg-neutral-800/20 border border-neutral-800 opacity-40'
+                              : logData.done
+                                ? 'bg-emerald-500/10 border border-emerald-500/30'
+                                : 'bg-neutral-800/30 border border-neutral-800'}`}
                           >
-                            <div className="text-xl font-black text-neutral-600 w-8 text-center">
+                            <div className={`text-xl font-black w-8 text-center ${logData.skipped ? 'text-neutral-700 line-through' : 'text-neutral-600'}`}>
                               {idx + 1}
                             </div>
-                            <div className="flex-1">
-                              <label className="text-[10px] text-neutral-500 block mb-1">重量 (kg)</label>
-                              <div className="flex items-center gap-1">
-                                <button
-                                  onClick={() => adjustWeight(logKey, -1, historyWeight)}
-                                  className="p-2 bg-neutral-900 hover:bg-neutral-800 rounded-lg transition-colors"
-                                  title={`-${weightIncrement}kg`}
-                                >
-                                  <Minus size={14} />
-                                </button>
-                                <input
-                                  data-weight-input
-                                  type="number"
-                                  step={weightIncrement}
-                                  value={logData.weight || ''}
-                                  onChange={(e) => updateLog(logKey, 'weight', e.target.value)}
-                                  onKeyDown={(e) => {
-                                    if (e.key === 'Enter') {
-                                      e.preventDefault();
-                                      const repsInput = e.currentTarget.closest('[data-set-row]')?.querySelector('[data-reps-input]');
-                                      repsInput?.focus();
-                                      repsInput?.select();
-                                    }
-                                  }}
-                                  placeholder={historyWeight ? String(historyWeight) : '—'}
-                                  className="w-20 bg-neutral-900 px-3 py-2 rounded-lg text-center font-mono text-sm
-                                  focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                                />
-                                <button
-                                  onClick={() => adjustWeight(logKey, 1, historyWeight)}
-                                  className="p-2 bg-neutral-900 hover:bg-neutral-800 rounded-lg transition-colors"
-                                  title={`+${weightIncrement}kg`}
-                                >
-                                  <Plus size={14} />
-                                </button>
+                            {logData.skipped ? (
+                              <div className="flex-1 text-center text-sm text-neutral-600 font-bold tracking-wider uppercase py-2">
+                                跳過
                               </div>
-                            </div>
-                            <div className="flex-1">
-                              <label className="text-[10px] text-neutral-500 block mb-1">次數</label>
-                              <input
-                                data-reps-input
-                                type="number"
-                                value={logData.reps || ''}
-                                onChange={(e) => handleRepsChange(logKey, ex.id, e.target.value, historyWeight)}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') {
-                                    e.preventDefault();
-                                    const allWeightInputs = document.querySelectorAll('[data-weight-input]');
-                                    const allRepsInputs = document.querySelectorAll('[data-reps-input]');
-                                    const currentIndex = Array.from(allRepsInputs).indexOf(e.currentTarget);
-                                    const nextWeightInput = allWeightInputs[currentIndex + 1];
-                                    if (nextWeightInput) {
-                                      nextWeightInput.focus();
-                                      nextWeightInput.select();
-                                    }
-                                  }
-                                }}
-                                placeholder="—"
-                                className="w-full bg-neutral-900 px-3 py-2 rounded-lg text-center font-mono text-sm
-                                focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                              />
-                            </div>
+                            ) : (
+                              <>
+                                <div className="flex-1">
+                                  <label className="text-[10px] text-neutral-500 block mb-1">重量 (kg)</label>
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      onClick={() => adjustWeight(logKey, -1, historyWeight)}
+                                      className="p-2 bg-neutral-900 hover:bg-neutral-800 rounded-lg transition-colors"
+                                      title={`-${weightIncrement}kg`}
+                                    >
+                                      <Minus size={14} />
+                                    </button>
+                                    <input
+                                      data-weight-input
+                                      type="number"
+                                      step={weightIncrement}
+                                      value={logData.weight || ''}
+                                      onChange={(e) => updateLog(logKey, 'weight', e.target.value)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                          e.preventDefault();
+                                          const repsInput = e.currentTarget.closest('[data-set-row]')?.querySelector('[data-reps-input]');
+                                          repsInput?.focus();
+                                          repsInput?.select();
+                                        }
+                                      }}
+                                      placeholder={historyWeight ? String(historyWeight) : '—'}
+                                      className="w-20 bg-neutral-900 px-3 py-2 rounded-lg text-center font-mono text-sm
+                                      focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                    />
+                                    <button
+                                      onClick={() => adjustWeight(logKey, 1, historyWeight)}
+                                      className="p-2 bg-neutral-900 hover:bg-neutral-800 rounded-lg transition-colors"
+                                      title={`+${weightIncrement}kg`}
+                                    >
+                                      <Plus size={14} />
+                                    </button>
+                                  </div>
+                                </div>
+                                <div className="flex-1">
+                                  <label className="text-[10px] text-neutral-500 block mb-1">次數</label>
+                                  <input
+                                    data-reps-input
+                                    type="number"
+                                    value={logData.reps || ''}
+                                    onChange={(e) => handleRepsChange(logKey, ex.id, e.target.value, historyWeight)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') {
+                                        e.preventDefault();
+                                        const allWeightInputs = document.querySelectorAll('[data-weight-input]');
+                                        const allRepsInputs = document.querySelectorAll('[data-reps-input]');
+                                        const currentIndex = Array.from(allRepsInputs).indexOf(e.currentTarget);
+                                        const nextWeightInput = allWeightInputs[currentIndex + 1];
+                                        if (nextWeightInput) {
+                                          nextWeightInput.focus();
+                                          nextWeightInput.select();
+                                        }
+                                      }
+                                    }}
+                                    placeholder="—"
+                                    className="w-full bg-neutral-900 px-3 py-2 rounded-lg text-center font-mono text-sm
+                                    focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                  />
+                                </div>
+                              </>
+                            )}
+                            <button
+                              onClick={() => skipSet(logKey)}
+                              title={logData.skipped ? '取消跳過' : '跳過此組'}
+                              className={`p-1.5 rounded-lg transition-colors flex-shrink-0
+                              ${logData.skipped
+                                ? 'text-neutral-500 hover:text-neutral-300'
+                                : 'text-neutral-700 hover:text-rose-500'}`}
+                            >
+                              <XCircle size={16} />
+                            </button>
                           </div>
 
                           {/* Rest Time Display */}
                           {(() => {
+                            if (logData.skipped) return null;
                             const isLastSet = idx === setsCount - 1;
                             const nextLogKey = `w${currentWeek}-d${currentDay}-${ex.id}-s${idx + 1}`;
                             const nextLog = logs[nextLogKey];
 
-                            if (logData.done && !isLastSet && nextLog?.done) {
+                            if (logData.done && !isLastSet && nextLog?.done && !nextLog?.skipped) {
                               const restTime = calculateRestTime(nextLogKey, logKey);
                               return restTime ? (
                                 <div className="text-xs text-neutral-500 mt-1 pl-11">
@@ -484,7 +528,7 @@ const TrainingView = ({
                                 </div>
                               ) : null;
                             }
-                            if (logData.done && !isLastSet && !nextLog?.done) {
+                            if (logData.done && !isLastSet && !nextLog?.done && !nextLog?.skipped) {
                               const cRestTime = getCurrentRestTime(logKey);
                               return (
                                 <div className="text-xs text-emerald-400 mt-1 pl-11 font-semibold animate-pulse">
