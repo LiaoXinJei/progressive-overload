@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   RotateCcw, Activity, AlertTriangle, TrendingUp, ShieldCheck,
-  Timer, Settings
+  Timer, Settings, Bell, BellOff
 } from 'lucide-react';
+import { useRestNotification, requestNotificationPermission } from './hooks/useRestNotification';
 import TrainingView from './components/training/TrainingView';
 import NutritionView from './components/nutrition/NutritionView';
 import TabNavigation from './components/shared/TabNavigation';
@@ -23,6 +24,10 @@ const RPFocusPro = () => {
   const [weightIncrement, setWeightIncrement] = useState(2);
   const [showSettings, setShowSettings] = useState(false);
   const [currentTime, setCurrentTime] = useState(Date.now());
+  const [restNotificationDelay, setRestNotificationDelay] = useState(90);
+  const [notifPermission, setNotifPermission] = useState(
+    typeof Notification !== 'undefined' ? Notification.permission : 'unsupported'
+  );
 
   // 營養功能狀態
   const [nutritionProfile, setNutritionProfile] = useState(null);
@@ -45,6 +50,26 @@ const RPFocusPro = () => {
     if (timestamps.length === 0) return null;
     return { start: Math.min(...timestamps), end: Math.max(...timestamps) };
   }, [logs, currentWeek, currentDay]);
+
+  const lastCompletedAt = workoutTimes?.end ?? null;
+
+  // 確認最近完成組的下一組是否仍需等待（未完成且未跳過）
+  const restActive = useMemo(() => {
+    if (!lastCompletedAt) return false;
+    const prefix = `w${currentWeek}-d${currentDay}-`;
+    const entry = Object.entries(logs).find(
+      ([key, log]) => key.startsWith(prefix) && log?.completedAt === lastCompletedAt
+    );
+    if (!entry) return false;
+    const match = entry[0].match(/^w\d+-d\d+-(.+)-s(\d+)$/);
+    if (!match) return false;
+    const nextKey = `${prefix}${match[1]}-s${parseInt(match[2]) + 1}`;
+    const nextLog = logs[nextKey];
+    if (!nextLog) return true;
+    return !nextLog.skipped && !nextLog.done;
+  }, [logs, lastCompletedAt, currentWeek, currentDay]);
+
+  useRestNotification({ lastCompletedAt: restActive ? lastCompletedAt : null, restNotificationDelay });
 
   const formatTime = (seconds) => {
     const hrs = Math.floor(seconds / 3600);
@@ -71,6 +96,7 @@ const RPFocusPro = () => {
         setShowStats(data.viewState?.showStats ?? true);
         setCustomExerciseNames(data.customExerciseNames || {});
         setWeightIncrement(data.weightIncrement ?? 2);
+        setRestNotificationDelay(data.restNotificationDelay ?? 90);
         setActiveTab(data.activeTab || 'training');
         setNutritionProfile(data.nutritionProfile || null);
         setNutritionLogs(data.nutritionLogs || {});
@@ -85,11 +111,11 @@ const RPFocusPro = () => {
       schemaVersion: 2,
       logs, history, mode,
       viewState: { currentWeek, currentDay, showStats },
-      customExerciseNames, weightIncrement, activeTab,
+      customExerciseNames, weightIncrement, restNotificationDelay, activeTab,
       nutritionProfile, nutritionLogs
     };
     localStorage.setItem('rp_focus_pro_data', JSON.stringify(state));
-  }, [logs, history, mode, currentWeek, currentDay, showStats, customExerciseNames, weightIncrement, activeTab, nutritionProfile, nutritionLogs]);
+  }, [logs, history, mode, currentWeek, currentDay, showStats, customExerciseNames, weightIncrement, restNotificationDelay, activeTab, nutritionProfile, nutritionLogs]);
 
   // ==================== 重置 ====================
 
@@ -294,6 +320,88 @@ const RPFocusPro = () => {
                   ))}
                 </span>
               </p>
+            </div>
+
+            {/* Rest Notification Setting */}
+            <div className="mb-6">
+              <label className="block text-sm font-bold text-neutral-300 mb-3 flex items-center gap-2">
+                <Bell size={14} className="text-emerald-500" /> 休息計時推播通知
+              </label>
+              <p className="text-neutral-500 text-xs mb-3 leading-relaxed">
+                離開 App 後，超過設定時間即發送通知提醒做下一組。
+              </p>
+
+              {/* Permission button */}
+              {notifPermission !== 'granted' ? (
+                <button
+                  onClick={async () => {
+                    const p = await requestNotificationPermission();
+                    setNotifPermission(p);
+                  }}
+                  disabled={notifPermission === 'denied' || notifPermission === 'unsupported'}
+                  className={`w-full py-3 rounded-xl text-xs font-bold uppercase tracking-widest mb-3 transition-all
+                  ${notifPermission === 'denied' || notifPermission === 'unsupported'
+                    ? 'bg-neutral-800 text-neutral-600 cursor-not-allowed'
+                    : 'bg-emerald-600 text-white hover:bg-emerald-500'}`}
+                >
+                  {notifPermission === 'denied' ? '通知已被封鎖（請至系統設定解除）'
+                    : notifPermission === 'unsupported' ? '此裝置不支援推播通知'
+                    : '啟用推播通知'}
+                </button>
+              ) : (
+                <div className="flex items-center gap-2 text-xs text-emerald-400 mb-3 bg-emerald-900/30 px-4 py-2 rounded-xl border border-emerald-800">
+                  <Bell size={12} /> 推播通知已啟用
+                </div>
+              )}
+
+              {/* Custom time input */}
+              <div className="flex items-center gap-2 mb-3">
+                <input
+                  type="number"
+                  min="0"
+                  max="59"
+                  value={Math.floor(restNotificationDelay / 60)}
+                  onChange={(e) => {
+                    const mins = Math.max(0, Math.min(59, parseInt(e.target.value) || 0));
+                    setRestNotificationDelay(mins * 60 + (restNotificationDelay % 60));
+                  }}
+                  className="w-16 bg-neutral-800 px-3 py-3 rounded-xl text-center font-mono text-lg
+                  focus:outline-none focus:ring-2 focus:ring-emerald-500 border border-neutral-700"
+                />
+                <span className="text-neutral-500 font-bold text-lg">:</span>
+                <input
+                  type="number"
+                  min="0"
+                  max="59"
+                  value={String(restNotificationDelay % 60).padStart(2, '0')}
+                  onChange={(e) => {
+                    const secs = Math.max(0, Math.min(59, parseInt(e.target.value) || 0));
+                    setRestNotificationDelay(Math.floor(restNotificationDelay / 60) * 60 + secs);
+                  }}
+                  className="w-16 bg-neutral-800 px-3 py-3 rounded-xl text-center font-mono text-lg
+                  focus:outline-none focus:ring-2 focus:ring-emerald-500 border border-neutral-700"
+                />
+                <span className="text-neutral-500 text-sm">min : sec</span>
+              </div>
+
+              {/* Quick presets */}
+              <div className="flex items-center gap-2 flex-wrap">
+                {[60, 90, 120, 150, 180].map(val => {
+                  const label = `${Math.floor(val / 60)}:${String(val % 60).padStart(2, '0')}`;
+                  return (
+                    <button
+                      key={val}
+                      onClick={() => setRestNotificationDelay(val)}
+                      className={`px-3 py-1 rounded-lg text-xs font-bold transition-all
+                      ${restNotificationDelay === val
+                        ? 'bg-emerald-600 text-white'
+                        : 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700'}`}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
             {/* Gemini API Key Setting */}

@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 RP FOCUS PRO 是一個基於 Renaissance Periodization (RP) 原則的漸進式訓練追蹤應用。核心目標是透過科學化的訓練量管理，在有限的恢復能力下最大化上肢肌群發展，同時維持下肢功能。
 
+**平台定位**：此專案以 **手機 App 端**為主要使用情境，UI/UX 設計、互動邏輯、排版與操作流程均應優先考量手機使用體驗。
+
 ## 核心訓練邏輯
 
 ### 非對稱推拉架構（4-Day Fixed Cycle）
