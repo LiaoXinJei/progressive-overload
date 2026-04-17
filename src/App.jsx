@@ -273,7 +273,7 @@ const RPFocusPro = () => {
       {/* ==================== Settings Modal ==================== */}
       {showSettings && (
         <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-6">
-          <div className="bg-neutral-900 border border-neutral-800 p-8 rounded-[40px] max-w-md w-full shadow-2xl">
+          <div className="bg-neutral-900 border border-neutral-800 p-8 rounded-[40px] max-w-md w-full shadow-2xl overflow-y-auto max-h-[85vh]">
             <div className="flex justify-between items-center mb-6">
               <h3 className="text-2xl font-black text-white italic uppercase flex items-center gap-2">
                 <Settings size={24} className="text-emerald-500" /> 設定
