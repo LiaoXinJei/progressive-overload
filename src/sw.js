@@ -26,6 +26,8 @@ self.addEventListener('message', (event) => {
             badge: '/icons/icon-192.png',
             tag: 'rest-timer',
             renotify: true,
+            vibrate: [200, 100, 200],
+            requireInteraction: false,
           });
         } catch (_) {}
         notificationTimer = null;
