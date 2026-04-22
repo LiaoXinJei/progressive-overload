@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   RotateCcw, Activity, AlertTriangle, TrendingUp, ShieldCheck,
-  Timer, Settings, Bell, BellOff
+  Timer, Settings, Bell, BellOff, ChevronUp
 } from 'lucide-react';
 import { useRestNotification, requestNotificationPermission } from './hooks/useRestNotification';
 import TrainingView from './components/training/TrainingView';
@@ -35,6 +35,19 @@ const RPFocusPro = () => {
   // 營養功能狀態
   const [nutritionProfile, setNutritionProfile] = useState(null);
   const [nutritionLogs, setNutritionLogs] = useState({});
+
+  // 回頂部按鈕
+  const [showScrollTop, setShowScrollTop] = useState(false);
+
+  useEffect(() => {
+    const onScroll = () => setShowScrollTop(window.scrollY > 300);
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+
+  const scrollToTop = useCallback(() => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
 
   // ==================== 計時器邏輯 ====================
 
@@ -281,6 +294,17 @@ const RPFocusPro = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* ==================== Scroll To Top Button ==================== */}
+      {showScrollTop && (
+        <button
+          onClick={scrollToTop}
+          className="fixed bottom-24 right-4 z-50 w-12 h-12 rounded-full bg-emerald-600 text-white shadow-lg shadow-emerald-900/50 flex items-center justify-center hover:bg-emerald-500 active:scale-95 transition-all"
+          aria-label="回到頂部"
+        >
+          <ChevronUp size={22} />
+        </button>
       )}
 
       {/* ==================== Settings Modal ==================== */}
