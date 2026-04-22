@@ -21,6 +21,9 @@ const RPFocusPro = () => {
 
   // 訓練功能狀態
   const [customExerciseNames, setCustomExerciseNames] = useState({});
+  const [customExercises, setCustomExercises] = useState({});
+  const [customSets, setCustomSets] = useState({});
+  const [exerciseOrder, setExerciseOrder] = useState({});
   const [weightIncrement, setWeightIncrement] = useState(2);
   const [showSettings, setShowSettings] = useState(false);
   const [currentTime, setCurrentTime] = useState(Date.now());
@@ -95,6 +98,9 @@ const RPFocusPro = () => {
         setCurrentDay(data.viewState?.currentDay || 0);
         setShowStats(data.viewState?.showStats ?? true);
         setCustomExerciseNames(data.customExerciseNames || {});
+        setCustomExercises(data.customExercises || {});
+        setCustomSets(data.customSets || {});
+        setExerciseOrder(data.exerciseOrder || {});
         setWeightIncrement(data.weightIncrement ?? 2);
         setRestNotificationDelay(data.restNotificationDelay ?? 90);
         setActiveTab(data.activeTab || 'training');
@@ -111,11 +117,12 @@ const RPFocusPro = () => {
       schemaVersion: 2,
       logs, history, mode,
       viewState: { currentWeek, currentDay, showStats },
-      customExerciseNames, weightIncrement, restNotificationDelay, activeTab,
+      customExerciseNames, customExercises, customSets, exerciseOrder,
+      weightIncrement, restNotificationDelay, activeTab,
       nutritionProfile, nutritionLogs
     };
     localStorage.setItem('rp_focus_pro_data', JSON.stringify(state));
-  }, [logs, history, mode, currentWeek, currentDay, showStats, customExerciseNames, weightIncrement, restNotificationDelay, activeTab, nutritionProfile, nutritionLogs]);
+  }, [logs, history, mode, currentWeek, currentDay, showStats, customExerciseNames, customExercises, customSets, exerciseOrder, weightIncrement, restNotificationDelay, activeTab, nutritionProfile, nutritionLogs]);
 
   // ==================== 重置 ====================
 
@@ -124,6 +131,9 @@ const RPFocusPro = () => {
     setHistory({});
     setCurrentWeek(1);
     setCurrentDay(0);
+    setCustomExercises({});
+    setCustomSets({});
+    setExerciseOrder({});
     setNutritionProfile(null);
     setNutritionLogs({});
     setShowResetConfirm(false);
@@ -229,6 +239,9 @@ const RPFocusPro = () => {
           currentWeek={currentWeek} currentDay={currentDay} setCurrentDay={setCurrentDay}
           showStats={showStats} setShowStats={setShowStats}
           customExerciseNames={customExerciseNames} setCustomExerciseNames={setCustomExerciseNames}
+          customExercises={customExercises} setCustomExercises={setCustomExercises}
+          customSets={customSets} setCustomSets={setCustomSets}
+          exerciseOrder={exerciseOrder} setExerciseOrder={setExerciseOrder}
           weightIncrement={weightIncrement}
           currentTime={currentTime}
         />

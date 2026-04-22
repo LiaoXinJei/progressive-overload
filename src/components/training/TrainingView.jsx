@@ -2,9 +2,12 @@ import React, { useState, useMemo } from 'react';
 import {
   Activity, BarChart2, ChevronDown, ChevronUp,
   TrendingUp, ShieldCheck, Plus, Minus,
-  Edit2, Save, XCircle
+  Edit2, Save, XCircle, GripVertical, Trash2, X
 } from 'lucide-react';
+import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { WORKOUTS, MUSCLE_GROUPS, VOLUME_CONFIG, PHASE_CONFIG, MUSCLE_SESSION_MAP, MAX_SETS_PER_EXERCISE } from '../../constants/workouts';
+
+const LOWER_MUSCLES = new Set(['QUADS', 'HAMS']);
 
 const TrainingView = ({
   logs, setLogs,
@@ -12,10 +15,15 @@ const TrainingView = ({
   mode, currentWeek, currentDay, setCurrentDay,
   showStats, setShowStats,
   customExerciseNames, setCustomExerciseNames,
+  customExercises, setCustomExercises,
+  customSets, setCustomSets,
+  exerciseOrder, setExerciseOrder,
   weightIncrement,
   currentTime
 }) => {
   const [editingExercise, setEditingExercise] = useState(null);
+  const [showAddExercise, setShowAddExercise] = useState(false);
+  const [newEx, setNewEx] = useState({ name: '', muscle: 'CHEST', type: 'isolation' });
 
   // ==================== 核心邏輯函數 ====================
 
@@ -23,14 +31,12 @@ const TrainingView = ({
     return ['A', 'B', 'C', 'D'][dayIndex];
   };
 
-  // 取得當前週次的訓練階段
   const getPhase = (week) => {
     if (week === 5 || week === 10) return 'deload';
     if (week <= 4) return 'hypertrophy';
     return 'strength';
   };
 
-  // 取得某肌群在某週的目標組數
   const getWeeklyMuscleVolume = (muscle, week) => {
     const targets = VOLUME_CONFIG[muscle];
     if (!targets) return 0;
@@ -39,30 +45,27 @@ const TrainingView = ({
       return Math.max(2, Math.floor(targets[0] * 0.5));
     }
     if (phase === 'strength') {
-      return targets[0]; // 固定在 MEV，重量遞增
+      return targets[0];
     }
-    // 肌肥大期：W1-W4 對應 targets[0]-targets[3]
     return targets[week - 1];
   };
 
-  // 取得動作的建議次數範圍（依階段和動作類型）
   const getRepRange = (exerciseType, week) => {
     const phase = getPhase(week);
     const config = PHASE_CONFIG[phase];
     return exerciseType === 'compound' ? config.compound : config.isolation;
   };
 
-  // 計算某日的完整訓練計畫（肌群週容量 → 分配到 session → 分配到動作）
   const getSessionPlan = (week, workoutKey) => {
     const workout = WORKOUTS[workoutKey];
+    const customExsForDay = customExercises[workoutKey] || [];
 
-    // 統計此 session 中每個肌群有幾個動作
+    // 計算內建動作的組數
     const muscleExCounts = {};
     workout.exercises.forEach(ex => {
       muscleExCounts[ex.muscle] = (muscleExCounts[ex.muscle] || 0) + 1;
     });
 
-    // 計算每個肌群在此 session 分到的組數
     const muscleSessionTargets = {};
     for (const muscle of Object.keys(muscleExCounts)) {
       const weeklyTarget = getWeeklyMuscleVolume(muscle, week);
@@ -74,21 +77,41 @@ const TrainingView = ({
       muscleSessionTargets[muscle] = base + (sessionIdx < remainder ? 1 : 0);
     }
 
-    // 分配到各動作（餘數優先給後面的隔離/次要動作，不灌給主項複合動作）
     const muscleAssigned = {};
-    return workout.exercises.map(ex => {
+    let allResults = workout.exercises.map(ex => {
       const sessionTarget = muscleSessionTargets[ex.muscle];
       const exCount = muscleExCounts[ex.muscle];
       const idx = muscleAssigned[ex.muscle] || 0;
       muscleAssigned[ex.muscle] = idx + 1;
-
       const base = Math.floor(sessionTarget / exCount);
       const remainder = sessionTarget % exCount;
-      // idx >= exCount - remainder → 後面的動作拿餘數
       const sets = Math.min(base + (idx >= exCount - remainder ? 1 : 0), MAX_SETS_PER_EXERCISE);
-
       return { exercise: ex, sets };
     });
+
+    // 加入自訂動作（預設 3 組）
+    customExsForDay.forEach(ex => {
+      allResults.push({ exercise: ex, sets: 3 });
+    });
+
+    // 套用使用者自訂組數覆蓋
+    allResults = allResults.map(({ exercise, sets }) => {
+      const overrideKey = `${workoutKey}-${exercise.id}`;
+      return { exercise, sets: customSets[overrideKey] ?? sets };
+    });
+
+    // 套用拖曳排序
+    const order = exerciseOrder[workoutKey];
+    if (order && order.length > 0) {
+      const orderMap = new Map(order.map((id, i) => [id, i]));
+      allResults.sort((a, b) => {
+        const ai = orderMap.has(a.exercise.id) ? orderMap.get(a.exercise.id) : Infinity;
+        const bi = orderMap.has(b.exercise.id) ? orderMap.get(b.exercise.id) : Infinity;
+        return ai - bi;
+      });
+    }
+
+    return allResults;
   };
 
   const getWeeklyGuidance = (week) => {
@@ -217,6 +240,59 @@ const TrainingView = ({
     setEditingExercise(null);
   };
 
+  // ==================== 自訂動作操作 ====================
+
+  const addCustomExercise = () => {
+    if (!newEx.name.trim()) return;
+    const id = `custom_${Date.now()}`;
+    const exercise = {
+      id,
+      name: newEx.name.trim(),
+      muscle: newEx.muscle,
+      type: newEx.type,
+      isUpper: !LOWER_MUSCLES.has(newEx.muscle),
+      isCustom: true,
+    };
+    setCustomExercises(prev => ({
+      ...prev,
+      [workoutKey]: [...(prev[workoutKey] || []), exercise]
+    }));
+    setNewEx({ name: '', muscle: 'CHEST', type: 'isolation' });
+    setShowAddExercise(false);
+  };
+
+  const removeCustomExercise = (exerciseId) => {
+    setCustomExercises(prev => ({
+      ...prev,
+      [workoutKey]: (prev[workoutKey] || []).filter(ex => ex.id !== exerciseId)
+    }));
+    setExerciseOrder(prev => ({
+      ...prev,
+      [workoutKey]: (prev[workoutKey] || []).filter(id => id !== exerciseId)
+    }));
+    setCustomSets(prev => {
+      const updated = { ...prev };
+      delete updated[`${workoutKey}-${exerciseId}`];
+      return updated;
+    });
+  };
+
+  const adjustExerciseSets = (exerciseId, delta, currentSets) => {
+    const key = `${workoutKey}-${exerciseId}`;
+    const newSets = Math.max(1, Math.min(10, currentSets + delta));
+    setCustomSets(prev => ({ ...prev, [key]: newSets }));
+  };
+
+  // ==================== 拖曳排序 ====================
+
+  const handleDragEnd = (result) => {
+    if (!result.destination) return;
+    const ids = currentSessionPlan.map(p => p.exercise.id);
+    const [removed] = ids.splice(result.source.index, 1);
+    ids.splice(result.destination.index, 0, removed);
+    setExerciseOrder(prev => ({ ...prev, [workoutKey]: ids }));
+  };
+
   // ==================== 統計計算 ====================
 
   const weeklyVolume = useMemo(() => {
@@ -230,7 +306,7 @@ const TrainingView = ({
       });
     });
     return vol;
-  }, [currentWeek]);
+  }, [currentWeek, customExercises, customSets, exerciseOrder]);
 
   // ==================== 渲染 ====================
 
@@ -245,7 +321,7 @@ const TrainingView = ({
       {/* ==================== 訓練區域 (左側) ==================== */}
       <div className="lg:col-span-8 space-y-6">
 
-        {/* Day Selector (0-3) */}
+        {/* Day Selector */}
         <div className="grid grid-cols-4 gap-2">
           {[0, 1, 2, 3].map(d => {
             const wKey = getWorkoutForDay(currentWeek, d);
@@ -292,259 +368,326 @@ const TrainingView = ({
             <p className="text-neutral-500 text-sm mt-1">{currentWorkout.subtitle}</p>
           </div>
 
-          <div className="divide-y divide-neutral-800">
-            {currentSessionPlan.map(({ exercise: ex, sets: setsCount }, exIdx) => {
-              const completedCount = [...Array(setsCount)].filter((_, idx) => {
-                const logKey = `w${currentWeek}-d${currentDay}-${ex.id}-s${idx}`;
-                return logs[logKey]?.done;
-              }).length;
-              const skippedCount = [...Array(setsCount)].filter((_, idx) => {
-                const logKey = `w${currentWeek}-d${currentDay}-${ex.id}-s${idx}`;
-                return logs[logKey]?.skipped;
-              }).length;
-              const allDone = (completedCount + skippedCount) === setsCount;
-
-              const firstSetKey = `w${currentWeek}-d${currentDay}-${ex.id}-s0`;
-              const firstSetLog = logs[firstSetKey];
-              let previousExerciseLastSetKey = null;
-
-              if (exIdx > 0) {
-                const prevPlan = currentSessionPlan[exIdx - 1];
-                previousExerciseLastSetKey = `w${currentWeek}-d${currentDay}-${prevPlan.exercise.id}-s${prevPlan.sets - 1}`;
-              }
-
-              return (
-                <div key={ex.id} className={`p-6 transition-all ${allDone ? 'bg-emerald-500/5 opacity-60' : ''}`}>
-
-                  {/* Exercise Header */}
-                  <div className="flex justify-between items-start mb-4">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className={`w-2 h-2 rounded-full ${ex.isUpper ? 'bg-blue-500' : 'bg-orange-500'}`}></span>
-                        {editingExercise === ex.id ? (
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="text"
-                              defaultValue={customExerciseNames[ex.id] || ex.name}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') saveCustomName(ex.id, e.target.value);
-                                else if (e.key === 'Escape') setEditingExercise(null);
-                              }}
-                              autoFocus
-                              className="bg-neutral-800 px-2 py-1 rounded text-lg font-bold text-neutral-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                            />
-                            <button
-                              onClick={(e) => {
-                                const input = e.currentTarget.previousSibling;
-                                saveCustomName(ex.id, input.value);
-                              }}
-                              className="text-emerald-500 hover:text-emerald-400 transition-colors"
-                              title="儲存"
-                            >
-                              <Save size={14} />
-                            </button>
-                          </div>
-                        ) : (
-                          <>
-                            <h3 className="text-lg font-bold text-neutral-100">
-                              {customExerciseNames[ex.id] || ex.name}
-                            </h3>
-                            <button
-                              onClick={() => setEditingExercise(ex.id)}
-                              className="text-neutral-600 hover:text-neutral-400 transition-colors"
-                              title="編輯動作名稱"
-                            >
-                              <Edit2 size={14} />
-                            </button>
-                          </>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2 mt-2">
-                        <span className="text-[10px] font-black bg-neutral-800 text-neutral-400 px-2 py-1 rounded inline-block uppercase tracking-wider">
-                          {MUSCLE_GROUPS[ex.muscle]}
-                        </span>
-                        <span className="text-[10px] font-mono bg-neutral-800 text-neutral-500 px-2 py-1 rounded inline-block">
-                          {getRepRange(ex.type, currentWeek)} 下
-                        </span>
-                        <span className={`text-[10px] font-bold ${ex.type === 'compound' ? 'text-cyan-500' : 'text-neutral-600'}`}>
-                          {ex.type === 'compound' ? '複合' : '隔離'}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-2xl font-black font-mono text-neutral-700">
-                        {setsCount}<span className="text-sm ml-1">組</span>
-                      </div>
-                      <div className="text-xs text-neutral-600">
-                        {completedCount}/{setsCount} 完成
-                        {skippedCount > 0 && (
-                          <span className="ml-1 text-neutral-700">· {skippedCount} 跳過</span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Inter-Exercise Rest Time */}
-                  {previousExerciseLastSetKey && (() => {
-                    const prevLastSetLog = logs[previousExerciseLastSetKey];
-                    if (prevLastSetLog?.completedAt && !firstSetLog?.done) {
-                      const interExerciseRestTime = getCurrentRestTime(previousExerciseLastSetKey);
-                      return (
-                        <div className="mb-4 p-3 bg-blue-900/20 border border-blue-800 rounded-xl">
-                          <div className="text-sm text-blue-400 font-semibold animate-pulse flex items-center gap-2">
-                            動作間休息: {interExerciseRestTime}
-                          </div>
-                        </div>
-                      );
-                    }
-                    if (prevLastSetLog?.completedAt && firstSetLog?.completedAt) {
-                      const interExerciseRestTime = calculateRestTime(firstSetKey, previousExerciseLastSetKey);
-                      return interExerciseRestTime ? (
-                        <div className="mb-4 p-3 bg-neutral-800/50 border border-neutral-700 rounded-xl">
-                          <div className="text-sm text-neutral-500 flex items-center gap-2">
-                            動作間休息: {interExerciseRestTime}
-                          </div>
-                        </div>
-                      ) : null;
-                    }
-                    return null;
-                  })()}
-
-                  {/* Sets List */}
-                  <div className="space-y-3">
-                    {[...Array(setsCount)].map((_, idx) => {
+          <DragDropContext onDragEnd={handleDragEnd}>
+            <Droppable droppableId={`exercises-${workoutKey}`}>
+              {(provided) => (
+                <div
+                  className="divide-y divide-neutral-800"
+                  ref={provided.innerRef}
+                  {...provided.droppableProps}
+                >
+                  {currentSessionPlan.map(({ exercise: ex, sets: setsCount }, exIdx) => {
+                    const completedCount = [...Array(setsCount)].filter((_, idx) => {
                       const logKey = `w${currentWeek}-d${currentDay}-${ex.id}-s${idx}`;
-                      const logData = logs[logKey] || {};
-                      const historyWeight = history[ex.id];
+                      return logs[logKey]?.done;
+                    }).length;
+                    const skippedCount = [...Array(setsCount)].filter((_, idx) => {
+                      const logKey = `w${currentWeek}-d${currentDay}-${ex.id}-s${idx}`;
+                      return logs[logKey]?.skipped;
+                    }).length;
+                    const allDone = (completedCount + skippedCount) === setsCount;
 
-                      return (
-                        <React.Fragment key={idx}>
+                    const firstSetKey = `w${currentWeek}-d${currentDay}-${ex.id}-s0`;
+                    const firstSetLog = logs[firstSetKey];
+                    let previousExerciseLastSetKey = null;
+
+                    if (exIdx > 0) {
+                      const prevPlan = currentSessionPlan[exIdx - 1];
+                      previousExerciseLastSetKey = `w${currentWeek}-d${currentDay}-${prevPlan.exercise.id}-s${prevPlan.sets - 1}`;
+                    }
+
+                    return (
+                      <Draggable key={ex.id} draggableId={ex.id} index={exIdx}>
+                        {(provided, snapshot) => (
                           <div
-                            data-set-row
-                            className={`flex items-center gap-3 p-3 rounded-xl transition-all
-                            ${logData.skipped
-                              ? 'bg-neutral-800/20 border border-neutral-800 opacity-40'
-                              : logData.done
-                                ? 'bg-emerald-500/10 border border-emerald-500/30'
-                                : 'bg-neutral-800/30 border border-neutral-800'}`}
+                            ref={provided.innerRef}
+                            {...provided.draggableProps}
+                            className={`p-6 transition-all
+                              ${allDone ? 'bg-emerald-500/5 opacity-60' : ''}
+                              ${snapshot.isDragging ? 'bg-neutral-800 shadow-2xl rounded-xl opacity-95' : ''}`}
                           >
-                            <div className={`text-xl font-black w-8 text-center ${logData.skipped ? 'text-neutral-700 line-through' : 'text-neutral-600'}`}>
-                              {idx + 1}
-                            </div>
-                            {logData.skipped ? (
-                              <div className="flex-1 text-center text-sm text-neutral-600 font-bold tracking-wider uppercase py-2">
-                                跳過
+                            {/* Exercise Header */}
+                            <div className="flex items-start gap-2 mb-4">
+                              {/* Drag Handle */}
+                              <div
+                                {...provided.dragHandleProps}
+                                className="mt-1 text-neutral-700 hover:text-neutral-400 cursor-grab active:cursor-grabbing flex-shrink-0 touch-none"
+                              >
+                                <GripVertical size={20} />
                               </div>
-                            ) : (
-                              <>
-                                <div className="flex-1">
-                                  <label className="text-[10px] text-neutral-500 block mb-1">重量 (kg)</label>
+
+                              {/* Exercise Info */}
+                              <div className="flex-1 flex justify-between items-start">
+                                <div>
+                                  <div className="flex items-center gap-2">
+                                    <span className={`w-2 h-2 rounded-full ${ex.isUpper ? 'bg-blue-500' : 'bg-orange-500'}`}></span>
+                                    {editingExercise === ex.id ? (
+                                      <div className="flex items-center gap-2">
+                                        <input
+                                          type="text"
+                                          defaultValue={customExerciseNames[ex.id] || ex.name}
+                                          onKeyDown={(e) => {
+                                            if (e.key === 'Enter') saveCustomName(ex.id, e.target.value);
+                                            else if (e.key === 'Escape') setEditingExercise(null);
+                                          }}
+                                          autoFocus
+                                          className="bg-neutral-800 px-2 py-1 rounded text-lg font-bold text-neutral-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                        />
+                                        <button
+                                          onClick={(e) => {
+                                            const input = e.currentTarget.previousSibling;
+                                            saveCustomName(ex.id, input.value);
+                                          }}
+                                          className="text-emerald-500 hover:text-emerald-400 transition-colors"
+                                        >
+                                          <Save size={14} />
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <>
+                                        <h3 className="text-lg font-bold text-neutral-100">
+                                          {customExerciseNames[ex.id] || ex.name}
+                                        </h3>
+                                        <button
+                                          onClick={() => setEditingExercise(ex.id)}
+                                          className="text-neutral-600 hover:text-neutral-400 transition-colors"
+                                          title="編輯動作名稱"
+                                        >
+                                          <Edit2 size={14} />
+                                        </button>
+                                        {ex.isCustom && (
+                                          <button
+                                            onClick={() => removeCustomExercise(ex.id)}
+                                            className="text-neutral-700 hover:text-rose-500 transition-colors"
+                                            title="刪除此動作"
+                                          >
+                                            <Trash2 size={14} />
+                                          </button>
+                                        )}
+                                      </>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center gap-2 mt-2">
+                                    <span className="text-[10px] font-black bg-neutral-800 text-neutral-400 px-2 py-1 rounded inline-block uppercase tracking-wider">
+                                      {MUSCLE_GROUPS[ex.muscle]}
+                                    </span>
+                                    <span className="text-[10px] font-mono bg-neutral-800 text-neutral-500 px-2 py-1 rounded inline-block">
+                                      {getRepRange(ex.type, currentWeek)} 下
+                                    </span>
+                                    <span className={`text-[10px] font-bold ${ex.type === 'compound' ? 'text-cyan-500' : 'text-neutral-600'}`}>
+                                      {ex.type === 'compound' ? '複合' : '隔離'}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                {/* Sets count with +/- */}
+                                <div className="text-right flex flex-col items-end gap-1">
                                   <div className="flex items-center gap-1">
                                     <button
-                                      onClick={() => adjustWeight(logKey, -1, historyWeight)}
-                                      className="p-2 bg-neutral-900 hover:bg-neutral-800 rounded-lg transition-colors"
-                                      title={`-${weightIncrement}kg`}
+                                      onClick={() => adjustExerciseSets(ex.id, -1, setsCount)}
+                                      className="p-1 text-neutral-600 hover:text-neutral-300 hover:bg-neutral-800 rounded-lg transition-colors"
+                                      title="減少一組"
                                     >
                                       <Minus size={14} />
                                     </button>
-                                    <input
-                                      data-weight-input
-                                      type="number"
-                                      step={weightIncrement}
-                                      value={logData.weight || ''}
-                                      onChange={(e) => updateLog(logKey, 'weight', e.target.value)}
-                                      onKeyDown={(e) => {
-                                        if (e.key === 'Enter') {
-                                          e.preventDefault();
-                                          const repsInput = e.currentTarget.closest('[data-set-row]')?.querySelector('[data-reps-input]');
-                                          repsInput?.focus();
-                                          repsInput?.select();
-                                        }
-                                      }}
-                                      placeholder={historyWeight ? String(historyWeight) : '—'}
-                                      className="w-20 bg-neutral-900 px-3 py-2 rounded-lg text-center font-mono text-sm
-                                      focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                                    />
+                                    <div className="text-2xl font-black font-mono text-neutral-700 min-w-[2rem] text-center">
+                                      {setsCount}<span className="text-sm ml-0.5">組</span>
+                                    </div>
                                     <button
-                                      onClick={() => adjustWeight(logKey, 1, historyWeight)}
-                                      className="p-2 bg-neutral-900 hover:bg-neutral-800 rounded-lg transition-colors"
-                                      title={`+${weightIncrement}kg`}
+                                      onClick={() => adjustExerciseSets(ex.id, 1, setsCount)}
+                                      className="p-1 text-neutral-600 hover:text-neutral-300 hover:bg-neutral-800 rounded-lg transition-colors"
+                                      title="增加一組"
                                     >
                                       <Plus size={14} />
                                     </button>
                                   </div>
+                                  <div className="text-xs text-neutral-600">
+                                    {completedCount}/{setsCount} 完成
+                                    {skippedCount > 0 && (
+                                      <span className="ml-1 text-neutral-700">· {skippedCount} 跳過</span>
+                                    )}
+                                  </div>
                                 </div>
-                                <div className="flex-1">
-                                  <label className="text-[10px] text-neutral-500 block mb-1">次數</label>
-                                  <input
-                                    data-reps-input
-                                    type="number"
-                                    value={logData.reps || ''}
-                                    onChange={(e) => handleRepsChange(logKey, ex.id, e.target.value, historyWeight)}
-                                    onKeyDown={(e) => {
-                                      if (e.key === 'Enter') {
-                                        e.preventDefault();
-                                        const allWeightInputs = document.querySelectorAll('[data-weight-input]');
-                                        const allRepsInputs = document.querySelectorAll('[data-reps-input]');
-                                        const currentIndex = Array.from(allRepsInputs).indexOf(e.currentTarget);
-                                        const nextWeightInput = allWeightInputs[currentIndex + 1];
-                                        if (nextWeightInput) {
-                                          nextWeightInput.focus();
-                                          nextWeightInput.select();
-                                        }
+                              </div>
+                            </div>
+
+                            {/* Inter-Exercise Rest Time */}
+                            {previousExerciseLastSetKey && (() => {
+                              const prevLastSetLog = logs[previousExerciseLastSetKey];
+                              if (prevLastSetLog?.completedAt && !firstSetLog?.done) {
+                                const interExerciseRestTime = getCurrentRestTime(previousExerciseLastSetKey);
+                                return (
+                                  <div className="mb-4 p-3 bg-blue-900/20 border border-blue-800 rounded-xl">
+                                    <div className="text-sm text-blue-400 font-semibold animate-pulse flex items-center gap-2">
+                                      動作間休息: {interExerciseRestTime}
+                                    </div>
+                                  </div>
+                                );
+                              }
+                              if (prevLastSetLog?.completedAt && firstSetLog?.completedAt) {
+                                const interExerciseRestTime = calculateRestTime(firstSetKey, previousExerciseLastSetKey);
+                                return interExerciseRestTime ? (
+                                  <div className="mb-4 p-3 bg-neutral-800/50 border border-neutral-700 rounded-xl">
+                                    <div className="text-sm text-neutral-500 flex items-center gap-2">
+                                      動作間休息: {interExerciseRestTime}
+                                    </div>
+                                  </div>
+                                ) : null;
+                              }
+                              return null;
+                            })()}
+
+                            {/* Sets List */}
+                            <div className="space-y-3">
+                              {[...Array(setsCount)].map((_, idx) => {
+                                const logKey = `w${currentWeek}-d${currentDay}-${ex.id}-s${idx}`;
+                                const logData = logs[logKey] || {};
+                                const historyWeight = history[ex.id];
+
+                                return (
+                                  <React.Fragment key={idx}>
+                                    <div
+                                      data-set-row
+                                      className={`flex items-center gap-3 p-3 rounded-xl transition-all
+                                      ${logData.skipped
+                                        ? 'bg-neutral-800/20 border border-neutral-800 opacity-40'
+                                        : logData.done
+                                          ? 'bg-emerald-500/10 border border-emerald-500/30'
+                                          : 'bg-neutral-800/30 border border-neutral-800'}`}
+                                    >
+                                      <div className={`text-xl font-black w-8 text-center ${logData.skipped ? 'text-neutral-700 line-through' : 'text-neutral-600'}`}>
+                                        {idx + 1}
+                                      </div>
+                                      {logData.skipped ? (
+                                        <div className="flex-1 text-center text-sm text-neutral-600 font-bold tracking-wider uppercase py-2">
+                                          跳過
+                                        </div>
+                                      ) : (
+                                        <>
+                                          <div className="flex-1">
+                                            <label className="text-[10px] text-neutral-500 block mb-1">重量 (kg)</label>
+                                            <div className="flex items-center gap-1">
+                                              <button
+                                                onClick={() => adjustWeight(logKey, -1, historyWeight)}
+                                                className="p-2 bg-neutral-900 hover:bg-neutral-800 rounded-lg transition-colors"
+                                                title={`-${weightIncrement}kg`}
+                                              >
+                                                <Minus size={14} />
+                                              </button>
+                                              <input
+                                                data-weight-input
+                                                type="number"
+                                                step={weightIncrement}
+                                                value={logData.weight || ''}
+                                                onChange={(e) => updateLog(logKey, 'weight', e.target.value)}
+                                                onKeyDown={(e) => {
+                                                  if (e.key === 'Enter') {
+                                                    e.preventDefault();
+                                                    const repsInput = e.currentTarget.closest('[data-set-row]')?.querySelector('[data-reps-input]');
+                                                    repsInput?.focus();
+                                                    repsInput?.select();
+                                                  }
+                                                }}
+                                                placeholder={historyWeight ? String(historyWeight) : '—'}
+                                                className="w-20 bg-neutral-900 px-3 py-2 rounded-lg text-center font-mono text-sm
+                                                focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                              />
+                                              <button
+                                                onClick={() => adjustWeight(logKey, 1, historyWeight)}
+                                                className="p-2 bg-neutral-900 hover:bg-neutral-800 rounded-lg transition-colors"
+                                                title={`+${weightIncrement}kg`}
+                                              >
+                                                <Plus size={14} />
+                                              </button>
+                                            </div>
+                                          </div>
+                                          <div className="flex-1">
+                                            <label className="text-[10px] text-neutral-500 block mb-1">次數</label>
+                                            <input
+                                              data-reps-input
+                                              type="number"
+                                              value={logData.reps || ''}
+                                              onChange={(e) => handleRepsChange(logKey, ex.id, e.target.value, historyWeight)}
+                                              onKeyDown={(e) => {
+                                                if (e.key === 'Enter') {
+                                                  e.preventDefault();
+                                                  const allWeightInputs = document.querySelectorAll('[data-weight-input]');
+                                                  const allRepsInputs = document.querySelectorAll('[data-reps-input]');
+                                                  const currentIndex = Array.from(allRepsInputs).indexOf(e.currentTarget);
+                                                  const nextWeightInput = allWeightInputs[currentIndex + 1];
+                                                  if (nextWeightInput) {
+                                                    nextWeightInput.focus();
+                                                    nextWeightInput.select();
+                                                  }
+                                                }
+                                              }}
+                                              placeholder="—"
+                                              className="w-full bg-neutral-900 px-3 py-2 rounded-lg text-center font-mono text-sm
+                                              focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                            />
+                                          </div>
+                                        </>
+                                      )}
+                                      <button
+                                        onClick={() => skipSet(logKey)}
+                                        title={logData.skipped ? '取消跳過' : '跳過此組'}
+                                        className={`p-1.5 rounded-lg transition-colors flex-shrink-0
+                                        ${logData.skipped
+                                          ? 'text-neutral-500 hover:text-neutral-300'
+                                          : 'text-neutral-700 hover:text-rose-500'}`}
+                                      >
+                                        <XCircle size={16} />
+                                      </button>
+                                    </div>
+
+                                    {/* Rest Time Display */}
+                                    {(() => {
+                                      if (logData.skipped) return null;
+                                      const isLastSet = idx === setsCount - 1;
+                                      const nextLogKey = `w${currentWeek}-d${currentDay}-${ex.id}-s${idx + 1}`;
+                                      const nextLog = logs[nextLogKey];
+
+                                      if (logData.done && !isLastSet && nextLog?.done && !nextLog?.skipped) {
+                                        const restTime = calculateRestTime(nextLogKey, logKey);
+                                        return restTime ? (
+                                          <div className="text-xs text-neutral-500 mt-1 pl-11">
+                                            休息時間: {restTime}
+                                          </div>
+                                        ) : null;
                                       }
-                                    }}
-                                    placeholder="—"
-                                    className="w-full bg-neutral-900 px-3 py-2 rounded-lg text-center font-mono text-sm
-                                    focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                                  />
-                                </div>
-                              </>
-                            )}
-                            <button
-                              onClick={() => skipSet(logKey)}
-                              title={logData.skipped ? '取消跳過' : '跳過此組'}
-                              className={`p-1.5 rounded-lg transition-colors flex-shrink-0
-                              ${logData.skipped
-                                ? 'text-neutral-500 hover:text-neutral-300'
-                                : 'text-neutral-700 hover:text-rose-500'}`}
-                            >
-                              <XCircle size={16} />
-                            </button>
+                                      if (logData.done && !isLastSet && !nextLog?.done && !nextLog?.skipped) {
+                                        const cRestTime = getCurrentRestTime(logKey);
+                                        return (
+                                          <div className="text-xs text-emerald-400 mt-1 pl-11 font-semibold animate-pulse">
+                                            休息中: {cRestTime}
+                                          </div>
+                                        );
+                                      }
+                                      return null;
+                                    })()}
+                                  </React.Fragment>
+                                );
+                              })}
+                            </div>
                           </div>
-
-                          {/* Rest Time Display */}
-                          {(() => {
-                            if (logData.skipped) return null;
-                            const isLastSet = idx === setsCount - 1;
-                            const nextLogKey = `w${currentWeek}-d${currentDay}-${ex.id}-s${idx + 1}`;
-                            const nextLog = logs[nextLogKey];
-
-                            if (logData.done && !isLastSet && nextLog?.done && !nextLog?.skipped) {
-                              const restTime = calculateRestTime(nextLogKey, logKey);
-                              return restTime ? (
-                                <div className="text-xs text-neutral-500 mt-1 pl-11">
-                                  休息時間: {restTime}
-                                </div>
-                              ) : null;
-                            }
-                            if (logData.done && !isLastSet && !nextLog?.done && !nextLog?.skipped) {
-                              const cRestTime = getCurrentRestTime(logKey);
-                              return (
-                                <div className="text-xs text-emerald-400 mt-1 pl-11 font-semibold animate-pulse">
-                                  休息中: {cRestTime}
-                                </div>
-                              );
-                            }
-                            return null;
-                          })()}
-                        </React.Fragment>
-                      );
-                    })}
-                  </div>
+                        )}
+                      </Draggable>
+                    );
+                  })}
+                  {provided.placeholder}
                 </div>
-              );
-            })}
+              )}
+            </Droppable>
+          </DragDropContext>
+
+          {/* 新增動作按鈕 */}
+          <div className="px-6 py-4 border-t border-neutral-800">
+            <button
+              onClick={() => setShowAddExercise(true)}
+              className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border border-dashed border-neutral-700 text-neutral-500 hover:border-emerald-600 hover:text-emerald-500 transition-all text-sm font-bold"
+            >
+              <Plus size={16} /> 新增動作
+            </button>
           </div>
         </div>
       </div>
@@ -623,6 +766,94 @@ const TrainingView = ({
           )}
         </div>
       </div>
+
+      {/* ==================== 新增動作 Modal ==================== */}
+      {showAddExercise && (
+        <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-end sm:items-center justify-center p-4">
+          <div className="bg-neutral-900 border border-neutral-800 rounded-[32px] w-full max-w-sm shadow-2xl">
+            <div className="flex justify-between items-center px-6 pt-6 pb-4 border-b border-neutral-800">
+              <h3 className="text-lg font-black text-white">新增動作</h3>
+              <button
+                onClick={() => setShowAddExercise(false)}
+                className="text-neutral-600 hover:text-neutral-300 transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="px-6 py-5 space-y-4">
+              {/* 動作名稱 */}
+              <div>
+                <label className="block text-xs font-bold text-neutral-400 mb-2 uppercase tracking-wider">動作名稱</label>
+                <input
+                  type="text"
+                  value={newEx.name}
+                  onChange={(e) => setNewEx(prev => ({ ...prev, name: e.target.value }))}
+                  onKeyDown={(e) => { if (e.key === 'Enter') addCustomExercise(); }}
+                  placeholder="例如：槓鈴深蹲"
+                  autoFocus
+                  className="w-full bg-neutral-800 px-4 py-3 rounded-xl text-sm font-medium text-neutral-100
+                  focus:outline-none focus:ring-2 focus:ring-emerald-500 border border-neutral-700"
+                />
+              </div>
+
+              {/* 肌群 */}
+              <div>
+                <label className="block text-xs font-bold text-neutral-400 mb-2 uppercase tracking-wider">肌群</label>
+                <select
+                  value={newEx.muscle}
+                  onChange={(e) => setNewEx(prev => ({ ...prev, muscle: e.target.value }))}
+                  className="w-full bg-neutral-800 px-4 py-3 rounded-xl text-sm font-medium text-neutral-100
+                  focus:outline-none focus:ring-2 focus:ring-emerald-500 border border-neutral-700 appearance-none"
+                >
+                  {Object.entries(MUSCLE_GROUPS).map(([key, label]) => (
+                    <option key={key} value={key}>{label}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* 動作類型 */}
+              <div>
+                <label className="block text-xs font-bold text-neutral-400 mb-2 uppercase tracking-wider">類型</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { value: 'compound', label: '複合動作' },
+                    { value: 'isolation', label: '隔離動作' },
+                  ].map(({ value, label }) => (
+                    <button
+                      key={value}
+                      onClick={() => setNewEx(prev => ({ ...prev, type: value }))}
+                      className={`py-3 rounded-xl text-sm font-bold transition-all border
+                      ${newEx.type === value
+                        ? 'bg-emerald-600 text-white border-emerald-600'
+                        : 'bg-neutral-800 text-neutral-400 border-neutral-700 hover:border-neutral-500'}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="px-6 pb-6 flex gap-3">
+              <button
+                onClick={() => setShowAddExercise(false)}
+                className="flex-1 py-3 rounded-xl bg-neutral-800 text-neutral-400 font-bold text-sm hover:bg-neutral-700 transition-all"
+              >
+                取消
+              </button>
+              <button
+                onClick={addCustomExercise}
+                disabled={!newEx.name.trim()}
+                className="flex-1 py-3 rounded-xl bg-emerald-600 text-white font-bold text-sm hover:bg-emerald-500 transition-all
+                disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                新增
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 };
