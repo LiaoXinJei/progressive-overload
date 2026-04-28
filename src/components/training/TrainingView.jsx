@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import {
   Activity, BarChart2, ChevronDown, ChevronUp,
   TrendingUp, ShieldCheck, Plus, Minus,
-  Edit2, Save, XCircle, GripVertical, Trash2, X
+  Edit2, XCircle, GripVertical, Trash2, X, Search
 } from 'lucide-react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { WORKOUTS, MUSCLE_GROUPS, VOLUME_CONFIG, PHASE_CONFIG, MUSCLE_SESSION_MAP, MAX_SETS_PER_EXERCISE } from '../../constants/workouts';
@@ -18,12 +18,14 @@ const TrainingView = ({
   customExercises, setCustomExercises,
   customSets, setCustomSets,
   exerciseOrder, setExerciseOrder,
+  exerciseLibrary, exerciseOverrides, setExerciseOverrides,
   weightIncrement,
   currentTime
 }) => {
-  const [editingExercise, setEditingExercise] = useState(null);
   const [showAddExercise, setShowAddExercise] = useState(false);
   const [newEx, setNewEx] = useState({ name: '', muscle: 'CHEST', type: 'isolation' });
+  const [pickerForExId, setPickerForExId] = useState(null);
+  const [pickerSearch, setPickerSearch] = useState('');
 
   // ==================== 核心邏輯函數 ====================
 
@@ -92,6 +94,29 @@ const TrainingView = ({
     // 加入自訂動作（預設 3 組）
     customExsForDay.forEach(ex => {
       allResults.push({ exercise: ex, sets: 3 });
+    });
+
+    // 套用動作替換（從動作庫選的會覆蓋 name/muscle/type/isUpper）
+    allResults = allResults.map(({ exercise, sets }) => {
+      const overrideKey = `${workoutKey}-${exercise.id}`;
+      const overrideId = exerciseOverrides[overrideKey];
+      if (overrideId) {
+        const lib = exerciseLibrary.find(l => l.id === overrideId);
+        if (lib) {
+          return {
+            exercise: {
+              ...exercise,
+              name: lib.name,
+              muscle: lib.muscle,
+              type: lib.type,
+              isUpper: !LOWER_MUSCLES.has(lib.muscle),
+              _libraryId: lib.id,
+            },
+            sets,
+          };
+        }
+      }
+      return { exercise, sets };
     });
 
     // 套用使用者自訂組數覆蓋
@@ -163,9 +188,12 @@ const TrainingView = ({
     setLogs(prev => {
       const current = prev[logKey] || {};
       const delta = direction * weightIncrement;
+      const fallbackNum = typeof fallback === 'object' && fallback !== null
+        ? parseFloat(fallback.weight) || 0
+        : parseFloat(fallback) || 0;
       const base = current.weight !== '' && current.weight !== undefined
         ? (parseFloat(current.weight) || 0)
-        : (parseFloat(fallback) || 0);
+        : fallbackNum;
       const newWeight = base + delta;
       return {
         ...prev,
@@ -193,10 +221,14 @@ const TrainingView = ({
   const completeSet = (logKey, exerciseId) => {
     setLogs(prev => {
       const current = prev[logKey] || {};
-      const weight = current.weight || history[exerciseId] || '';
+      const histEntry = history[exerciseId] || {};
+      const weight = current.weight || histEntry.weight || '';
       const newDone = !current.done;
       if (newDone && weight) {
-        setHistory(h => ({ ...h, [exerciseId]: parseFloat(weight) }));
+        setHistory(h => ({
+          ...h,
+          [exerciseId]: { weight: parseFloat(weight), reps: current.reps || histEntry.reps || '' }
+        }));
       }
       return {
         ...prev,
@@ -214,7 +246,10 @@ const TrainingView = ({
       const weight = current.weight || historyWeight || '';
       const shouldComplete = value && weight && !current.done;
       if (shouldComplete) {
-        setHistory(h => ({ ...h, [exerciseId]: parseFloat(weight) }));
+        setHistory(h => ({
+          ...h,
+          [exerciseId]: { weight: parseFloat(weight), reps: value }
+        }));
       }
       return {
         ...prev,
@@ -227,17 +262,47 @@ const TrainingView = ({
     });
   };
 
-  const saveCustomName = (exerciseId, customName) => {
-    if (customName.trim()) {
-      setCustomExerciseNames(prev => ({ ...prev, [exerciseId]: customName.trim() }));
-    } else {
-      setCustomExerciseNames(prev => {
-        const updated = { ...prev };
-        delete updated[exerciseId];
-        return updated;
-      });
-    }
-    setEditingExercise(null);
+  const fillFromHistory = (logKey, exerciseId) => {
+    const histEntry = history[exerciseId];
+    if (!histEntry || (histEntry.weight === '' && histEntry.reps === '')) return;
+    setLogs(prev => ({
+      ...prev,
+      [logKey]: {
+        ...(prev[logKey] || {}),
+        weight: histEntry.weight !== undefined && histEntry.weight !== '' ? histEntry.weight : (prev[logKey]?.weight || ''),
+        reps: histEntry.reps !== undefined && histEntry.reps !== '' ? String(histEntry.reps) : (prev[logKey]?.reps || ''),
+      }
+    }));
+  };
+
+  const applyLibraryToExercise = (exerciseId, libraryItem) => {
+    const overrideKey = `${workoutKey}-${exerciseId}`;
+    setExerciseOverrides(prev => ({ ...prev, [overrideKey]: libraryItem.id }));
+    setCustomSets(prev => ({ ...prev, [overrideKey]: libraryItem.defaultSets }));
+    setCustomExerciseNames(prev => {
+      if (!(exerciseId in prev)) return prev;
+      const updated = { ...prev };
+      delete updated[exerciseId];
+      return updated;
+    });
+    setPickerForExId(null);
+    setPickerSearch('');
+  };
+
+  const resetExerciseOverride = (exerciseId) => {
+    const overrideKey = `${workoutKey}-${exerciseId}`;
+    setExerciseOverrides(prev => {
+      const updated = { ...prev };
+      delete updated[overrideKey];
+      return updated;
+    });
+    setCustomSets(prev => {
+      const updated = { ...prev };
+      delete updated[overrideKey];
+      return updated;
+    });
+    setPickerForExId(null);
+    setPickerSearch('');
   };
 
   // ==================== 自訂動作操作 ====================
@@ -295,6 +360,15 @@ const TrainingView = ({
 
   // ==================== 統計計算 ====================
 
+  const filteredLibrary = useMemo(() => {
+    const q = pickerSearch.trim().toLowerCase();
+    if (!q) return exerciseLibrary;
+    return exerciseLibrary.filter(item =>
+      item.name.toLowerCase().includes(q) ||
+      MUSCLE_GROUPS[item.muscle]?.toLowerCase().includes(q)
+    );
+  }, [exerciseLibrary, pickerSearch]);
+
   const weeklyVolume = useMemo(() => {
     const vol = {};
     Object.keys(MUSCLE_GROUPS).forEach(k => vol[k] = 0);
@@ -314,6 +388,9 @@ const TrainingView = ({
   const currentWorkout = WORKOUTS[workoutKey];
   const currentSessionPlan = getSessionPlan(currentWeek, workoutKey);
   const guidance = getWeeklyGuidance(currentWeek);
+  const currentOverrideId = pickerForExId
+    ? exerciseOverrides[`${workoutKey}-${pickerForExId}`]
+    : null;
 
   return (
     <main className="max-w-6xl mx-auto px-4 py-8 grid lg:grid-cols-12 gap-8">
@@ -421,50 +498,24 @@ const TrainingView = ({
                                 <div>
                                   <div className="flex items-center gap-2">
                                     <span className={`w-2 h-2 rounded-full ${ex.isUpper ? 'bg-blue-500' : 'bg-orange-500'}`}></span>
-                                    {editingExercise === ex.id ? (
-                                      <div className="flex items-center gap-2">
-                                        <input
-                                          type="text"
-                                          defaultValue={customExerciseNames[ex.id] || ex.name}
-                                          onKeyDown={(e) => {
-                                            if (e.key === 'Enter') saveCustomName(ex.id, e.target.value);
-                                            else if (e.key === 'Escape') setEditingExercise(null);
-                                          }}
-                                          autoFocus
-                                          className="bg-neutral-800 px-2 py-1 rounded text-lg font-bold text-neutral-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                                        />
-                                        <button
-                                          onClick={(e) => {
-                                            const input = e.currentTarget.previousSibling;
-                                            saveCustomName(ex.id, input.value);
-                                          }}
-                                          className="text-emerald-500 hover:text-emerald-400 transition-colors"
-                                        >
-                                          <Save size={14} />
-                                        </button>
-                                      </div>
-                                    ) : (
-                                      <>
-                                        <h3 className="text-lg font-bold text-neutral-100">
-                                          {customExerciseNames[ex.id] || ex.name}
-                                        </h3>
-                                        <button
-                                          onClick={() => setEditingExercise(ex.id)}
-                                          className="text-neutral-600 hover:text-neutral-400 transition-colors"
-                                          title="編輯動作名稱"
-                                        >
-                                          <Edit2 size={14} />
-                                        </button>
-                                        {ex.isCustom && (
-                                          <button
-                                            onClick={() => removeCustomExercise(ex.id)}
-                                            className="text-neutral-700 hover:text-rose-500 transition-colors"
-                                            title="刪除此動作"
-                                          >
-                                            <Trash2 size={14} />
-                                          </button>
-                                        )}
-                                      </>
+                                    <h3 className="text-lg font-bold text-neutral-100">
+                                      {customExerciseNames[ex.id] || ex.name}
+                                    </h3>
+                                    <button
+                                      onClick={() => { setPickerForExId(ex.id); setPickerSearch(''); }}
+                                      className="text-neutral-600 hover:text-neutral-400 transition-colors"
+                                      title="替換動作"
+                                    >
+                                      <Edit2 size={14} />
+                                    </button>
+                                    {ex.isCustom && (
+                                      <button
+                                        onClick={() => removeCustomExercise(ex.id)}
+                                        className="text-neutral-700 hover:text-rose-500 transition-colors"
+                                        title="刪除此動作"
+                                      >
+                                        <Trash2 size={14} />
+                                      </button>
                                     )}
                                   </div>
                                   <div className="flex items-center gap-2 mt-2">
@@ -542,7 +593,10 @@ const TrainingView = ({
                               {[...Array(setsCount)].map((_, idx) => {
                                 const logKey = `w${currentWeek}-d${currentDay}-${ex.id}-s${idx}`;
                                 const logData = logs[logKey] || {};
-                                const historyWeight = history[ex.id];
+                                const historyEntry = history[ex.id] || {};
+                                const historyWeight = historyEntry.weight;
+                                const historyReps = historyEntry.reps;
+                                const hasHistory = (historyWeight !== undefined && historyWeight !== '') || (historyReps !== undefined && historyReps !== '');
 
                                 return (
                                   <React.Fragment key={idx}>
@@ -555,9 +609,18 @@ const TrainingView = ({
                                           ? 'bg-emerald-500/10 border border-emerald-500/30'
                                           : 'bg-neutral-800/30 border border-neutral-800'}`}
                                     >
-                                      <div className={`text-xl font-black w-8 text-center ${logData.skipped ? 'text-neutral-700 line-through' : 'text-neutral-600'}`}>
+                                      <button
+                                        type="button"
+                                        onClick={() => !logData.skipped && hasHistory && fillFromHistory(logKey, ex.id)}
+                                        disabled={logData.skipped || !hasHistory}
+                                        title={hasHistory ? '帶入上次重量與次數' : '尚無上次紀錄'}
+                                        className={`text-xl font-black w-8 text-center transition-colors
+                                          ${logData.skipped ? 'text-neutral-700 line-through cursor-default'
+                                            : hasHistory ? 'text-neutral-600 hover:text-emerald-400 cursor-pointer'
+                                            : 'text-neutral-600 cursor-default'}`}
+                                      >
                                         {idx + 1}
-                                      </div>
+                                      </button>
                                       {logData.skipped ? (
                                         <div className="flex-1 text-center text-sm text-neutral-600 font-bold tracking-wider uppercase py-2">
                                           跳過
@@ -621,7 +684,7 @@ const TrainingView = ({
                                                   }
                                                 }
                                               }}
-                                              placeholder="—"
+                                              placeholder={historyReps !== undefined && historyReps !== '' ? String(historyReps) : '—'}
                                               className="w-full bg-neutral-900 px-3 py-2 rounded-lg text-center font-mono text-sm
                                               focus:outline-none focus:ring-2 focus:ring-emerald-500"
                                             />
@@ -766,6 +829,81 @@ const TrainingView = ({
           )}
         </div>
       </div>
+
+      {/* ==================== 替換動作 Picker Modal ==================== */}
+      {pickerForExId && (
+        <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-end sm:items-center justify-center p-4">
+          <div className="bg-neutral-900 border border-neutral-800 rounded-[32px] w-full max-w-sm shadow-2xl flex flex-col max-h-[80vh]">
+            <div className="flex justify-between items-center px-6 pt-6 pb-4 border-b border-neutral-800">
+              <h3 className="text-lg font-black text-white">替換動作</h3>
+              <button
+                onClick={() => { setPickerForExId(null); setPickerSearch(''); }}
+                className="text-neutral-600 hover:text-neutral-300 transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="px-6 py-4 border-b border-neutral-800">
+              <div className="relative">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-600" />
+                <input
+                  type="text"
+                  value={pickerSearch}
+                  onChange={(e) => setPickerSearch(e.target.value)}
+                  placeholder="搜尋動作或肌群"
+                  autoFocus
+                  className="w-full bg-neutral-800 pl-9 pr-3 py-2 rounded-xl text-sm text-neutral-100
+                    focus:outline-none focus:ring-2 focus:ring-emerald-500 border border-neutral-700"
+                />
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-3 py-2">
+              {filteredLibrary.length === 0 ? (
+                <p className="text-center text-xs text-neutral-600 py-6">沒有符合的動作</p>
+              ) : filteredLibrary.map(item => {
+                const isCurrent = currentOverrideId === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => applyLibraryToExercise(pickerForExId, item)}
+                    className={`w-full text-left flex items-center justify-between gap-3 px-3 py-3 rounded-xl mb-1 transition-all border
+                      ${isCurrent
+                        ? 'bg-emerald-900/30 border-emerald-700'
+                        : 'bg-neutral-800/30 border-transparent hover:bg-neutral-800/70'}`}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-bold text-neutral-100 truncate">{item.name}</div>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span className="text-[10px] font-bold bg-neutral-900 text-neutral-400 px-1.5 py-0.5 rounded">
+                          {MUSCLE_GROUPS[item.muscle]}
+                        </span>
+                        <span className={`text-[10px] font-bold ${item.type === 'compound' ? 'text-cyan-500' : 'text-neutral-500'}`}>
+                          {item.type === 'compound' ? '複合' : '隔離'}
+                        </span>
+                        <span className="text-[10px] font-mono text-neutral-500">{item.defaultSets} 組</span>
+                      </div>
+                    </div>
+                    {isCurrent && <span className="text-[10px] font-black text-emerald-400 uppercase">目前</span>}
+                  </button>
+                );
+              })}
+            </div>
+
+            {currentOverrideId && (
+              <div className="px-6 pb-4 pt-2 border-t border-neutral-800">
+                <button
+                  onClick={() => resetExerciseOverride(pickerForExId)}
+                  className="w-full py-2 rounded-xl bg-neutral-800 text-neutral-400 text-xs font-bold hover:bg-neutral-700 transition-all"
+                >
+                  恢復為原動作
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ==================== 新增動作 Modal ==================== */}
       {showAddExercise && (

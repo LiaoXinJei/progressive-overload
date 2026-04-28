@@ -7,6 +7,8 @@ import { useRestNotification, requestNotificationPermission } from './hooks/useR
 import TrainingView from './components/training/TrainingView';
 import NutritionView from './components/nutrition/NutritionView';
 import TabNavigation from './components/shared/TabNavigation';
+import ExerciseLibraryManager from './components/settings/ExerciseLibraryManager';
+import { DEFAULT_EXERCISE_LIBRARY } from './constants/workouts';
 
 const RPFocusPro = () => {
   // ==================== 狀態管理 ====================
@@ -24,8 +26,11 @@ const RPFocusPro = () => {
   const [customExercises, setCustomExercises] = useState({});
   const [customSets, setCustomSets] = useState({});
   const [exerciseOrder, setExerciseOrder] = useState({});
+  const [exerciseLibrary, setExerciseLibrary] = useState(DEFAULT_EXERCISE_LIBRARY);
+  const [exerciseOverrides, setExerciseOverrides] = useState({});
   const [weightIncrement, setWeightIncrement] = useState(2);
   const [showSettings, setShowSettings] = useState(false);
+  const [settingsTab, setSettingsTab] = useState('general');
   const [currentTime, setCurrentTime] = useState(Date.now());
   const [restNotificationDelay, setRestNotificationDelay] = useState(90);
   const [notifPermission, setNotifPermission] = useState(
@@ -105,7 +110,17 @@ const RPFocusPro = () => {
       try {
         const data = JSON.parse(saved);
         setLogs(data.logs || {});
-        setHistory(data.history || {});
+        // history 結構遷移：v2 number → v3 { weight, reps }
+        const rawHistory = data.history || {};
+        const migratedHistory = {};
+        Object.entries(rawHistory).forEach(([k, v]) => {
+          if (typeof v === 'number') {
+            migratedHistory[k] = { weight: v, reps: '' };
+          } else if (v && typeof v === 'object') {
+            migratedHistory[k] = { weight: v.weight ?? '', reps: v.reps ?? '' };
+          }
+        });
+        setHistory(migratedHistory);
         setMode(data.mode || 'maintenance');
         setCurrentWeek(data.viewState?.currentWeek || 1);
         setCurrentDay(data.viewState?.currentDay || 0);
@@ -114,6 +129,12 @@ const RPFocusPro = () => {
         setCustomExercises(data.customExercises || {});
         setCustomSets(data.customSets || {});
         setExerciseOrder(data.exerciseOrder || {});
+        setExerciseLibrary(
+          Array.isArray(data.exerciseLibrary) && data.exerciseLibrary.length > 0
+            ? data.exerciseLibrary
+            : DEFAULT_EXERCISE_LIBRARY
+        );
+        setExerciseOverrides(data.exerciseOverrides || {});
         setWeightIncrement(data.weightIncrement ?? 2);
         setRestNotificationDelay(data.restNotificationDelay ?? 90);
         setActiveTab(data.activeTab || 'training');
@@ -127,15 +148,16 @@ const RPFocusPro = () => {
 
   useEffect(() => {
     const state = {
-      schemaVersion: 2,
+      schemaVersion: 3,
       logs, history, mode,
       viewState: { currentWeek, currentDay, showStats },
       customExerciseNames, customExercises, customSets, exerciseOrder,
+      exerciseLibrary, exerciseOverrides,
       weightIncrement, restNotificationDelay, activeTab,
       nutritionProfile, nutritionLogs
     };
     localStorage.setItem('rp_focus_pro_data', JSON.stringify(state));
-  }, [logs, history, mode, currentWeek, currentDay, showStats, customExerciseNames, customExercises, customSets, exerciseOrder, weightIncrement, restNotificationDelay, activeTab, nutritionProfile, nutritionLogs]);
+  }, [logs, history, mode, currentWeek, currentDay, showStats, customExerciseNames, customExercises, customSets, exerciseOrder, exerciseLibrary, exerciseOverrides, weightIncrement, restNotificationDelay, activeTab, nutritionProfile, nutritionLogs]);
 
   // ==================== 重置 ====================
 
@@ -147,6 +169,8 @@ const RPFocusPro = () => {
     setCustomExercises({});
     setCustomSets({});
     setExerciseOrder({});
+    setExerciseOverrides({});
+    setExerciseLibrary(DEFAULT_EXERCISE_LIBRARY);
     setNutritionProfile(null);
     setNutritionLogs({});
     setShowResetConfirm(false);
@@ -255,6 +279,8 @@ const RPFocusPro = () => {
           customExercises={customExercises} setCustomExercises={setCustomExercises}
           customSets={customSets} setCustomSets={setCustomSets}
           exerciseOrder={exerciseOrder} setExerciseOrder={setExerciseOrder}
+          exerciseLibrary={exerciseLibrary}
+          exerciseOverrides={exerciseOverrides} setExerciseOverrides={setExerciseOverrides}
           weightIncrement={weightIncrement}
           currentTime={currentTime}
         />
@@ -323,6 +349,31 @@ const RPFocusPro = () => {
               </button>
             </div>
 
+            {/* Settings Tabs */}
+            <div className="flex bg-neutral-800 p-1 rounded-full border border-neutral-700 mb-6">
+              <button
+                onClick={() => setSettingsTab('general')}
+                className={`flex-1 py-2 rounded-full text-xs font-bold transition-all
+                ${settingsTab === 'general' ? 'bg-emerald-600 text-white shadow-lg' : 'text-neutral-500 hover:text-neutral-300'}`}
+              >
+                一般
+              </button>
+              <button
+                onClick={() => setSettingsTab('library')}
+                className={`flex-1 py-2 rounded-full text-xs font-bold transition-all
+                ${settingsTab === 'library' ? 'bg-emerald-600 text-white shadow-lg' : 'text-neutral-500 hover:text-neutral-300'}`}
+              >
+                動作庫
+              </button>
+            </div>
+
+            {settingsTab === 'library' ? (
+              <ExerciseLibraryManager
+                exerciseLibrary={exerciseLibrary}
+                setExerciseLibrary={setExerciseLibrary}
+              />
+            ) : (
+            <>
             {/* Weight Increment Setting */}
             <div className="mb-6">
               <label className="block text-sm font-bold text-neutral-300 mb-3">
@@ -462,9 +513,12 @@ const RPFocusPro = () => {
               </p>
             </div>
 
+            </>
+            )}
+
             <button
               onClick={() => setShowSettings(false)}
-              className="w-full py-4 rounded-2xl bg-emerald-600 text-white font-black uppercase tracking-widest text-xs hover:bg-emerald-500 transition-all shadow-lg shadow-emerald-900/50"
+              className="w-full py-4 rounded-2xl bg-emerald-600 text-white font-black uppercase tracking-widest text-xs hover:bg-emerald-500 transition-all shadow-lg shadow-emerald-900/50 mt-4"
             >
               完成
             </button>

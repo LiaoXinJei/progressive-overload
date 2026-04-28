@@ -123,6 +123,70 @@ export const MUSCLE_GROUPS = {
   HAMS: '腿後側'
 };
 
+// ==================== 動作庫預設資料 ====================
+// 用於「替換動作」的 data source。包含 WORKOUTS 中所有動作 + 常見替代動作。
+
+const collectFromWorkouts = () => {
+  const seen = new Set();
+  const list = [];
+  Object.values(WORKOUTS).forEach(w => {
+    w.exercises.forEach(ex => {
+      if (!seen.has(ex.id)) {
+        seen.add(ex.id);
+        list.push({
+          id: ex.id,
+          name: ex.name,
+          muscle: ex.muscle,
+          type: ex.type,
+          defaultSets: 3,
+        });
+      }
+    });
+  });
+  return list;
+};
+
+const EXTRA_LIBRARY_ITEMS = [
+  // CHEST
+  { id: 'lib_db_fly', name: '啞鈴飛鳥', muscle: 'CHEST', type: 'isolation', defaultSets: 3 },
+  { id: 'lib_low_cable_fly', name: '低位繩索飛鳥', muscle: 'CHEST', type: 'isolation', defaultSets: 3 },
+  { id: 'lib_decline_press', name: '下斜臥推', muscle: 'CHEST', type: 'compound', defaultSets: 3 },
+  // BACK
+  { id: 'lib_pulldown_wide', name: '寬握高位下拉', muscle: 'BACK', type: 'compound', defaultSets: 3 },
+  { id: 'lib_t_bar_row', name: 'T-Bar 划船', muscle: 'BACK', type: 'compound', defaultSets: 3 },
+  { id: 'lib_chest_supported_row', name: '胸靠支撐划船', muscle: 'BACK', type: 'compound', defaultSets: 3 },
+  { id: 'lib_deadlift', name: '傳統硬舉', muscle: 'BACK', type: 'compound', defaultSets: 3 },
+  // SHOULDERS
+  { id: 'lib_arnold_press', name: '阿諾肩推', muscle: 'SHOULDERS', type: 'compound', defaultSets: 3 },
+  { id: 'lib_machine_press', name: '機械肩推', muscle: 'SHOULDERS', type: 'compound', defaultSets: 3 },
+  // SIDE_DELT
+  { id: 'lib_lateral_raise_machine_alt', name: '單臂機械側平舉', muscle: 'SIDE_DELT', type: 'isolation', defaultSets: 3 },
+  // REAR_DELT
+  { id: 'lib_rear_delt_db', name: '俯身啞鈴飛鳥', muscle: 'REAR_DELT', type: 'isolation', defaultSets: 3 },
+  // TRICEPS
+  { id: 'lib_skullcrusher', name: '骷髏粉碎機', muscle: 'TRICEPS', type: 'isolation', defaultSets: 3 },
+  { id: 'lib_close_grip_bp', name: '窄握臥推', muscle: 'TRICEPS', type: 'compound', defaultSets: 3 },
+  { id: 'lib_tri_rope_overhead', name: '繩索過頭三頭', muscle: 'TRICEPS', type: 'isolation', defaultSets: 3 },
+  // BICEPS
+  { id: 'lib_bi_concentration', name: '集中彎舉', muscle: 'BICEPS', type: 'isolation', defaultSets: 3 },
+  { id: 'lib_bi_ez_curl', name: 'EZ 槓彎舉', muscle: 'BICEPS', type: 'isolation', defaultSets: 3 },
+  { id: 'lib_bi_incline_db', name: '上斜啞鈴彎舉', muscle: 'BICEPS', type: 'isolation', defaultSets: 3 },
+  // QUADS
+  { id: 'lib_squat_bb', name: '槓鈴深蹲', muscle: 'QUADS', type: 'compound', defaultSets: 3 },
+  { id: 'lib_hack_squat', name: '哈克深蹲', muscle: 'QUADS', type: 'compound', defaultSets: 3 },
+  { id: 'lib_leg_press', name: '腿推', muscle: 'QUADS', type: 'compound', defaultSets: 3 },
+  { id: 'lib_bulgarian_split', name: '保加利亞分腿蹲', muscle: 'QUADS', type: 'compound', defaultSets: 3 },
+  // HAMS
+  { id: 'lib_rdl', name: '羅馬尼亞硬舉', muscle: 'HAMS', type: 'compound', defaultSets: 3 },
+  { id: 'lib_seated_leg_curl', name: '坐姿腿彎舉', muscle: 'HAMS', type: 'isolation', defaultSets: 3 },
+  { id: 'lib_good_morning', name: '早安式體前屈', muscle: 'HAMS', type: 'compound', defaultSets: 3 },
+];
+
+export const DEFAULT_EXERCISE_LIBRARY = [
+  ...collectFromWorkouts(),
+  ...EXTRA_LIBRARY_ITEMS,
+];
+
 // ==================== 預計算：肌群 → 出現在哪些 session ====================
 
 export const MUSCLE_SESSION_MAP = {};
