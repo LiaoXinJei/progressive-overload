@@ -445,7 +445,15 @@ const TrainingView = ({
             <p className="text-neutral-500 text-sm mt-1">{currentWorkout.subtitle}</p>
           </div>
 
-          <DragDropContext onDragEnd={handleDragEnd}>
+          <DragDropContext
+            onDragEnd={handleDragEnd}
+            autoScrollerOptions={{
+              startFromPercentage: 0.15,
+              maxScrollAtPercentage: 0.03,
+              maxPixelScroll: 8,
+              ease: (p) => p * p,
+            }}
+          >
             <Droppable droppableId={`exercises-${workoutKey}`}>
               {(provided) => (
                 <div
