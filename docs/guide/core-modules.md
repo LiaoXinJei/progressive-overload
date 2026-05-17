@@ -42,6 +42,27 @@
 3. 再均分到該 session 內的動作（**第一個動作拿餘數**）
 4. 受 `MAX_SETS_PER_EXERCISE`（預設 4）封頂，避免單動作組數爆炸
 
+### Superset 配對休息計時（pair rest timer）
+
+- **常數**：`SUPERSET_PAIRS[sessionKey]` 列出該 session 的 antagonist 配對（含 primary / secondary / rest 秒數）
+- **Helper**：`src/utils/pairRoundState.js`
+  - `getPairRoundState(pair, aSets, bSets, week, day, logs)` — 純 derived、從 `logs` 推 round 狀態
+  - `getPairEndTimestamp(...)` — 取 `max(lastRound.A.completedAt, lastRound.B.completedAt)`、僅納入 done 組
+- **狀態機**（給定一個 pair）：
+  - `idle`：尚未有任何 round 開始
+  - `mid-round`：某 round 兩組「恰好一邊 settled」→ amber「⏱ 切換中」
+  - `between-rounds`：某 round 已 complete、下一 round 尚未開始 → emerald / rose「輪間休息: m:ss / 目標 m:ss」（超目標轉 rose）
+  - `done`：所有 core round 皆 complete
+- **UI**：`<PairStickyBar>` 黏在 pair 卡片內部頂端（`position: sticky; top: 0`）、bar 左側顯示 A、B 兩列 round dots（done 實心、pending 空心、skipped 斜線）
+- **設計取捨**（純 derived、不動 schema）
+  - logs 已記 done / skipped / completedAt、足以推出 round 狀態、不需新增欄位
+  - core round 數 = `min(aSets, bSets)`、超出組數視為 single tail、回退單動作組間休息語意
+- **邊界訊息**
+  - 進入 pair（pair `idle` 且前一 group 完成）→ sticky bar 上方一行「{上一動作 / 上一配對}完成 m:ss 前 · 進入 superset」
+  - 離開 pair（pair → 後一獨立動作）→ 後動作 inter-exercise rest 起算點 = `getPairEndTimestamp(...)`
+- **pair 內隱藏 inline rest**：pair 成員的 set 列不渲染「休息時間 / 休息中」、所有休息訊息統一由 sticky bar 呈現
+- **規格**：`openspec/specs/superset-execution/` 與 `openspec/specs/workout-execution-ui/`
+
 ---
 
 ## 動作庫管理（ExerciseLibraryManager）

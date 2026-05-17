@@ -90,6 +90,9 @@ const RPFocusPro = () => {
     return !nextLog.skipped && !nextLog.done;
   }, [logs, lastCompletedAt, currentWeek, currentDay]);
 
+  // TODO(next-change): 通知 delay 應依「pair 內 vs 單動作」context 切換
+  // （pair 內用 SUPERSET_PAIRS[*].rest、其他用全域 restNotificationDelay）。
+  // 詳見 openspec/changes/fix-superset-rest-timer/proposal.md「不在本 change 範圍」。
   useRestNotification({ lastCompletedAt: restActive ? lastCompletedAt : null, restNotificationDelay });
 
   const formatTime = (seconds) => {

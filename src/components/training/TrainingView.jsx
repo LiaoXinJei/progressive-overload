@@ -10,8 +10,119 @@ import {
   MUSCLE_SESSION_MAP, MAX_SETS_PER_EXERCISE,
   SUPERSET_PAIRS, SESSION_TYPE_THEME,
 } from '../../constants/workouts';
+import { getPairRoundState, getPairEndTimestamp } from '../../utils/pairRoundState';
 
 const LOWER_MUSCLES = new Set(['QUADS', 'HAMS']);
+
+const formatMmSs = (seconds) => {
+  const s = Math.max(0, Math.floor(seconds));
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return `${m}:${r.toString().padStart(2, '0')}`;
+};
+
+const RoundDots = ({ rounds }) => (
+  <div className="flex flex-col gap-1">
+    {['a', 'b'].map(side => (
+      <div key={side} className="flex gap-1">
+        {rounds.map(r => {
+          const log = side === 'a' ? r.aLog : r.bLog;
+          const done = log?.done;
+          const skipped = log?.skipped;
+          if (skipped) {
+            return (
+              <span
+                key={r.idx}
+                className="w-2.5 h-2.5 rounded-full border border-orange-400/40 flex items-center justify-center text-[8px] text-orange-400/50 leading-none"
+                title={`${side.toUpperCase()}${r.idx + 1} 跳過`}
+              >
+                /
+              </span>
+            );
+          }
+          return (
+            <span
+              key={r.idx}
+              className={`w-2.5 h-2.5 rounded-full border ${
+                done ? 'bg-orange-400 border-orange-400' : 'border-orange-400/40'
+              }`}
+              title={`${side.toUpperCase()}${r.idx + 1} ${done ? '完成' : '待做'}`}
+            />
+          );
+        })}
+      </div>
+    ))}
+  </div>
+);
+
+const PairStickyBar = ({
+  pairState,
+  pairInfo,
+  currentTime,
+  enterPairFromTs,
+  enterPairLabel,
+}) => {
+  const { state, rounds, lastCompleteRoundEndTs, midRoundAnchorTs, currentRoundIdx } = pairState;
+  const targetSec = pairInfo.rest;
+
+  // 主訊息渲染
+  let mainNode = null;
+  if (state === 'idle') {
+    mainNode = (
+      <span className="text-orange-200/80 text-xs font-bold">
+        準備開始 R{currentRoundIdx + 1}
+      </span>
+    );
+  } else if (state === 'mid-round') {
+    const elapsed = midRoundAnchorTs != null
+      ? Math.floor((currentTime - midRoundAnchorTs) / 1000)
+      : 0;
+    mainNode = (
+      <span className="text-amber-300 text-xs font-bold tabular-nums">
+        ⏱ 切換中: {formatMmSs(elapsed)}
+      </span>
+    );
+  } else if (state === 'between-rounds') {
+    const elapsed = lastCompleteRoundEndTs != null
+      ? Math.floor((currentTime - lastCompleteRoundEndTs) / 1000)
+      : 0;
+    const over = elapsed > targetSec;
+    mainNode = (
+      <span className={`text-xs font-bold tabular-nums ${over ? 'text-rose-400' : 'text-emerald-400'}`}>
+        {over ? '🔴' : '🟢'} 輪間休息: {formatMmSs(elapsed)} / 目標 {formatMmSs(targetSec)}
+      </span>
+    );
+  } else if (state === 'done') {
+    mainNode = (
+      <span className="text-emerald-300/80 text-xs font-bold">
+        ✓ 完成 · {rounds.length} 輪
+      </span>
+    );
+  }
+
+  // enter-pair 提示：僅 idle 時、且前一動作完成 timestamp 存在
+  const showEnterPair = state === 'idle' && enterPairFromTs != null;
+  const enterPairElapsed = showEnterPair
+    ? Math.floor((currentTime - enterPairFromTs) / 1000)
+    : 0;
+
+  return (
+    <div
+      className="sticky top-0 z-10 px-5 py-2.5 bg-neutral-950/85 backdrop-blur-sm border-b border-orange-800/40"
+      style={{ position: 'sticky', top: 0 }}
+    >
+      {showEnterPair && (
+        <div className="text-[10px] text-orange-200/70 italic mb-1.5 tabular-nums">
+          {enterPairLabel}完成 {formatMmSs(enterPairElapsed)} 前 · 進入 superset
+        </div>
+      )}
+      <div className="flex items-center justify-between gap-3">
+        <RoundDots rounds={rounds} />
+        <div className="text-right">{mainNode}</div>
+      </div>
+    </div>
+  );
+};
 
 const TrainingView = ({
   logs, setLogs,
@@ -453,13 +564,25 @@ const TrainingView = ({
     return result;
   })();
 
-  // 動作 id → 在平面 plan 中的索引（用於計算「上一個動作的最後一組 key」）
-  const flatIdxMap = new Map();
-  currentSessionPlan.forEach((entry, i) => flatIdxMap.set(entry.exercise.id, i));
+  // 計算每個 group 的「前一 group end timestamp + kind」
+  // 用於 single：inter-exercise rest 起算點
+  // 用於 pair：sticky bar 上方 enter-pair 提示
+  const groupBoundaries = groupedPlan.map((_, idx) => {
+    if (idx === 0) return { prevEndTs: null, prevKind: null };
+    const prev = groupedPlan[idx - 1];
+    if (prev.type === 'single') {
+      const ex = prev.item.exercise;
+      const lastKey = `w${currentWeek}-d${currentDay}-${ex.id}-s${prev.item.sets - 1}`;
+      return { prevEndTs: logs[lastKey]?.completedAt ?? null, prevKind: 'single' };
+    }
+    const [a, b] = prev.items;
+    const pairCfg = { primary: a.exercise.id, secondary: b.exercise.id, rest: prev.rest };
+    const ts = getPairEndTimestamp(pairCfg, a.sets, b.sets, currentWeek, currentDay, logs);
+    return { prevEndTs: ts, prevKind: 'pair' };
+  });
 
-  const renderExerciseInner = ({ entry, dragHandleProps, hideInterRest }) => {
+  const renderExerciseInner = ({ entry, dragHandleProps, hideInterRest, hideSetRest, prevEndTs }) => {
     const { exercise: ex, sets: setsCount } = entry;
-    const flatIdx = flatIdxMap.get(ex.id) ?? 0;
 
     const completedCount = [...Array(setsCount)].filter((_, idx) => {
       const logKey = `w${currentWeek}-d${currentDay}-${ex.id}-s${idx}`;
@@ -473,11 +596,7 @@ const TrainingView = ({
 
     const firstSetKey = `w${currentWeek}-d${currentDay}-${ex.id}-s0`;
     const firstSetLog = logs[firstSetKey];
-    let previousExerciseLastSetKey = null;
-    if (!hideInterRest && flatIdx > 0) {
-      const prevPlan = currentSessionPlan[flatIdx - 1];
-      previousExerciseLastSetKey = `w${currentWeek}-d${currentDay}-${prevPlan.exercise.id}-s${prevPlan.sets - 1}`;
-    }
+    const hasPrevEndTs = !hideInterRest && typeof prevEndTs === 'number';
 
     return (
       <div className={`p-6 transition-all ${allDone ? 'bg-emerald-500/5 opacity-60' : ''}`}>
@@ -571,24 +690,23 @@ const TrainingView = ({
         </div>
 
         {/* Inter-Exercise Rest Time */}
-        {previousExerciseLastSetKey && (() => {
-          const prevLastSetLog = logs[previousExerciseLastSetKey];
-          if (prevLastSetLog?.completedAt && !firstSetLog?.done) {
-            const interExerciseRestTime = getCurrentRestTime(previousExerciseLastSetKey);
+        {hasPrevEndTs && (() => {
+          if (!firstSetLog?.done) {
+            const elapsed = Math.floor((currentTime - prevEndTs) / 1000);
             return (
               <div className="mb-4 p-3 bg-blue-900/20 border border-blue-800 rounded-xl">
                 <div className="text-sm text-blue-400 font-semibold animate-pulse flex items-center gap-2">
-                  動作間休息: {interExerciseRestTime}
+                  動作間休息: {formatTime(elapsed)}
                 </div>
               </div>
             );
           }
-          if (prevLastSetLog?.completedAt && firstSetLog?.completedAt) {
-            const interExerciseRestTime = calculateRestTime(firstSetKey, previousExerciseLastSetKey);
-            return interExerciseRestTime ? (
+          if (firstSetLog?.completedAt) {
+            const restSeconds = Math.floor((firstSetLog.completedAt - prevEndTs) / 1000);
+            return restSeconds >= 0 ? (
               <div className="mb-4 p-3 bg-neutral-800/50 border border-neutral-700 rounded-xl">
                 <div className="text-sm text-neutral-500 flex items-center gap-2">
-                  動作間休息: {interExerciseRestTime}
+                  動作間休息: {formatTime(restSeconds)}
                 </div>
               </div>
             ) : null;
@@ -711,8 +829,8 @@ const TrainingView = ({
                   </button>
                 </div>
 
-                {/* Rest Time Display */}
-                {(() => {
+                {/* Rest Time Display（pair 內由 sticky bar 統一呈現、此處隱藏） */}
+                {!hideSetRest && (() => {
                   if (logData.skipped) return null;
                   const isLastSet = idx === setsCount - 1;
                   const nextLogKey = `w${currentWeek}-d${currentDay}-${ex.id}-s${idx + 1}`;
@@ -824,7 +942,12 @@ const TrainingView = ({
                   {...provided.droppableProps}
                 >
                   {groupedPlan.map((group, groupIdx) => {
+                    const { prevEndTs, prevKind } = groupBoundaries[groupIdx];
                     if (group.type === 'pair') {
+                      const [a, b] = group.items;
+                      const pairCfg = { primary: a.exercise.id, secondary: b.exercise.id, rest: group.rest };
+                      const pairState = getPairRoundState(pairCfg, a.sets, b.sets, currentWeek, currentDay, logs);
+                      const enterPairLabel = prevKind === 'pair' ? '上一配對' : '上一動作';
                       return (
                         <Draggable key={group.id} draggableId={group.id} index={groupIdx}>
                           {(provided, snapshot) => (
@@ -848,11 +971,25 @@ const TrainingView = ({
                                   切換 15s · 組間 {group.rest}s
                                 </div>
                               </div>
+                              {/* Sticky timer bar（pair 唯一休息呈現載體） */}
+                              <PairStickyBar
+                                pairState={pairState}
+                                pairInfo={pairCfg}
+                                currentTime={currentTime}
+                                enterPairFromTs={prevEndTs}
+                                enterPairLabel={enterPairLabel}
+                              />
                               {/* Inner exercises */}
                               <div className="divide-y divide-orange-900/30">
                                 {group.items.map(entry => (
                                   <React.Fragment key={entry.exercise.id}>
-                                    {renderExerciseInner({ entry, dragHandleProps: null, hideInterRest: true })}
+                                    {renderExerciseInner({
+                                      entry,
+                                      dragHandleProps: null,
+                                      hideInterRest: true,
+                                      hideSetRest: true,
+                                      prevEndTs: null,
+                                    })}
                                   </React.Fragment>
                                 ))}
                               </div>
@@ -875,7 +1012,13 @@ const TrainingView = ({
                             {...provided.draggableProps}
                             className={`transition-all ${snapshot.isDragging ? 'bg-neutral-800 shadow-2xl rounded-xl opacity-95' : ''}`}
                           >
-                            {renderExerciseInner({ entry: group.item, dragHandleProps: provided.dragHandleProps, hideInterRest: false })}
+                            {renderExerciseInner({
+                              entry: group.item,
+                              dragHandleProps: provided.dragHandleProps,
+                              hideInterRest: false,
+                              hideSetRest: false,
+                              prevEndTs,
+                            })}
                           </div>
                         )}
                       </Draggable>
