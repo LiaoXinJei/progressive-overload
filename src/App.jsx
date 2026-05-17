@@ -106,49 +106,136 @@ const RPFocusPro = () => {
 
   useEffect(() => {
     const saved = localStorage.getItem('rp_focus_pro_data');
-    if (saved) {
-      try {
-        const data = JSON.parse(saved);
-        setLogs(data.logs || {});
-        // history 結構遷移：v2 number → v3 { weight, reps }
-        const rawHistory = data.history || {};
-        const migratedHistory = {};
-        Object.entries(rawHistory).forEach(([k, v]) => {
-          if (typeof v === 'number') {
-            migratedHistory[k] = { weight: v, reps: '' };
-          } else if (v && typeof v === 'object') {
-            migratedHistory[k] = { weight: v.weight ?? '', reps: v.reps ?? '' };
+    if (!saved) return;
+    try {
+      const data = JSON.parse(saved);
+
+      // history 結構遷移：v2 number → v3 { weight, reps }
+      const rawHistory = data.history || {};
+      let migratedHistory = {};
+      Object.entries(rawHistory).forEach(([k, v]) => {
+        if (typeof v === 'number') {
+          migratedHistory[k] = { weight: v, reps: '' };
+        } else if (v && typeof v === 'object') {
+          migratedHistory[k] = { weight: v.weight ?? '', reps: v.reps ?? '' };
+        }
+      });
+
+      let migratedLogs = data.logs || {};
+      let migratedCustomSets = data.customSets || {};
+      let migratedOverrides = data.exerciseOverrides || {};
+      let migratedCustomExercises = data.customExercises || {};
+      let migratedExerciseOrder = data.exerciseOrder || {};
+      let migratedViewState = data.viewState || {};
+
+      // v3 → v4 migration：腿部訓練計劃 v3 FINAL 升級
+      const needsV4Migration = (data.schemaVersion ?? 3) < 4;
+      if (needsV4Migration) {
+        const REMOVED_IDS = ['pec_deck', 'ohp', 'fly_cable', 'tri_kickback', 'bb_row', 'leg_curl'];
+        const RENAMED_IDS = {
+          tri_overhead: 'tri_overhead_seated',
+          bp_machine: 'lib_machine_press_flat',
+        };
+
+        // 1. history 改名 + 清除
+        Object.entries(RENAMED_IDS).forEach(([oldId, newId]) => {
+          if (migratedHistory[oldId] !== undefined) {
+            migratedHistory[newId] = migratedHistory[oldId];
+            delete migratedHistory[oldId];
           }
         });
-        setHistory(migratedHistory);
-        setMode(data.mode || 'maintenance');
-        setCurrentWeek(data.viewState?.currentWeek || 1);
-        setCurrentDay(data.viewState?.currentDay || 0);
-        setShowStats(data.viewState?.showStats ?? true);
-        setCustomExerciseNames(data.customExerciseNames || {});
-        setCustomExercises(data.customExercises || {});
-        setCustomSets(data.customSets || {});
-        setExerciseOrder(data.exerciseOrder || {});
-        setExerciseLibrary(
-          Array.isArray(data.exerciseLibrary) && data.exerciseLibrary.length > 0
-            ? data.exerciseLibrary
-            : DEFAULT_EXERCISE_LIBRARY
-        );
-        setExerciseOverrides(data.exerciseOverrides || {});
-        setWeightIncrement(data.weightIncrement ?? 2);
-        setRestNotificationDelay(data.restNotificationDelay ?? 90);
-        setActiveTab(data.activeTab || 'training');
-        setNutritionProfile(data.nutritionProfile || null);
-        setNutritionLogs(data.nutritionLogs || {});
-      } catch (e) {
-        console.error('載入數據失敗:', e);
+        REMOVED_IDS.forEach(id => { delete migratedHistory[id]; });
+
+        // 2. logs 改名 + 清除
+        const nextLogs = {};
+        Object.entries(migratedLogs).forEach(([key, value]) => {
+          const match = key.match(/^(w\d+-d\d+-)(.+)(-s\d+)$/);
+          if (!match) {
+            nextLogs[key] = value;
+            return;
+          }
+          const exId = match[2];
+          if (REMOVED_IDS.includes(exId)) return;
+          if (RENAMED_IDS[exId]) {
+            nextLogs[`${match[1]}${RENAMED_IDS[exId]}${match[3]}`] = value;
+            return;
+          }
+          nextLogs[key] = value;
+        });
+        migratedLogs = nextLogs;
+
+        // 3. customSets / exerciseOverrides 清除（含改名動作的舊覆寫、依對齊決策一併清掉）
+        const purgeOverrideMap = (map) => {
+          const next = {};
+          Object.entries(map).forEach(([key, value]) => {
+            const dashIdx = key.indexOf('-');
+            const exId = dashIdx >= 0 ? key.slice(dashIdx + 1) : key;
+            if (REMOVED_IDS.includes(exId)) return;
+            if (RENAMED_IDS[exId]) return;
+            next[key] = value;
+          });
+          return next;
+        };
+        migratedCustomSets = purgeOverrideMap(migratedCustomSets);
+        migratedOverrides = purgeOverrideMap(migratedOverrides);
+
+        // 4. customExercises 清除
+        const nextCustomEx = {};
+        Object.entries(migratedCustomExercises).forEach(([wKey, list]) => {
+          if (!Array.isArray(list)) return;
+          nextCustomEx[wKey] = list.filter(ex =>
+            !REMOVED_IDS.includes(ex.id) && !RENAMED_IDS[ex.id]
+          );
+        });
+        migratedCustomExercises = nextCustomEx;
+
+        // 5. exerciseOrder 清除/改名
+        const nextOrder = {};
+        Object.entries(migratedExerciseOrder).forEach(([wKey, ids]) => {
+          if (!Array.isArray(ids)) return;
+          nextOrder[wKey] = ids
+            .filter(id => !REMOVED_IDS.includes(id))
+            .map(id => RENAMED_IDS[id] ?? id);
+        });
+        migratedExerciseOrder = nextOrder;
+
+        // 6. 進度重置：W1、Day 0
+        migratedViewState = {
+          ...migratedViewState,
+          currentWeek: 1,
+          currentDay: 0,
+        };
       }
+
+      setLogs(migratedLogs);
+      setHistory(migratedHistory);
+      setMode(data.mode || 'maintenance');
+      setCurrentWeek(migratedViewState.currentWeek || 1);
+      setCurrentDay(migratedViewState.currentDay || 0);
+      setShowStats(migratedViewState.showStats ?? true);
+      setCustomExerciseNames(data.customExerciseNames || {});
+      setCustomExercises(migratedCustomExercises);
+      setCustomSets(migratedCustomSets);
+      setExerciseOrder(migratedExerciseOrder);
+      setExerciseLibrary(
+        Array.isArray(data.exerciseLibrary) && data.exerciseLibrary.length > 0
+          ? data.exerciseLibrary
+          : DEFAULT_EXERCISE_LIBRARY
+      );
+      setExerciseOverrides(migratedOverrides);
+      setWeightIncrement(data.weightIncrement ?? 2);
+      setRestNotificationDelay(data.restNotificationDelay ?? 90);
+      setActiveTab(data.activeTab || 'training');
+      setNutritionProfile(data.nutritionProfile || null);
+      setNutritionLogs(data.nutritionLogs || {});
+    } catch (e) {
+      console.error('載入數據失敗:', e);
     }
   }, []);
 
   useEffect(() => {
     const state = {
-      schemaVersion: 3,
+      schemaVersion: 4,
       logs, history, mode,
       viewState: { currentWeek, currentDay, showStats },
       customExerciseNames, customExercises, customSets, exerciseOrder,

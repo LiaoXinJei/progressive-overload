@@ -183,6 +183,11 @@ HAMS:      [4, 4, 4, 4]      // 固定（純維持）
 | 訓練菜單 | 同上的 `WORKOUTS`（`MUSCLE_SESSION_MAP` 會自動重算） |
 | 週期配置（次數區間） | 同上的 `PHASE_CONFIG` |
 | 單動作組數上限 | 同上的 `MAX_SETS_PER_EXERCISE` |
+| Superset 配對 | 同上的 `SUPERSET_PAIRS`（key 為 session ID、value 為配對清單） |
+| Session 配色（push / pull / legs） | 同上的 `SESSION_TYPE_THEME` |
+| 動作 RIR 警示徽章 | 在 `WORKOUTS` 動作物件加 `noteRIR: '2-3'` 字串 |
+| 動作底下灰字提示 | 在 `WORKOUTS` 動作物件加 `noteText: '...'` 字串 |
+| 移除 / 改名動作 | `App.jsx` 的 v3→v4 migration block（`REMOVED_IDS` / `RENAMED_IDS`）+ bump `schemaVersion` |
 | 訓練核心 UI | `src/components/training/TrainingView.jsx` |
 | 營養追蹤 | `src/components/nutrition/NutritionView.jsx` |
 | 動作庫管理 | `src/components/settings/ExerciseLibraryManager.jsx` |

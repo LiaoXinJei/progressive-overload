@@ -5,7 +5,11 @@ import {
   Edit2, XCircle, GripVertical, Trash2, X, Search
 } from 'lucide-react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
-import { WORKOUTS, MUSCLE_GROUPS, VOLUME_CONFIG, PHASE_CONFIG, MUSCLE_SESSION_MAP, MAX_SETS_PER_EXERCISE } from '../../constants/workouts';
+import {
+  WORKOUTS, MUSCLE_GROUPS, VOLUME_CONFIG, PHASE_CONFIG,
+  MUSCLE_SESSION_MAP, MAX_SETS_PER_EXERCISE,
+  SUPERSET_PAIRS, SESSION_TYPE_THEME,
+} from '../../constants/workouts';
 
 const LOWER_MUSCLES = new Set(['QUADS', 'HAMS']);
 
@@ -30,7 +34,7 @@ const TrainingView = ({
   // ==================== 核心邏輯函數 ====================
 
   const getWorkoutForDay = (week, dayIndex) => {
-    return ['A', 'B', 'C', 'D'][dayIndex];
+    return ['A', 'B', 'C', 'D', 'E'][dayIndex];
   };
 
   const getPhase = (week) => {
@@ -352,10 +356,18 @@ const TrainingView = ({
 
   const handleDragEnd = (result) => {
     if (!result.destination) return;
-    const ids = currentSessionPlan.map(p => p.exercise.id);
-    const [removed] = ids.splice(result.source.index, 1);
-    ids.splice(result.destination.index, 0, removed);
-    setExerciseOrder(prev => ({ ...prev, [workoutKey]: ids }));
+    const next = [...groupedPlan];
+    const [removed] = next.splice(result.source.index, 1);
+    next.splice(result.destination.index, 0, removed);
+    const flatIds = [];
+    next.forEach(g => {
+      if (g.type === 'pair') {
+        g.items.forEach(it => flatIds.push(it.exercise.id));
+      } else {
+        flatIds.push(g.item.exercise.id);
+      }
+    });
+    setExerciseOrder(prev => ({ ...prev, [workoutKey]: flatIds }));
   };
 
   // ==================== 統計計算 ====================
@@ -369,10 +381,23 @@ const TrainingView = ({
     );
   }, [exerciseLibrary, pickerSearch]);
 
+  const sessionDuration = useMemo(() => {
+    const prefix = `w${currentWeek}-d${currentDay}-`;
+    const timestamps = Object.entries(logs)
+      .filter(([key]) => key.startsWith(prefix))
+      .map(([, log]) => log?.completedAt)
+      .filter(Boolean);
+    if (timestamps.length === 0) return 0;
+    const start = Math.min(...timestamps);
+    return Math.floor((currentTime - start) / 1000);
+  }, [logs, currentWeek, currentDay, currentTime]);
+
+  const overMinutes = sessionDuration > 3600 ? Math.floor((sessionDuration - 3600) / 60) : 0;
+
   const weeklyVolume = useMemo(() => {
     const vol = {};
     Object.keys(MUSCLE_GROUPS).forEach(k => vol[k] = 0);
-    [0, 1, 2, 3].forEach(dayIndex => {
+    [0, 1, 2, 3, 4].forEach(dayIndex => {
       const workoutKey = getWorkoutForDay(currentWeek, dayIndex);
       const plan = getSessionPlan(currentWeek, workoutKey);
       plan.forEach(({ exercise, sets }) => {
@@ -391,6 +416,333 @@ const TrainingView = ({
   const currentOverrideId = pickerForExId
     ? exerciseOverrides[`${workoutKey}-${pickerForExId}`]
     : null;
+  const sessionTheme = SESSION_TYPE_THEME[currentWorkout.type] ?? SESSION_TYPE_THEME.push;
+
+  // 將動作清單依 SUPERSET_PAIRS 分組為 [pair, single, ...]
+  const groupedPlan = (() => {
+    const pairs = SUPERSET_PAIRS[workoutKey] || [];
+    const pairMap = new Map();
+    pairs.forEach(p => {
+      pairMap.set(p.primary, { partner: p.secondary, rest: p.rest, role: 'primary' });
+      pairMap.set(p.secondary, { partner: p.primary, rest: p.rest, role: 'secondary' });
+    });
+    const result = [];
+    const used = new Set();
+    currentSessionPlan.forEach(entry => {
+      if (used.has(entry.exercise.id)) return;
+      const pi = pairMap.get(entry.exercise.id);
+      if (pi) {
+        const partner = currentSessionPlan.find(e => e.exercise.id === pi.partner);
+        if (partner && !used.has(partner.exercise.id)) {
+          const primary = pi.role === 'primary' ? entry : partner;
+          const secondary = pi.role === 'primary' ? partner : entry;
+          result.push({
+            type: 'pair',
+            id: `pair-${primary.exercise.id}-${secondary.exercise.id}`,
+            items: [primary, secondary],
+            rest: pi.rest,
+          });
+          used.add(primary.exercise.id);
+          used.add(secondary.exercise.id);
+          return;
+        }
+      }
+      result.push({ type: 'single', id: `s-${entry.exercise.id}`, item: entry });
+      used.add(entry.exercise.id);
+    });
+    return result;
+  })();
+
+  // 動作 id → 在平面 plan 中的索引（用於計算「上一個動作的最後一組 key」）
+  const flatIdxMap = new Map();
+  currentSessionPlan.forEach((entry, i) => flatIdxMap.set(entry.exercise.id, i));
+
+  const renderExerciseInner = ({ entry, dragHandleProps, hideInterRest }) => {
+    const { exercise: ex, sets: setsCount } = entry;
+    const flatIdx = flatIdxMap.get(ex.id) ?? 0;
+
+    const completedCount = [...Array(setsCount)].filter((_, idx) => {
+      const logKey = `w${currentWeek}-d${currentDay}-${ex.id}-s${idx}`;
+      return logs[logKey]?.done;
+    }).length;
+    const skippedCount = [...Array(setsCount)].filter((_, idx) => {
+      const logKey = `w${currentWeek}-d${currentDay}-${ex.id}-s${idx}`;
+      return logs[logKey]?.skipped;
+    }).length;
+    const allDone = (completedCount + skippedCount) === setsCount;
+
+    const firstSetKey = `w${currentWeek}-d${currentDay}-${ex.id}-s0`;
+    const firstSetLog = logs[firstSetKey];
+    let previousExerciseLastSetKey = null;
+    if (!hideInterRest && flatIdx > 0) {
+      const prevPlan = currentSessionPlan[flatIdx - 1];
+      previousExerciseLastSetKey = `w${currentWeek}-d${currentDay}-${prevPlan.exercise.id}-s${prevPlan.sets - 1}`;
+    }
+
+    return (
+      <div className={`p-6 transition-all ${allDone ? 'bg-emerald-500/5 opacity-60' : ''}`}>
+        {/* Exercise Header */}
+        <div className="flex items-start gap-2 mb-4">
+          {dragHandleProps ? (
+            <div
+              {...dragHandleProps}
+              className="mt-1 text-neutral-700 hover:text-neutral-400 cursor-grab active:cursor-grabbing flex-shrink-0 touch-none"
+            >
+              <GripVertical size={20} />
+            </div>
+          ) : (
+            <div className="mt-1 w-5 flex-shrink-0" />
+          )}
+          <div className="flex-1 flex justify-between items-start">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className={`w-2 h-2 rounded-full ${ex.isUpper ? 'bg-blue-500' : 'bg-orange-500'}`}></span>
+                <h3 className="text-lg font-bold text-neutral-100">
+                  {customExerciseNames[ex.id] || ex.name}
+                </h3>
+                <button
+                  onClick={() => { setPickerForExId(ex.id); setPickerSearch(''); }}
+                  className="text-neutral-600 hover:text-neutral-400 transition-colors"
+                  title="替換動作"
+                >
+                  <Edit2 size={14} />
+                </button>
+                {ex.isCustom && (
+                  <button
+                    onClick={() => removeCustomExercise(ex.id)}
+                    className="text-neutral-700 hover:text-rose-500 transition-colors"
+                    title="刪除此動作"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center gap-2 mt-2 flex-wrap">
+                <span className="text-[10px] font-black bg-neutral-800 text-neutral-400 px-2 py-1 rounded inline-block uppercase tracking-wider">
+                  {MUSCLE_GROUPS[ex.muscle] ?? '未知'}
+                </span>
+                <span className="text-[10px] font-mono bg-neutral-800 text-neutral-500 px-2 py-1 rounded inline-block">
+                  {getRepRange(ex.type, currentWeek)} 下
+                </span>
+                <span className={`text-[10px] font-bold ${ex.type === 'compound' ? 'text-cyan-500' : 'text-neutral-600'}`}>
+                  {ex.type === 'compound' ? '複合' : '隔離'}
+                </span>
+                {ex.noteRIR && (
+                  <span className="text-[10px] font-black bg-rose-900/40 text-rose-300 border border-rose-700/50 px-2 py-1 rounded uppercase tracking-wider">
+                    ⚠ RIR {ex.noteRIR} · 不可至力竭
+                  </span>
+                )}
+              </div>
+              {ex.noteText && (
+                <p className="text-[11px] text-neutral-500 mt-1.5 italic">
+                  {ex.noteText}
+                </p>
+              )}
+            </div>
+
+            <div className="text-right flex flex-col items-end gap-1">
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => adjustExerciseSets(ex.id, -1, setsCount)}
+                  className="p-1 text-neutral-600 hover:text-neutral-300 hover:bg-neutral-800 rounded-lg transition-colors"
+                  title="減少一組"
+                >
+                  <Minus size={14} />
+                </button>
+                <div className="text-2xl font-black font-mono text-neutral-700 min-w-[2rem] text-center">
+                  {setsCount}<span className="text-sm ml-0.5">組</span>
+                </div>
+                <button
+                  onClick={() => adjustExerciseSets(ex.id, 1, setsCount)}
+                  className="p-1 text-neutral-600 hover:text-neutral-300 hover:bg-neutral-800 rounded-lg transition-colors"
+                  title="增加一組"
+                >
+                  <Plus size={14} />
+                </button>
+              </div>
+              <div className="text-xs text-neutral-600">
+                {completedCount}/{setsCount} 完成
+                {skippedCount > 0 && (
+                  <span className="ml-1 text-neutral-700">· {skippedCount} 跳過</span>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Inter-Exercise Rest Time */}
+        {previousExerciseLastSetKey && (() => {
+          const prevLastSetLog = logs[previousExerciseLastSetKey];
+          if (prevLastSetLog?.completedAt && !firstSetLog?.done) {
+            const interExerciseRestTime = getCurrentRestTime(previousExerciseLastSetKey);
+            return (
+              <div className="mb-4 p-3 bg-blue-900/20 border border-blue-800 rounded-xl">
+                <div className="text-sm text-blue-400 font-semibold animate-pulse flex items-center gap-2">
+                  動作間休息: {interExerciseRestTime}
+                </div>
+              </div>
+            );
+          }
+          if (prevLastSetLog?.completedAt && firstSetLog?.completedAt) {
+            const interExerciseRestTime = calculateRestTime(firstSetKey, previousExerciseLastSetKey);
+            return interExerciseRestTime ? (
+              <div className="mb-4 p-3 bg-neutral-800/50 border border-neutral-700 rounded-xl">
+                <div className="text-sm text-neutral-500 flex items-center gap-2">
+                  動作間休息: {interExerciseRestTime}
+                </div>
+              </div>
+            ) : null;
+          }
+          return null;
+        })()}
+
+        {/* Sets List */}
+        <div className="space-y-3">
+          {[...Array(setsCount)].map((_, idx) => {
+            const logKey = `w${currentWeek}-d${currentDay}-${ex.id}-s${idx}`;
+            const logData = logs[logKey] || {};
+            const historyEntry = history[ex.id] || {};
+            const historyWeight = historyEntry.weight;
+            const historyReps = historyEntry.reps;
+            const hasHistory = (historyWeight !== undefined && historyWeight !== '') || (historyReps !== undefined && historyReps !== '');
+
+            return (
+              <React.Fragment key={idx}>
+                <div
+                  data-set-row
+                  className={`flex items-center gap-3 p-3 rounded-xl transition-all
+                  ${logData.skipped
+                    ? 'bg-neutral-800/20 border border-neutral-800 opacity-40'
+                    : logData.done
+                      ? 'bg-emerald-500/10 border border-emerald-500/30'
+                      : 'bg-neutral-800/30 border border-neutral-800'}`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => !logData.skipped && hasHistory && fillFromHistory(logKey, ex.id)}
+                    disabled={logData.skipped || !hasHistory}
+                    title={hasHistory ? '帶入上次重量與次數' : '尚無上次紀錄'}
+                    className={`text-xl font-black w-8 text-center transition-colors
+                      ${logData.skipped ? 'text-neutral-700 line-through cursor-default'
+                        : hasHistory ? 'text-neutral-600 hover:text-emerald-400 cursor-pointer'
+                        : 'text-neutral-600 cursor-default'}`}
+                  >
+                    {idx + 1}
+                  </button>
+                  {logData.skipped ? (
+                    <div className="flex-1 text-center text-sm text-neutral-600 font-bold tracking-wider uppercase py-2">
+                      跳過
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex-1">
+                        <label className="text-[10px] text-neutral-500 block mb-1">重量 (kg)</label>
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => adjustWeight(logKey, -1, historyWeight)}
+                            className="p-2 bg-neutral-900 hover:bg-neutral-800 rounded-lg transition-colors"
+                            title={`-${weightIncrement}kg`}
+                          >
+                            <Minus size={14} />
+                          </button>
+                          <input
+                            data-weight-input
+                            type="number"
+                            step={weightIncrement}
+                            value={logData.weight || ''}
+                            onChange={(e) => updateLog(logKey, 'weight', e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                const repsInput = e.currentTarget.closest('[data-set-row]')?.querySelector('[data-reps-input]');
+                                repsInput?.focus();
+                                repsInput?.select();
+                              }
+                            }}
+                            placeholder={historyWeight ? String(historyWeight) : '—'}
+                            className="w-20 bg-neutral-900 px-3 py-2 rounded-lg text-center font-mono text-sm
+                            focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                          />
+                          <button
+                            onClick={() => adjustWeight(logKey, 1, historyWeight)}
+                            className="p-2 bg-neutral-900 hover:bg-neutral-800 rounded-lg transition-colors"
+                            title={`+${weightIncrement}kg`}
+                          >
+                            <Plus size={14} />
+                          </button>
+                        </div>
+                      </div>
+                      <div className="flex-1">
+                        <label className="text-[10px] text-neutral-500 block mb-1">次數</label>
+                        <input
+                          data-reps-input
+                          type="number"
+                          value={logData.reps || ''}
+                          onChange={(e) => handleRepsChange(logKey, ex.id, e.target.value, historyWeight)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              const allWeightInputs = document.querySelectorAll('[data-weight-input]');
+                              const allRepsInputs = document.querySelectorAll('[data-reps-input]');
+                              const currentIndex = Array.from(allRepsInputs).indexOf(e.currentTarget);
+                              const nextWeightInput = allWeightInputs[currentIndex + 1];
+                              if (nextWeightInput) {
+                                nextWeightInput.focus();
+                                nextWeightInput.select();
+                              }
+                            }
+                          }}
+                          placeholder={historyReps !== undefined && historyReps !== '' ? String(historyReps) : '—'}
+                          className="w-full bg-neutral-900 px-3 py-2 rounded-lg text-center font-mono text-sm
+                          focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        />
+                      </div>
+                    </>
+                  )}
+                  <button
+                    onClick={() => skipSet(logKey)}
+                    title={logData.skipped ? '取消跳過' : '跳過此組'}
+                    className={`p-1.5 rounded-lg transition-colors flex-shrink-0
+                    ${logData.skipped
+                      ? 'text-neutral-500 hover:text-neutral-300'
+                      : 'text-neutral-700 hover:text-rose-500'}`}
+                  >
+                    <XCircle size={16} />
+                  </button>
+                </div>
+
+                {/* Rest Time Display */}
+                {(() => {
+                  if (logData.skipped) return null;
+                  const isLastSet = idx === setsCount - 1;
+                  const nextLogKey = `w${currentWeek}-d${currentDay}-${ex.id}-s${idx + 1}`;
+                  const nextLog = logs[nextLogKey];
+
+                  if (logData.done && !isLastSet && nextLog?.done && !nextLog?.skipped) {
+                    const restTime = calculateRestTime(nextLogKey, logKey);
+                    return restTime ? (
+                      <div className="text-xs text-neutral-500 mt-1 pl-11">
+                        休息時間: {restTime}
+                      </div>
+                    ) : null;
+                  }
+                  if (logData.done && !isLastSet && !nextLog?.done && !nextLog?.skipped) {
+                    const cRestTime = getCurrentRestTime(logKey);
+                    return (
+                      <div className="text-xs text-emerald-400 mt-1 pl-11 font-semibold animate-pulse">
+                        休息中: {cRestTime}
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
+              </React.Fragment>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
 
   return (
     <main className="max-w-6xl mx-auto px-4 py-8 grid lg:grid-cols-12 gap-8">
@@ -399,26 +751,36 @@ const TrainingView = ({
       <div className="lg:col-span-8 space-y-6">
 
         {/* Day Selector */}
-        <div className="grid grid-cols-4 gap-2">
-          {[0, 1, 2, 3].map(d => {
+        <div className="grid grid-cols-5 gap-1.5">
+          {[0, 1, 2, 3, 4].map(d => {
             const wKey = getWorkoutForDay(currentWeek, d);
             const workout = WORKOUTS[wKey];
+            const theme = SESSION_TYPE_THEME[workout.type] ?? SESSION_TYPE_THEME.push;
+            const isActive = currentDay === d;
             return (
               <button
                 key={d}
                 onClick={() => setCurrentDay(d)}
-                className={`py-4 px-3 rounded-xl text-sm font-black transition-all border flex flex-col items-center gap-1
-                ${currentDay === d
-                  ? 'bg-emerald-500 text-black border-emerald-500 shadow-lg'
+                className={`py-3 px-1.5 rounded-xl text-sm font-black transition-all border flex flex-col items-center gap-0.5
+                ${isActive
+                  ? theme.activeBtn
                   : 'bg-neutral-900 border-neutral-800 text-neutral-600 hover:border-neutral-600'}`}
               >
-                <div className="text-xs opacity-60 font-normal">Day {d + 1}</div>
-                <div className="text-2xl">{wKey}</div>
-                <div className="text-[10px] font-normal opacity-75">{workout.name}</div>
+                <div className="text-[10px] opacity-60 font-normal">D{d + 1}</div>
+                <div className="text-xl">{wKey}</div>
+                <div className={`text-[9px] font-bold ${isActive ? 'opacity-80' : theme.accentText}`}>{theme.label}</div>
               </button>
             );
           })}
         </div>
+
+        {/* 60 min 超時警示 */}
+        {overMinutes > 0 && (
+          <div className="p-3 rounded-2xl border bg-amber-900/30 border-amber-600 text-amber-300 text-sm font-bold flex items-center gap-2">
+            <span>⏱</span>
+            <span>已超時 {overMinutes} 分鐘 · 考慮跳過 1 組 isolation</span>
+          </div>
+        )}
 
         {/* Training Info Box */}
         <div className={`p-4 rounded-2xl border flex items-center justify-between
@@ -461,285 +823,59 @@ const TrainingView = ({
                   ref={provided.innerRef}
                   {...provided.droppableProps}
                 >
-                  {currentSessionPlan.map(({ exercise: ex, sets: setsCount }, exIdx) => {
-                    const completedCount = [...Array(setsCount)].filter((_, idx) => {
-                      const logKey = `w${currentWeek}-d${currentDay}-${ex.id}-s${idx}`;
-                      return logs[logKey]?.done;
-                    }).length;
-                    const skippedCount = [...Array(setsCount)].filter((_, idx) => {
-                      const logKey = `w${currentWeek}-d${currentDay}-${ex.id}-s${idx}`;
-                      return logs[logKey]?.skipped;
-                    }).length;
-                    const allDone = (completedCount + skippedCount) === setsCount;
-
-                    const firstSetKey = `w${currentWeek}-d${currentDay}-${ex.id}-s0`;
-                    const firstSetLog = logs[firstSetKey];
-                    let previousExerciseLastSetKey = null;
-
-                    if (exIdx > 0) {
-                      const prevPlan = currentSessionPlan[exIdx - 1];
-                      previousExerciseLastSetKey = `w${currentWeek}-d${currentDay}-${prevPlan.exercise.id}-s${prevPlan.sets - 1}`;
+                  {groupedPlan.map((group, groupIdx) => {
+                    if (group.type === 'pair') {
+                      return (
+                        <Draggable key={group.id} draggableId={group.id} index={groupIdx}>
+                          {(provided, snapshot) => (
+                            <div
+                              ref={provided.innerRef}
+                              {...provided.draggableProps}
+                              className={`transition-all ${snapshot.isDragging ? 'bg-neutral-800 shadow-2xl rounded-xl opacity-95' : ''}`}
+                            >
+                              {/* Pair Header */}
+                              <div className="px-6 pt-4 pb-2 bg-orange-900/15 border-y border-orange-800/40 flex items-center justify-between">
+                                <div className="flex items-center gap-2 text-orange-300 font-black text-xs uppercase tracking-widest">
+                                  <span
+                                    {...provided.dragHandleProps}
+                                    className="cursor-grab active:cursor-grabbing text-orange-400/70 touch-none"
+                                  >
+                                    <GripVertical size={16} />
+                                  </span>
+                                  <span>🔗 SUPERSET</span>
+                                </div>
+                                <div className="text-[10px] font-mono text-orange-200/70">
+                                  切換 15s · 組間 {group.rest}s
+                                </div>
+                              </div>
+                              {/* Inner exercises */}
+                              <div className="divide-y divide-orange-900/30">
+                                {group.items.map(entry => (
+                                  <React.Fragment key={entry.exercise.id}>
+                                    {renderExerciseInner({ entry, dragHandleProps: null, hideInterRest: true })}
+                                  </React.Fragment>
+                                ))}
+                              </div>
+                              {/* TMJ footer */}
+                              <div className="px-6 pb-3 pt-1 bg-orange-900/15 border-b border-orange-800/40">
+                                <p className="text-[11px] text-orange-200/60 italic">
+                                  💨 下顎放鬆 · 鼻吸口呼
+                                </p>
+                              </div>
+                            </div>
+                          )}
+                        </Draggable>
+                      );
                     }
-
                     return (
-                      <Draggable key={ex.id} draggableId={ex.id} index={exIdx}>
+                      <Draggable key={group.id} draggableId={group.id} index={groupIdx}>
                         {(provided, snapshot) => (
                           <div
                             ref={provided.innerRef}
                             {...provided.draggableProps}
-                            className={`p-6 transition-all
-                              ${allDone ? 'bg-emerald-500/5 opacity-60' : ''}
-                              ${snapshot.isDragging ? 'bg-neutral-800 shadow-2xl rounded-xl opacity-95' : ''}`}
+                            className={`transition-all ${snapshot.isDragging ? 'bg-neutral-800 shadow-2xl rounded-xl opacity-95' : ''}`}
                           >
-                            {/* Exercise Header */}
-                            <div className="flex items-start gap-2 mb-4">
-                              {/* Drag Handle */}
-                              <div
-                                {...provided.dragHandleProps}
-                                className="mt-1 text-neutral-700 hover:text-neutral-400 cursor-grab active:cursor-grabbing flex-shrink-0 touch-none"
-                              >
-                                <GripVertical size={20} />
-                              </div>
-
-                              {/* Exercise Info */}
-                              <div className="flex-1 flex justify-between items-start">
-                                <div>
-                                  <div className="flex items-center gap-2">
-                                    <span className={`w-2 h-2 rounded-full ${ex.isUpper ? 'bg-blue-500' : 'bg-orange-500'}`}></span>
-                                    <h3 className="text-lg font-bold text-neutral-100">
-                                      {customExerciseNames[ex.id] || ex.name}
-                                    </h3>
-                                    <button
-                                      onClick={() => { setPickerForExId(ex.id); setPickerSearch(''); }}
-                                      className="text-neutral-600 hover:text-neutral-400 transition-colors"
-                                      title="替換動作"
-                                    >
-                                      <Edit2 size={14} />
-                                    </button>
-                                    {ex.isCustom && (
-                                      <button
-                                        onClick={() => removeCustomExercise(ex.id)}
-                                        className="text-neutral-700 hover:text-rose-500 transition-colors"
-                                        title="刪除此動作"
-                                      >
-                                        <Trash2 size={14} />
-                                      </button>
-                                    )}
-                                  </div>
-                                  <div className="flex items-center gap-2 mt-2">
-                                    <span className="text-[10px] font-black bg-neutral-800 text-neutral-400 px-2 py-1 rounded inline-block uppercase tracking-wider">
-                                      {MUSCLE_GROUPS[ex.muscle]}
-                                    </span>
-                                    <span className="text-[10px] font-mono bg-neutral-800 text-neutral-500 px-2 py-1 rounded inline-block">
-                                      {getRepRange(ex.type, currentWeek)} 下
-                                    </span>
-                                    <span className={`text-[10px] font-bold ${ex.type === 'compound' ? 'text-cyan-500' : 'text-neutral-600'}`}>
-                                      {ex.type === 'compound' ? '複合' : '隔離'}
-                                    </span>
-                                  </div>
-                                </div>
-
-                                {/* Sets count with +/- */}
-                                <div className="text-right flex flex-col items-end gap-1">
-                                  <div className="flex items-center gap-1">
-                                    <button
-                                      onClick={() => adjustExerciseSets(ex.id, -1, setsCount)}
-                                      className="p-1 text-neutral-600 hover:text-neutral-300 hover:bg-neutral-800 rounded-lg transition-colors"
-                                      title="減少一組"
-                                    >
-                                      <Minus size={14} />
-                                    </button>
-                                    <div className="text-2xl font-black font-mono text-neutral-700 min-w-[2rem] text-center">
-                                      {setsCount}<span className="text-sm ml-0.5">組</span>
-                                    </div>
-                                    <button
-                                      onClick={() => adjustExerciseSets(ex.id, 1, setsCount)}
-                                      className="p-1 text-neutral-600 hover:text-neutral-300 hover:bg-neutral-800 rounded-lg transition-colors"
-                                      title="增加一組"
-                                    >
-                                      <Plus size={14} />
-                                    </button>
-                                  </div>
-                                  <div className="text-xs text-neutral-600">
-                                    {completedCount}/{setsCount} 完成
-                                    {skippedCount > 0 && (
-                                      <span className="ml-1 text-neutral-700">· {skippedCount} 跳過</span>
-                                    )}
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Inter-Exercise Rest Time */}
-                            {previousExerciseLastSetKey && (() => {
-                              const prevLastSetLog = logs[previousExerciseLastSetKey];
-                              if (prevLastSetLog?.completedAt && !firstSetLog?.done) {
-                                const interExerciseRestTime = getCurrentRestTime(previousExerciseLastSetKey);
-                                return (
-                                  <div className="mb-4 p-3 bg-blue-900/20 border border-blue-800 rounded-xl">
-                                    <div className="text-sm text-blue-400 font-semibold animate-pulse flex items-center gap-2">
-                                      動作間休息: {interExerciseRestTime}
-                                    </div>
-                                  </div>
-                                );
-                              }
-                              if (prevLastSetLog?.completedAt && firstSetLog?.completedAt) {
-                                const interExerciseRestTime = calculateRestTime(firstSetKey, previousExerciseLastSetKey);
-                                return interExerciseRestTime ? (
-                                  <div className="mb-4 p-3 bg-neutral-800/50 border border-neutral-700 rounded-xl">
-                                    <div className="text-sm text-neutral-500 flex items-center gap-2">
-                                      動作間休息: {interExerciseRestTime}
-                                    </div>
-                                  </div>
-                                ) : null;
-                              }
-                              return null;
-                            })()}
-
-                            {/* Sets List */}
-                            <div className="space-y-3">
-                              {[...Array(setsCount)].map((_, idx) => {
-                                const logKey = `w${currentWeek}-d${currentDay}-${ex.id}-s${idx}`;
-                                const logData = logs[logKey] || {};
-                                const historyEntry = history[ex.id] || {};
-                                const historyWeight = historyEntry.weight;
-                                const historyReps = historyEntry.reps;
-                                const hasHistory = (historyWeight !== undefined && historyWeight !== '') || (historyReps !== undefined && historyReps !== '');
-
-                                return (
-                                  <React.Fragment key={idx}>
-                                    <div
-                                      data-set-row
-                                      className={`flex items-center gap-3 p-3 rounded-xl transition-all
-                                      ${logData.skipped
-                                        ? 'bg-neutral-800/20 border border-neutral-800 opacity-40'
-                                        : logData.done
-                                          ? 'bg-emerald-500/10 border border-emerald-500/30'
-                                          : 'bg-neutral-800/30 border border-neutral-800'}`}
-                                    >
-                                      <button
-                                        type="button"
-                                        onClick={() => !logData.skipped && hasHistory && fillFromHistory(logKey, ex.id)}
-                                        disabled={logData.skipped || !hasHistory}
-                                        title={hasHistory ? '帶入上次重量與次數' : '尚無上次紀錄'}
-                                        className={`text-xl font-black w-8 text-center transition-colors
-                                          ${logData.skipped ? 'text-neutral-700 line-through cursor-default'
-                                            : hasHistory ? 'text-neutral-600 hover:text-emerald-400 cursor-pointer'
-                                            : 'text-neutral-600 cursor-default'}`}
-                                      >
-                                        {idx + 1}
-                                      </button>
-                                      {logData.skipped ? (
-                                        <div className="flex-1 text-center text-sm text-neutral-600 font-bold tracking-wider uppercase py-2">
-                                          跳過
-                                        </div>
-                                      ) : (
-                                        <>
-                                          <div className="flex-1">
-                                            <label className="text-[10px] text-neutral-500 block mb-1">重量 (kg)</label>
-                                            <div className="flex items-center gap-1">
-                                              <button
-                                                onClick={() => adjustWeight(logKey, -1, historyWeight)}
-                                                className="p-2 bg-neutral-900 hover:bg-neutral-800 rounded-lg transition-colors"
-                                                title={`-${weightIncrement}kg`}
-                                              >
-                                                <Minus size={14} />
-                                              </button>
-                                              <input
-                                                data-weight-input
-                                                type="number"
-                                                step={weightIncrement}
-                                                value={logData.weight || ''}
-                                                onChange={(e) => updateLog(logKey, 'weight', e.target.value)}
-                                                onKeyDown={(e) => {
-                                                  if (e.key === 'Enter') {
-                                                    e.preventDefault();
-                                                    const repsInput = e.currentTarget.closest('[data-set-row]')?.querySelector('[data-reps-input]');
-                                                    repsInput?.focus();
-                                                    repsInput?.select();
-                                                  }
-                                                }}
-                                                placeholder={historyWeight ? String(historyWeight) : '—'}
-                                                className="w-20 bg-neutral-900 px-3 py-2 rounded-lg text-center font-mono text-sm
-                                                focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                                              />
-                                              <button
-                                                onClick={() => adjustWeight(logKey, 1, historyWeight)}
-                                                className="p-2 bg-neutral-900 hover:bg-neutral-800 rounded-lg transition-colors"
-                                                title={`+${weightIncrement}kg`}
-                                              >
-                                                <Plus size={14} />
-                                              </button>
-                                            </div>
-                                          </div>
-                                          <div className="flex-1">
-                                            <label className="text-[10px] text-neutral-500 block mb-1">次數</label>
-                                            <input
-                                              data-reps-input
-                                              type="number"
-                                              value={logData.reps || ''}
-                                              onChange={(e) => handleRepsChange(logKey, ex.id, e.target.value, historyWeight)}
-                                              onKeyDown={(e) => {
-                                                if (e.key === 'Enter') {
-                                                  e.preventDefault();
-                                                  const allWeightInputs = document.querySelectorAll('[data-weight-input]');
-                                                  const allRepsInputs = document.querySelectorAll('[data-reps-input]');
-                                                  const currentIndex = Array.from(allRepsInputs).indexOf(e.currentTarget);
-                                                  const nextWeightInput = allWeightInputs[currentIndex + 1];
-                                                  if (nextWeightInput) {
-                                                    nextWeightInput.focus();
-                                                    nextWeightInput.select();
-                                                  }
-                                                }
-                                              }}
-                                              placeholder={historyReps !== undefined && historyReps !== '' ? String(historyReps) : '—'}
-                                              className="w-full bg-neutral-900 px-3 py-2 rounded-lg text-center font-mono text-sm
-                                              focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                                            />
-                                          </div>
-                                        </>
-                                      )}
-                                      <button
-                                        onClick={() => skipSet(logKey)}
-                                        title={logData.skipped ? '取消跳過' : '跳過此組'}
-                                        className={`p-1.5 rounded-lg transition-colors flex-shrink-0
-                                        ${logData.skipped
-                                          ? 'text-neutral-500 hover:text-neutral-300'
-                                          : 'text-neutral-700 hover:text-rose-500'}`}
-                                      >
-                                        <XCircle size={16} />
-                                      </button>
-                                    </div>
-
-                                    {/* Rest Time Display */}
-                                    {(() => {
-                                      if (logData.skipped) return null;
-                                      const isLastSet = idx === setsCount - 1;
-                                      const nextLogKey = `w${currentWeek}-d${currentDay}-${ex.id}-s${idx + 1}`;
-                                      const nextLog = logs[nextLogKey];
-
-                                      if (logData.done && !isLastSet && nextLog?.done && !nextLog?.skipped) {
-                                        const restTime = calculateRestTime(nextLogKey, logKey);
-                                        return restTime ? (
-                                          <div className="text-xs text-neutral-500 mt-1 pl-11">
-                                            休息時間: {restTime}
-                                          </div>
-                                        ) : null;
-                                      }
-                                      if (logData.done && !isLastSet && !nextLog?.done && !nextLog?.skipped) {
-                                        const cRestTime = getCurrentRestTime(logKey);
-                                        return (
-                                          <div className="text-xs text-emerald-400 mt-1 pl-11 font-semibold animate-pulse">
-                                            休息中: {cRestTime}
-                                          </div>
-                                        );
-                                      }
-                                      return null;
-                                    })()}
-                                  </React.Fragment>
-                                );
-                              })}
-                            </div>
+                            {renderExerciseInner({ entry: group.item, dragHandleProps: provided.dragHandleProps, hideInterRest: false })}
                           </div>
                         )}
                       </Draggable>
@@ -784,25 +920,35 @@ const TrainingView = ({
               <div className="space-y-4 mb-6">
                 {Object.entries(weeklyVolume).map(([muscle, sets]) => {
                   if (sets === 0) return null;
-                  const percentage = Math.min(100, (sets / 24) * 100);
+                  const target = getWeeklyMuscleVolume(muscle, currentWeek);
+                  const percentage = target > 0 ? Math.min(120, (sets / target) * 100) : 0;
                   let color = 'bg-neutral-700';
-                  if (sets >= 18) color = 'bg-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.4)]';
-                  else if (sets >= 12) color = 'bg-emerald-500';
-                  else if (sets > 0) color = 'bg-blue-500';
+                  if (percentage >= 100) color = 'bg-emerald-500';
+                  else if (percentage >= 80) color = 'bg-amber-500';
+                  else if (percentage > 0) color = 'bg-blue-500';
+                  const shortfall = target > sets ? target - sets : 0;
 
                   return (
                     <div key={muscle}>
                       <div className="flex justify-between text-[11px] font-black uppercase mb-1.5 opacity-80">
                         <span>{MUSCLE_GROUPS[muscle]}</span>
-                        <span className="font-mono">{sets} 組</span>
+                        <span className="font-mono">
+                          {sets}<span className="text-neutral-500"> / {target}</span> 組
+                          {shortfall > 0 && (
+                            <span className="ml-1 text-amber-500/70 normal-case font-bold">↓{shortfall}</span>
+                          )}
+                        </span>
                       </div>
                       <div className="h-1.5 bg-neutral-800 rounded-full overflow-hidden">
-                        <div className={`h-full ${color} transition-all duration-1000`} style={{ width: `${percentage}%` }} />
+                        <div className={`h-full ${color} transition-all duration-1000`} style={{ width: `${Math.min(100, percentage)}%` }} />
                       </div>
                     </div>
                   );
                 })}
               </div>
+              <p className="text-[10px] text-neutral-600 leading-relaxed mb-4 -mt-2">
+                數字 = 實際 / 規格目標。<span className="text-amber-500/70">↓N</span> 表示因 4 組上限導致缺額、可在動作卡片「+1 組」手動補回。
+              </p>
 
               <div className="p-4 bg-neutral-800/50 rounded-2xl border border-neutral-700 text-[11px] leading-relaxed text-neutral-400">
                 <p className="text-white font-bold mb-2 flex items-center gap-2 italic">
@@ -821,13 +967,15 @@ const TrainingView = ({
                 <p className="text-blue-400 font-bold mb-2 uppercase tracking-wide">
                   本週循環
                 </p>
-                <div className="grid grid-cols-4 gap-2 text-center">
-                  {[0, 1, 2, 3].map(d => {
+                <div className="grid grid-cols-5 gap-1.5 text-center">
+                  {[0, 1, 2, 3, 4].map(d => {
                     const wKey = getWorkoutForDay(currentWeek, d);
+                    const workout = WORKOUTS[wKey];
+                    const theme = SESSION_TYPE_THEME[workout.type] ?? SESSION_TYPE_THEME.push;
                     return (
                       <div key={d} className="bg-neutral-900/50 rounded-lg py-2">
                         <div className="text-[9px] text-neutral-600">D{d + 1}</div>
-                        <div className="text-lg font-black">{wKey}</div>
+                        <div className={`text-lg font-black ${theme.accentText}`}>{wKey}</div>
                       </div>
                     );
                   })}
@@ -885,7 +1033,7 @@ const TrainingView = ({
                       <div className="text-sm font-bold text-neutral-100 truncate">{item.name}</div>
                       <div className="flex items-center gap-2 mt-0.5">
                         <span className="text-[10px] font-bold bg-neutral-900 text-neutral-400 px-1.5 py-0.5 rounded">
-                          {MUSCLE_GROUPS[item.muscle]}
+                          {MUSCLE_GROUPS[item.muscle] ?? '未知'}
                         </span>
                         <span className={`text-[10px] font-bold ${item.type === 'compound' ? 'text-cyan-500' : 'text-neutral-500'}`}>
                           {item.type === 'compound' ? '複合' : '隔離'}
