@@ -96,8 +96,34 @@ HAMS:      [4, 4, 4, 4]      // 固定（純維持）
 - **主分支**：`main`
 - **功能分支**：`feature/<description>`
 - **修復分支**：`hotfix/<description>`
-- **commit 訊息**：一律使用**正體中文**
 - 合併順序：feature → main
+
+### Commit 訊息規範（Conventional Commits）
+
+格式：`<type>: <正體中文描述>`
+
+- **訊息主體**：一律使用**正體中文**
+- **type 前綴**：使用英文小寫，常用類型如下
+
+| type | 用途 |
+|------|------|
+| `feat` | 新增功能 |
+| `fix` | 修正 bug |
+| `refactor` | 重構（不改變外部行為） |
+| `docs` | 文件變更 |
+| `style` | 格式調整（不影響邏輯，如空白、排版） |
+| `test` | 新增或修改測試 |
+| `chore` | 雜項（建置流程、相依套件等） |
+| `perf` | 效能優化 |
+
+範例：
+
+```
+feat: 腿部訓練計劃 v3 FINAL 升級
+fix: 降低拖曳排序時的自動捲動速度
+docs: 補齊技術指引與業務故事
+refactor: 抽出 VolumeConfig 為獨立模組
+```
 
 ---
 
