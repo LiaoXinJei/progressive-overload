@@ -120,15 +120,28 @@
   ```
   使用者完成一組
     ↓
-  App.jsx 計算 lastCompletedAt（當日 logs 中最晚的 completedAt）
+  App.jsx 計算 restContext（型別 + delay + anchorTs + notifyKey）
     ↓
-  useRestNotification 偵測變化 → postMessage 給 SW
+  useRestNotification 依 restContext.notifyKey 變動 → cancel 舊通知
     ↓
-  SW: setTimeout (delay) → showNotification('休息結束！', { vibrate, requireInteraction })
+  visibilitychange 進入背景 → 依 restContext.type 決定排程或跳過
+    ↓
+  SW: setTimeout (delay) → showNotification(title, { vibrate, requireInteraction })
   ```
 
 - **權限**：`requestNotificationPermission()`（在設定面板手動觸發）
-- **參數**：`restNotificationDelay`（預設 90 秒，預設選項 60/90/120/150/180）
+- **restContext 五種型別**（`src/utils/pairRoundState.js#getRestContext`）：
+
+  | type | 觸發條件 | delay | 排程 |
+  |------|----------|-------|------|
+  | `idle` | 當日無 done、或所有工作 settled | — | ✘ |
+  | `in-set` | 單動作下一組未 settled | 全域 `restNotificationDelay` | ✓ |
+  | `in-pair-mid-round` | pair round 內單邊 settled | — | ✘ |
+  | `in-pair-between-rounds` | pair round 完成、下一輪未開始 | `SUPERSET_PAIRS[*].rest`（75 / 90） | ✓ |
+  | `between-exercises` | 動作末組完成、後續仍有工作 | 全域 `restNotificationDelay` | ✓ |
+
+- **`restNotificationDelay` 設定**：使用者於設定頁可調的全域值（預設 90 秒、選項 60/90/120/150/180）。**僅作用於 `in-set` 與 `between-exercises`**；Superset 配對的輪間休息採配對自身的 `rest` 值（取自 `SUPERSET_PAIRS`）。
+- **`notifyKey`**：形如 `${workoutKey}:${day}:${type}:${anchorTs}`、變更時 hook 會 cancel 舊通知再依新 context 決定是否排程。
 - **Android 注意**：必須帶 `vibrate` 參數才會跳 heads-up 通知（見近期 commit `09339f0`）
 - **iOS 限制**：Web Push 需要 HTTPS + 已安裝為 PWA；本地測試請用 `localhost` 或 HTTPS 通道
 

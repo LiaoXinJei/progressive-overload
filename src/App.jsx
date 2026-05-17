@@ -9,6 +9,8 @@ import NutritionView from './components/nutrition/NutritionView';
 import TabNavigation from './components/shared/TabNavigation';
 import ExerciseLibraryManager from './components/settings/ExerciseLibraryManager';
 import { DEFAULT_EXERCISE_LIBRARY } from './constants/workouts';
+import { buildSessionPlan, getWorkoutForDay } from './utils/sessionPlan';
+import { getRestContext } from './utils/pairRoundState';
 
 const RPFocusPro = () => {
   // ==================== 狀態管理 ====================
@@ -72,28 +74,24 @@ const RPFocusPro = () => {
     return { start: Math.min(...timestamps), end: Math.max(...timestamps) };
   }, [logs, currentWeek, currentDay]);
 
-  const lastCompletedAt = workoutTimes?.end ?? null;
+  // restContext 依當日最近一筆 done log + sessionPlan + SUPERSET_PAIRS 推得。
+  // 詳見 src/utils/pairRoundState.js#getRestContext。
+  const currentWorkoutKey = getWorkoutForDay(currentWeek, currentDay);
+  const currentSessionPlan = useMemo(
+    () => buildSessionPlan(currentWeek, currentWorkoutKey, {
+      customExercises, customSets, exerciseOrder, exerciseOverrides, exerciseLibrary,
+    }),
+    [currentWeek, currentWorkoutKey, customExercises, customSets, exerciseOrder, exerciseOverrides, exerciseLibrary],
+  );
+  const restContext = useMemo(
+    () => getRestContext({
+      logs, currentWeek, currentDay, workoutKey: currentWorkoutKey,
+      sessionPlan: currentSessionPlan, globalDelay: restNotificationDelay,
+    }),
+    [logs, currentWeek, currentDay, currentWorkoutKey, currentSessionPlan, restNotificationDelay],
+  );
 
-  // 確認最近完成組的下一組是否仍需等待（未完成且未跳過）
-  const restActive = useMemo(() => {
-    if (!lastCompletedAt) return false;
-    const prefix = `w${currentWeek}-d${currentDay}-`;
-    const entry = Object.entries(logs).find(
-      ([key, log]) => key.startsWith(prefix) && log?.completedAt === lastCompletedAt
-    );
-    if (!entry) return false;
-    const match = entry[0].match(/^w\d+-d\d+-(.+)-s(\d+)$/);
-    if (!match) return false;
-    const nextKey = `${prefix}${match[1]}-s${parseInt(match[2]) + 1}`;
-    const nextLog = logs[nextKey];
-    if (!nextLog) return true;
-    return !nextLog.skipped && !nextLog.done;
-  }, [logs, lastCompletedAt, currentWeek, currentDay]);
-
-  // TODO(next-change): 通知 delay 應依「pair 內 vs 單動作」context 切換
-  // （pair 內用 SUPERSET_PAIRS[*].rest、其他用全域 restNotificationDelay）。
-  // 詳見 openspec/changes/fix-superset-rest-timer/proposal.md「不在本 change 範圍」。
-  useRestNotification({ lastCompletedAt: restActive ? lastCompletedAt : null, restNotificationDelay });
+  useRestNotification({ restContext });
 
   const formatTime = (seconds) => {
     const hrs = Math.floor(seconds / 3600);
@@ -506,7 +504,10 @@ const RPFocusPro = () => {
                 <Bell size={14} className="text-emerald-500" /> 休息計時推播通知
               </label>
               <p className="text-neutral-500 text-xs mb-3 leading-relaxed">
-                離開 App 後，超過設定時間即發送通知提醒做下一組。
+                離開 App 後，超過設定時間即發送通知提醒做下一組。<br/>
+                <span className="text-neutral-600">
+                  Superset 配對的輪間休息採配對自身設定（75 / 90 秒）、不受此處影響。
+                </span>
               </p>
 
               {/* Permission button */}
