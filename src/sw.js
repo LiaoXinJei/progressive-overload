@@ -2,6 +2,24 @@ import { precacheAndRoute } from 'workbox-precaching';
 
 precacheAndRoute(self.__WB_MANIFEST);
 
+self.addEventListener('install', () => {
+  self.skipWaiting();
+});
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil((async () => {
+    const cacheNames = await caches.keys();
+    await Promise.all(cacheNames.map(name => caches.delete(name)));
+
+    await self.clients.claim();
+
+    const clientsList = await self.clients.matchAll({ type: 'window' });
+    for (const client of clientsList) {
+      try { client.navigate(client.url); } catch (_) {}
+    }
+  })());
+});
+
 let notificationTimer = null;
 let resolveTimer = null;
 
