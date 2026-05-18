@@ -11,7 +11,7 @@ import {
 } from '../../constants/workouts';
 import { getPairRoundState, getPairEndTimestamp } from '../../utils/pairRoundState';
 import {
-  buildSessionPlan, getWorkoutForDay, getPhase, getRepRange,
+  buildSessionPlan, getWorkoutForDay, getPhase, getRepRange, getWeeklyMuscleVolume,
 } from '../../utils/sessionPlan';
 
 const LOWER_MUSCLES = new Set(['QUADS', 'HAMS']);
