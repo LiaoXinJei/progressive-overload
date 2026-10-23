@@ -1,4 +1,10 @@
 import { precacheAndRoute } from 'workbox-precaching';
+import { clientsClaim } from 'workbox-core';
+
+// registerType: 'autoUpdate' 搭配 injectManifest 時、plugin 不會自動補這兩行；
+// 沒有的話新版 SW 會一直 waiting、直到 PWA 完全關閉才生效
+self.skipWaiting();
+clientsClaim();
 
 precacheAndRoute(self.__WB_MANIFEST);
 
