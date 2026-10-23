@@ -138,10 +138,10 @@ v2 為單純 `number`，已在 `App.jsx` 載入時遷移。
 
 ## 測試
 
-目前**無自動化測試**。功能驗收以下列方式：
+單元測試用 **Vitest**（`npm test`），測試檔放在被測模組旁邊，命名 `*.test.js`。`src/utils/` 的 pure function 直接測；需要 DOM 的測試在檔案開頭加 `// @vitest-environment jsdom`（例如 `src/App.reset.test.jsx`）。
+
+其餘功能驗收以下列方式：
 
 1. **訓練流程**：跑 W1 → W4 → W5 → W6 → W10，驗證階段切換、組數分配、減量
 2. **PWA / 通知**：`npm run build && npm run preview` → 手機實機 → 完成一組 → 等通知
 3. **資料遷移**：將 `localStorage` 改為舊版 schema，重新整理頁面，驗證資料未遺失
-
-新增測試前請先與使用者討論框架選型。

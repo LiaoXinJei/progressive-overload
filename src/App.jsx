@@ -259,7 +259,8 @@ const RPFocusPro = () => {
     setExerciseOrder({});
     setExerciseOverrides({});
     setExerciseLibrary(DEFAULT_EXERCISE_LIBRARY);
-    setNutritionProfile(null);
+    // Gemini API Key 是裝置設定、不是訓練數據，重置時保留
+    setNutritionProfile(prev => (prev?.geminiApiKey ? { geminiApiKey: prev.geminiApiKey } : null));
     setNutritionLogs({});
     setShowResetConfirm(false);
   };

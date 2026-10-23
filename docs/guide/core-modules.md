@@ -41,6 +41,7 @@
 2. 均分到包含該肌群的 sessions（在 `MUSCLE_SESSION_MAP` 預計算）
 3. 再均分到該 session 內的動作（**第一個動作拿餘數**）
 4. 受 `MAX_SETS_PER_EXERCISE`（預設 4）封頂，避免單動作組數爆炸
+5. 每個動作至少 1 組。減量週目標低，均分後可能變 0 組（例如 W5 LEGS 日），所以這幾個肌群的減量週實際總組數會略高於目標
 
 ### Superset 配對休息計時（pair rest timer）
 
@@ -97,8 +98,8 @@
 ## Gemini AI 食物辨識
 
 - **位置**：`src/utils/geminiApi.js`
-- **模型**：`gemini-2.0-flash`
-- **端點**：`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent`
+- **模型**：`gemini-3.6-flash`（`gemini-2.0-flash` 已於 2026-06-01 停用）
+- **端點**：`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent`
 - **流程**：
   1. 使用者上傳食物照片
   2. 轉成 Base64

@@ -6,7 +6,9 @@
  * @returns {Promise<Array>} 食物項目列表
  */
 export const analyzeFood = async (apiKey, imageBase64, mimeType) => {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+  // gemini-2.0-flash 已於 2026-06-01 停用，官方建議改用 gemini-3.6-flash
+  // https://ai.google.dev/gemini-api/docs/deprecations
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`;
 
   const response = await fetch(url, {
     method: 'POST',
@@ -46,9 +48,11 @@ export const analyzeFood = async (apiKey, imageBase64, mimeType) => {
           }
         ]
       }],
+      // Gemini 3 建議溫度維持預設 1.0；思考 token 會算進 maxOutputTokens，
+      // 所以壓低思考層級並放寬上限，避免還沒輸出 JSON 就被截斷
       generationConfig: {
-        temperature: 0.1,
-        maxOutputTokens: 1024,
+        thinkingConfig: { thinkingLevel: 'low' },
+        maxOutputTokens: 8192,
       }
     })
   });
