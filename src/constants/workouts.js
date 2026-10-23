@@ -74,6 +74,8 @@ export const WORKOUTS = {
       { id: 'lateral_raise_cable', name: '單臂滑輪側平舉', muscle: 'SIDE_DELT', type: 'isolation', isUpper: true },
       { id: 'lateral_raise_machine', name: '機械側平舉', muscle: 'SIDE_DELT', type: 'isolation', isUpper: true },
       { id: 'tri_overhead_seated', name: '坐姿過頭三頭伸展', muscle: 'TRICEPS', type: 'isolation', isUpper: true },
+      // 沿用動作庫的 id，替換紀錄與歷史不用搬
+      { id: 'lib_skullcrusher', name: '骷髏粉碎機', muscle: 'TRICEPS', type: 'isolation', isUpper: true },
       { id: 'single_leg_press', name: '單腿腿推', muscle: 'QUADS', type: 'compound', isUpper: false },
       { id: 'calf_standing_c', name: '機械站姿提踵', muscle: 'CALVES', type: 'isolation', isUpper: false },
     ]
@@ -139,7 +141,7 @@ export const SUPERSET_PAIRS = {
   ],
   C: [
     { primary: 'lateral_raise_cable', secondary: 'tri_overhead_seated', rest: 75 },
-    { primary: 'lateral_raise_machine', secondary: 'tri_overhead_seated', rest: 75 },
+    { primary: 'lateral_raise_machine', secondary: 'lib_skullcrusher', rest: 75 },
   ],
   D: [
     { primary: 'face_pull', secondary: 'bi_hammer', rest: 75 },
@@ -221,8 +223,7 @@ const EXTRA_LIBRARY_ITEMS = [
   // REAR_DELT（限有支撐版本）
   { id: 'lib_rear_delt_db_chest', name: '胸靠俯身啞鈴飛鳥（後三角）', muscle: 'REAR_DELT', type: 'isolation', defaultSets: 3 },
 
-  // TRICEPS
-  { id: 'lib_skullcrusher', name: '骷髏粉碎機', muscle: 'TRICEPS', type: 'isolation', defaultSets: 3 },
+  // TRICEPS（lib_skullcrusher 已在 WORKOUTS.C，由 collectFromWorkouts 帶入）
   { id: 'lib_close_grip_bp', name: '窄握臥推', muscle: 'TRICEPS', type: 'compound', defaultSets: 3 },
   { id: 'lib_tri_rope_overhead_seated', name: '坐姿繩索過頭三頭', muscle: 'TRICEPS', type: 'isolation', defaultSets: 3 },
 
