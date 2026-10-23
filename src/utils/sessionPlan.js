@@ -91,7 +91,8 @@ export const buildSessionPlan = (week, workoutKey, opts) => {
     muscleAssigned[ex.muscle] = idx + 1;
     const base = Math.floor(sessionTarget / exCount);
     const remainder = sessionTarget % exCount;
-    const sets = Math.min(base + (idx >= exCount - remainder ? 1 : 0), MAX_SETS_PER_EXERCISE);
+    // 每個動作至少 1 組：減量週目標太低時均分會出現 0 組（例如 W5 LEGS 日）
+    const sets = Math.min(Math.max(1, base + (idx >= exCount - remainder ? 1 : 0)), MAX_SETS_PER_EXERCISE);
     return { exercise: ex, sets };
   });
 

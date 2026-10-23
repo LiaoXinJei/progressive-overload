@@ -41,6 +41,7 @@
 2. 均分到包含該肌群的 sessions（在 `MUSCLE_SESSION_MAP` 預計算）
 3. 再均分到該 session 內的動作（**第一個動作拿餘數**）
 4. 受 `MAX_SETS_PER_EXERCISE`（預設 4）封頂，避免單動作組數爆炸
+5. 每個動作至少 1 組。減量週目標低，均分後可能變 0 組（例如 W5 LEGS 日），所以這幾個肌群的減量週實際總組數會略高於目標
 
 ### Superset 配對休息計時（pair rest timer）
 
