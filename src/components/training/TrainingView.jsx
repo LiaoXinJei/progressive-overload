@@ -411,6 +411,8 @@ const TrainingView = ({
       .filter(Boolean);
     if (timestamps.length === 0) return 0;
     const start = Math.min(...timestamps);
+    // 第一組不是今天（在看以前的課表）就不算超時
+    if (new Date(start).toDateString() !== new Date(currentTime).toDateString()) return 0;
     // 每組都完成或跳過就算結束，計時停在最後一組；還沒做完才用現在時間
     const plan = getSessionPlan(currentWeek, getWorkoutForDay(currentWeek, currentDay));
     const finished = plan.every(({ exercise, sets }) =>

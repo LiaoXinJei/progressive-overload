@@ -137,9 +137,10 @@ test('第 6 點：三天前做完的 50 分鐘課表，不應顯示超時', () =
   assert.equal(overtimeText(), null);
 });
 
-test('第 6 點：三天前做完的 75 分鐘課表，超時停在 15 分鐘', () => {
-  const now = Date.now();
-  renderView({ logs: finishedSessionLogs(now - 3 * 24 * 60 * MIN, 75), currentTime: now });
+test('第 6 點：今天稍早做完的 75 分鐘課表，超時停在 15 分鐘', () => {
+  // 三天前的課表不再顯示超時（BUG-06 殘留），這裡固定在同一天
+  const now = new Date(2026, 9, 23, 20, 0).getTime();
+  renderView({ logs: finishedSessionLogs(now - 3 * 60 * MIN, 75), currentTime: now });
   assert.equal(overtimeText(), '已超時 15 分鐘 · 考慮跳過 1 組 isolation');
 });
 
