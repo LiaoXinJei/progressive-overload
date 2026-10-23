@@ -16,6 +16,9 @@ import {
 
 const LOWER_MUSCLES = new Set(['QUADS', 'HAMS']);
 
+// 重量 0 是有效值（自體重），只有空白才算沒填
+const hasWeight = (w) => w !== undefined && w !== null && w !== '';
+
 const formatMmSs = (seconds) => {
   const s = Math.max(0, Math.floor(seconds));
   const m = Math.floor(s / 60);
@@ -254,8 +257,9 @@ const TrainingView = ({
   const handleRepsChange = (logKey, exerciseId, value, historyWeight) => {
     setLogs(prev => {
       const current = prev[logKey] || {};
-      const weight = current.weight || historyWeight || '';
-      const shouldComplete = value && weight && !current.done;
+      const weight = hasWeight(current.weight) ? current.weight
+        : hasWeight(historyWeight) ? historyWeight : '';
+      const shouldComplete = value && hasWeight(weight) && !current.done;
       if (shouldComplete) {
         setHistory(h => ({
           ...h,
@@ -396,8 +400,16 @@ const TrainingView = ({
       .filter(Boolean);
     if (timestamps.length === 0) return 0;
     const start = Math.min(...timestamps);
-    return Math.floor((currentTime - start) / 1000);
-  }, [logs, currentWeek, currentDay, currentTime]);
+    // 每組都完成或跳過就算結束，計時停在最後一組；還沒做完才用現在時間
+    const plan = getSessionPlan(currentWeek, getWorkoutForDay(currentWeek, currentDay));
+    const finished = plan.every(({ exercise, sets }) =>
+      [...Array(sets)].every((_, idx) => {
+        const log = logs[`${prefix}${exercise.id}-s${idx}`];
+        return log?.done || log?.skipped;
+      }));
+    const end = finished ? Math.max(...timestamps) : currentTime;
+    return Math.floor((end - start) / 1000);
+  }, [logs, currentWeek, currentDay, currentTime, customExercises, customSets, exerciseOrder, exerciseOverrides, exerciseLibrary]);
 
   const overMinutes = sessionDuration > 3600 ? Math.floor((sessionDuration - 3600) / 60) : 0;
 
@@ -663,7 +675,7 @@ const TrainingView = ({
                             data-weight-input
                             type="number"
                             step={weightIncrement}
-                            value={logData.weight || ''}
+                            value={logData.weight ?? ''}
                             onChange={(e) => updateLog(logKey, 'weight', e.target.value)}
                             onKeyDown={(e) => {
                               if (e.key === 'Enter') {
@@ -673,7 +685,7 @@ const TrainingView = ({
                                 repsInput?.select();
                               }
                             }}
-                            placeholder={historyWeight ? String(historyWeight) : '—'}
+                            placeholder={hasWeight(historyWeight) ? String(historyWeight) : '—'}
                             className="w-20 bg-neutral-900 px-3 py-2 rounded-lg text-center font-mono text-sm
                             focus:outline-none focus:ring-2 focus:ring-emerald-500"
                           />
