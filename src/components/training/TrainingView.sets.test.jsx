@@ -77,6 +77,14 @@ test('BUG-14：替換動作不寫組數，組數照週期算', () => {
   assert.deepEqual(state.customSets, {});
 });
 
+test('BUG-14：替換選單不顯示動作庫的預設組數', () => {
+  renderView();
+  click(byTitle('替換動作'));
+  const item = [...container.querySelectorAll('button')]
+    .find(b => b.textContent.includes('平板啞鈴臥推'));
+  assert.doesNotMatch(item.textContent, /\d+ 組/);
+});
+
 test('BUG-14：恢復為原動作時清掉該動作各週的組數調整', () => {
   const state = renderView({
     customSets: { 'w4-A-bp_flat': 5, 'w2-A-bp_flat': 2, 'w4-A-bp_incline_db': 3 },

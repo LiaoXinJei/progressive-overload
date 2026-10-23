@@ -1117,7 +1117,6 @@ const TrainingView = ({
                         <span className={`text-[10px] font-bold ${item.type === 'compound' ? 'text-cyan-500' : 'text-neutral-500'}`}>
                           {item.type === 'compound' ? '複合' : '隔離'}
                         </span>
-                        <span className="text-[10px] font-mono text-neutral-500">{item.defaultSets} 組</span>
                       </div>
                     </div>
                     {isCurrent && <span className="text-[10px] font-black text-emerald-400 uppercase">目前</span>}
