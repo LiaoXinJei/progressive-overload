@@ -233,6 +233,49 @@ test('restContext: pair tail set 視為單動作', () => {
   assert.equal(ctx.anchorTs, 400);
 });
 
+test('restContext: 核心輪做完、tail 組未做 → in-set（下一組）、從輪結束起算', () => {
+  // A 有 3 組、B 只有 2 組；完成 2 輪後還剩 A_3（tail）
+  const planTail = [
+    { exercise: { id: 'lateral_raise' }, sets: 3 },
+    { exercise: { id: 'tri_pushdown' }, sets: 2 },
+    { exercise: { id: 'bp_flat' }, sets: 2 },
+  ];
+  const logs = {
+    [k('lateral_raise', 0)]: done(100),
+    [k('tri_pushdown', 0)]: done(150),
+    [k('lateral_raise', 1)]: done(200),
+    [k('tri_pushdown', 1)]: done(250),
+  };
+  const ctx = getRestContext({
+    logs, currentWeek: W, currentDay: D, workoutKey,
+    sessionPlan: planTail, globalDelay: 90,
+  });
+  assert.equal(ctx.type, 'in-set');
+  assert.equal(ctx.delay, 90);
+  assert.equal(ctx.anchorTs, 250);
+});
+
+test('restContext: 核心輪做完、tail 組已跳過 → between-exercises', () => {
+  const planTail = [
+    { exercise: { id: 'lateral_raise' }, sets: 3 },
+    { exercise: { id: 'tri_pushdown' }, sets: 2 },
+    { exercise: { id: 'bp_flat' }, sets: 2 },
+  ];
+  const logs = {
+    [k('lateral_raise', 0)]: done(100),
+    [k('tri_pushdown', 0)]: done(150),
+    [k('lateral_raise', 1)]: done(200),
+    [k('tri_pushdown', 1)]: done(250),
+    [k('lateral_raise', 2)]: skipped(),
+  };
+  const ctx = getRestContext({
+    logs, currentWeek: W, currentDay: D, workoutKey,
+    sessionPlan: planTail, globalDelay: 90,
+  });
+  assert.equal(ctx.type, 'between-exercises');
+  assert.equal(ctx.anchorTs, 250);
+});
+
 // ==================== getRestContext: notifyKey 變更觸發 ====================
 
 test('restContext: 同 anchor 多次呼叫產出相同 notifyKey', () => {

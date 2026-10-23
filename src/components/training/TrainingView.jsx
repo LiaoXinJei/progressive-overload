@@ -9,7 +9,7 @@ import {
   WORKOUTS, MUSCLE_GROUPS, PHASE_CONFIG,
   SUPERSET_PAIRS, SESSION_TYPE_THEME,
 } from '../../constants/workouts';
-import { getPairRoundState, getPairEndTimestamp } from '../../utils/pairRoundState';
+import { getPairRoundState, getPairEndTimestamp, getPairTailProgress } from '../../utils/pairRoundState';
 import {
   buildSessionPlan, getWorkoutForDay, getPhase, getRepRange,
 } from '../../utils/sessionPlan';
@@ -60,6 +60,7 @@ const RoundDots = ({ rounds }) => (
 const PairStickyBar = ({
   pairState,
   pairInfo,
+  tailProgress,
   currentTime,
   enterPairFromTs,
   enterPairLabel,
@@ -94,6 +95,13 @@ const PairStickyBar = ({
         {over ? '🔴' : '🟢'} 輪間休息: {formatMmSs(elapsed)} / 目標 {formatMmSs(targetSec)}
       </span>
     );
+  } else if (state === 'done' && tailProgress.settled < tailProgress.total) {
+    // 核心輪做完、還有 tail 組（休息顯示在 tail 前的 set 列）
+    mainNode = (
+      <span className="text-orange-200/80 text-xs font-bold tabular-nums">
+        {rounds.length} 輪完成 · 尾組 {tailProgress.settled}/{tailProgress.total}
+      </span>
+    );
   } else if (state === 'done') {
     mainNode = (
       <span className="text-emerald-300/80 text-xs font-bold">
@@ -110,8 +118,9 @@ const PairStickyBar = ({
 
   return (
     <div
-      className="sticky top-0 z-10 px-5 py-2.5 bg-neutral-950/85 backdrop-blur-sm border-b border-orange-800/40"
-      style={{ position: 'sticky', top: 0 }}
+      className="sticky z-10 px-5 py-2.5 bg-neutral-950/85 backdrop-blur-sm border-b border-orange-800/40"
+      // 黏在 App sticky header 下方；--app-header-h 由 App 量測 header 高度寫入
+      style={{ top: 'var(--app-header-h, 0px)' }}
     >
       {showEnterPair && (
         <div className="text-[10px] text-orange-200/70 italic mb-1.5 tabular-nums">
@@ -171,18 +180,16 @@ const TrainingView = ({
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const calculateRestTime = (currentLogKey, previousLogKey) => {
+  const calculateRestTime = (currentLogKey, restFromTs) => {
     const currentLog = logs[currentLogKey];
-    const previousLog = logs[previousLogKey];
-    if (!currentLog?.completedAt || !previousLog?.completedAt) return null;
-    const restSeconds = Math.floor((currentLog.completedAt - previousLog.completedAt) / 1000);
+    if (!currentLog?.completedAt || !restFromTs) return null;
+    const restSeconds = Math.floor((currentLog.completedAt - restFromTs) / 1000);
     return formatTime(restSeconds);
   };
 
-  const getCurrentRestTime = (previousLogKey) => {
-    const previousLog = logs[previousLogKey];
-    if (!previousLog?.completedAt) return null;
-    const restSeconds = Math.floor((currentTime - previousLog.completedAt) / 1000);
+  const getCurrentRestTime = (restFromTs) => {
+    if (!restFromTs) return null;
+    const restSeconds = Math.floor((currentTime - restFromTs) / 1000);
     return formatTime(restSeconds);
   };
 
@@ -477,7 +484,8 @@ const TrainingView = ({
     return { prevEndTs: ts, prevKind: 'pair' };
   });
 
-  const renderExerciseInner = ({ entry, dragHandleProps, hideInterRest, hideSetRest, prevEndTs }) => {
+  // pairRest：pair 成員才有 { coreRoundCount, coreDone, coreEndTs }，單動作為 null
+  const renderExerciseInner = ({ entry, dragHandleProps, hideInterRest, pairRest, prevEndTs }) => {
     const { exercise: ex, sets: setsCount } = entry;
 
     const completedCount = [...Array(setsCount)].filter((_, idx) => {
@@ -725,15 +733,21 @@ const TrainingView = ({
                   </button>
                 </div>
 
-                {/* Rest Time Display（pair 內由 sticky bar 統一呈現、此處隱藏） */}
-                {!hideSetRest && (() => {
+                {/* Rest Time Display（pair 核心輪由 sticky bar 呈現；tail 組回到單動作 inline 休息） */}
+                {(() => {
                   if (logData.skipped) return null;
+                  // pair 內只顯示「下一組是 tail 組」的休息
+                  if (pairRest && idx + 1 < pairRest.coreRoundCount) return null;
+                  // 最後一個核心組 → 第一個 tail 組：核心輪做完才開始算，從輪結束（兩邊較晚者）起算
+                  const isCoreToTail = pairRest != null && idx < pairRest.coreRoundCount;
+                  if (isCoreToTail && !pairRest.coreDone) return null;
+                  const restFromTs = isCoreToTail ? pairRest.coreEndTs : logData.completedAt;
                   const isLastSet = idx === setsCount - 1;
                   const nextLogKey = `w${currentWeek}-d${currentDay}-${ex.id}-s${idx + 1}`;
                   const nextLog = logs[nextLogKey];
 
                   if (logData.done && !isLastSet && nextLog?.done && !nextLog?.skipped) {
-                    const restTime = calculateRestTime(nextLogKey, logKey);
+                    const restTime = calculateRestTime(nextLogKey, restFromTs);
                     return restTime ? (
                       <div className="text-xs text-neutral-500 mt-1 pl-11">
                         休息時間: {restTime}
@@ -741,7 +755,7 @@ const TrainingView = ({
                     ) : null;
                   }
                   if (logData.done && !isLastSet && !nextLog?.done && !nextLog?.skipped) {
-                    const cRestTime = getCurrentRestTime(logKey);
+                    const cRestTime = getCurrentRestTime(restFromTs);
                     return (
                       <div className="text-xs text-emerald-400 mt-1 pl-11 font-semibold animate-pulse">
                         休息中: {cRestTime}
@@ -815,7 +829,8 @@ const TrainingView = ({
         </div>
 
         {/* Exercise Card */}
-        <div className="bg-neutral-900 rounded-3xl border border-neutral-800 shadow-2xl overflow-hidden">
+        {/* overflow-clip 只裁圓角、不建立捲動容器；overflow-hidden 會讓 pair sticky bar 黏不住 */}
+        <div className="bg-neutral-900 rounded-3xl border border-neutral-800 shadow-2xl overflow-clip">
           <div className="px-8 py-6 border-b border-neutral-800 bg-neutral-800/30">
             <h2 className="text-2xl font-black text-white italic">{currentWorkout.name}</h2>
             <p className="text-neutral-500 text-sm mt-1">{currentWorkout.subtitle}</p>
@@ -843,6 +858,12 @@ const TrainingView = ({
                       const [a, b] = group.items;
                       const pairCfg = { primary: a.exercise.id, secondary: b.exercise.id, rest: group.rest };
                       const pairState = getPairRoundState(pairCfg, a.sets, b.sets, currentWeek, currentDay, logs);
+                      const tailProgress = getPairTailProgress(pairCfg, a.sets, b.sets, currentWeek, currentDay, logs);
+                      const pairRest = {
+                        coreRoundCount: pairState.coreRoundCount,
+                        coreDone: pairState.state === 'done',
+                        coreEndTs: pairState.lastCompleteRoundEndTs,
+                      };
                       const enterPairLabel = prevKind === 'pair' ? '上一配對' : '上一動作';
                       return (
                         <Draggable key={group.id} draggableId={group.id} index={groupIdx}>
@@ -871,6 +892,7 @@ const TrainingView = ({
                               <PairStickyBar
                                 pairState={pairState}
                                 pairInfo={pairCfg}
+                                tailProgress={tailProgress}
                                 currentTime={currentTime}
                                 enterPairFromTs={prevEndTs}
                                 enterPairLabel={enterPairLabel}
@@ -883,7 +905,7 @@ const TrainingView = ({
                                       entry,
                                       dragHandleProps: null,
                                       hideInterRest: true,
-                                      hideSetRest: true,
+                                      pairRest,
                                       prevEndTs: null,
                                     })}
                                   </React.Fragment>
@@ -912,7 +934,7 @@ const TrainingView = ({
                               entry: group.item,
                               dragHandleProps: provided.dragHandleProps,
                               hideInterRest: false,
-                              hideSetRest: false,
+                              pairRest: null,
                               prevEndTs,
                             })}
                           </div>
