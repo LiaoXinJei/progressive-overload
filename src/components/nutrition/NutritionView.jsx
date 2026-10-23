@@ -6,22 +6,23 @@ import TDEECalculator from './TDEECalculator';
 import MealEntry from './MealEntry';
 import FoodPhotoAnalyzer from './FoodPhotoAnalyzer';
 
+// 本地日期 YYYY-MM-DD；toISOString() 是 UTC，台灣 08:00 前會變成前一天
+const toLocalDateKey = (d) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
 const NutritionView = ({ nutritionProfile, setNutritionProfile, nutritionLogs, setNutritionLogs }) => {
-  const [selectedDate, setSelectedDate] = useState(() => {
-    const d = new Date();
-    return d.toISOString().split('T')[0];
-  });
+  const [selectedDate, setSelectedDate] = useState(() => toLocalDateKey(new Date()));
   const [showTDEE, setShowTDEE] = useState(false);
   const [showMealEntry, setShowMealEntry] = useState(false);
   const [showPhotoAnalyzer, setShowPhotoAnalyzer] = useState(false);
 
-  const today = new Date().toISOString().split('T')[0];
+  const today = toLocalDateKey(new Date());
   const isToday = selectedDate === today;
 
   const navigateDate = (direction) => {
-    const d = new Date(selectedDate);
+    const d = new Date(selectedDate + 'T00:00:00');
     d.setDate(d.getDate() + direction);
-    setSelectedDate(d.toISOString().split('T')[0]);
+    setSelectedDate(toLocalDateKey(d));
   };
 
   const formatDateDisplay = (dateStr) => {

@@ -120,9 +120,17 @@ const RPFocusPro = () => {
 
   // ==================== 數據持久化 ====================
 
+  // 讀檔成功前不寫回。StrictMode（dev）會把 effect 跑兩次，
+  // 不擋的話第一次寫回的初始空狀態會被第二次讀檔讀到，資料被清空。
+  // 讀檔失敗時維持 false：不寫回，保留原本的 localStorage。
+  const [isHydrated, setIsHydrated] = useState(false);
+
   useEffect(() => {
     const saved = localStorage.getItem('rp_focus_pro_data');
-    if (!saved) return;
+    if (!saved) {
+      setIsHydrated(true);
+      return;
+    }
     try {
       const data = JSON.parse(saved);
 
@@ -223,6 +231,62 @@ const RPFocusPro = () => {
         };
       }
 
+      let migratedLibrary = Array.isArray(data.exerciseLibrary) && data.exerciseLibrary.length > 0
+        ? data.exerciseLibrary
+        : DEFAULT_EXERCISE_LIBRARY;
+
+      // v4 → v5 migration：動作庫與替換設定對齊 v3 FINAL
+      // v4 migration 沒動 exerciseLibrary、exerciseOverrides 只按 key 清，
+      // 升級上來的使用者還留著 v3 的動作庫，替換設定也可能指向已移除的動作
+      const needsV5Migration = (data.schemaVersion ?? 3) < 5;
+      if (needsV5Migration) {
+        // v3 有、v3 FINAL 拿掉的預設動作（含改名前的舊 id）
+        const REMOVED_LIBRARY_IDS = [
+          'pec_deck', 'leg_curl', 'ohp', 'fly_cable', 'bp_machine', 'tri_overhead', 'tri_kickback', 'bb_row',
+          'lib_db_fly', 'lib_low_cable_fly', 'lib_decline_press', 'lib_t_bar_row', 'lib_chest_supported_row',
+          'lib_deadlift', 'lib_arnold_press', 'lib_machine_press', 'lib_rear_delt_db', 'lib_tri_rope_overhead',
+          'lib_squat_bb', 'lib_hack_squat', 'lib_leg_press', 'lib_bulgarian_split', 'lib_rdl',
+          'lib_seated_leg_curl', 'lib_good_morning',
+        ];
+        // v3 FINAL 新增的預設動作（v3 就有、被使用者刪掉的不補回）
+        const ADDED_LIBRARY_IDS = [
+          'calf_standing_a', 'seated_leg_curl_b', 'calf_seated_b', 'machine_press', 'tri_overhead_seated',
+          'single_leg_press', 'calf_standing_c', 'chest_supported_row', 'lying_leg_curl_d', 'calf_seated_d',
+          'leg_press', 'bulgarian_split_db', 'rdl_db', 'back_ext_45', 'calf_standing_heavy', 'calf_press_legpress',
+          'lib_flat_db_press', 'lib_machine_press_flat', 'lib_machine_press_incline', 'lib_smith_incline',
+          'lib_smith_flat', 'lib_weighted_dips', 'lib_incline_bb_press', 'lib_t_bar_row_chest', 'lib_machine_row',
+          'lib_arnold_press_seated', 'lib_smith_seated_press', 'lib_rear_delt_db_chest',
+          'lib_tri_rope_overhead_seated', 'lib_belt_squat', 'lib_pendulum_squat_noload', 'lib_sissy_squat',
+          'lib_step_up_db', 'lib_leg_ext_alt', 'lib_nordic_curl', 'lib_cable_pullthrough', 'lib_reverse_hyper',
+          'lib_machine_hip_hinge', 'lib_glute_ham_raise', 'lib_calf_donkey', 'lib_calf_single_leg_db',
+          'lib_calf_smith_standing', 'lib_calf_seated_alt',
+        ];
+
+        // 1. 動作庫：補上新增的、拿掉移除的
+        if (migratedLibrary !== DEFAULT_EXERCISE_LIBRARY) {
+          const storedById = new Map(migratedLibrary.map(item => [item.id, item]));
+          const defaultIds = new Set(DEFAULT_EXERCISE_LIBRARY.map(item => item.id));
+          migratedLibrary = [
+            // 預設動作照新的順序，使用者改過的版本優先
+            ...DEFAULT_EXERCISE_LIBRARY
+              .filter(item => storedById.has(item.id) || ADDED_LIBRARY_IDS.includes(item.id))
+              .map(item => storedById.get(item.id) ?? item),
+            // 使用者自訂動作接在後面
+            ...migratedLibrary.filter(item =>
+              !defaultIds.has(item.id) && !REMOVED_LIBRARY_IDS.includes(item.id)
+            ),
+          ];
+        }
+
+        // 2. exerciseOverrides：替換成已移除（含改名）動作的設定清掉，同 v4 的對齊決策不保留
+        const nextOverrides = {};
+        Object.entries(migratedOverrides).forEach(([key, libId]) => {
+          if (REMOVED_LIBRARY_IDS.includes(libId)) return;
+          nextOverrides[key] = libId;
+        });
+        migratedOverrides = nextOverrides;
+      }
+
       setLogs(migratedLogs);
       setHistory(migratedHistory);
       setMode(data.mode || 'maintenance');
@@ -233,25 +297,23 @@ const RPFocusPro = () => {
       setCustomExercises(migratedCustomExercises);
       setCustomSets(migratedCustomSets);
       setExerciseOrder(migratedExerciseOrder);
-      setExerciseLibrary(
-        Array.isArray(data.exerciseLibrary) && data.exerciseLibrary.length > 0
-          ? data.exerciseLibrary
-          : DEFAULT_EXERCISE_LIBRARY
-      );
+      setExerciseLibrary(migratedLibrary);
       setExerciseOverrides(migratedOverrides);
       setWeightIncrement(data.weightIncrement ?? 2);
       setRestNotificationDelay(data.restNotificationDelay ?? 90);
       setActiveTab(data.activeTab || 'training');
       setNutritionProfile(data.nutritionProfile || null);
       setNutritionLogs(data.nutritionLogs || {});
+      setIsHydrated(true);
     } catch (e) {
       console.error('載入數據失敗:', e);
     }
   }, []);
 
   useEffect(() => {
+    if (!isHydrated) return;
     const state = {
-      schemaVersion: 4,
+      schemaVersion: 5,
       logs, history, mode,
       viewState: { currentWeek, currentDay, showStats },
       customExerciseNames, customExercises, customSets, exerciseOrder,
@@ -260,7 +322,7 @@ const RPFocusPro = () => {
       nutritionProfile, nutritionLogs
     };
     localStorage.setItem('rp_focus_pro_data', JSON.stringify(state));
-  }, [logs, history, mode, currentWeek, currentDay, showStats, customExerciseNames, customExercises, customSets, exerciseOrder, exerciseLibrary, exerciseOverrides, weightIncrement, restNotificationDelay, activeTab, nutritionProfile, nutritionLogs]);
+  }, [isHydrated, logs, history, mode, currentWeek, currentDay, showStats, customExerciseNames, customExercises, customSets, exerciseOrder, exerciseLibrary, exerciseOverrides, weightIncrement, restNotificationDelay, activeTab, nutritionProfile, nutritionLogs]);
 
   // ==================== 重置 ====================
 

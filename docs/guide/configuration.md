@@ -47,7 +47,7 @@ VitePWA({
 
 | 欄位 | 用途 |
 |------|------|
-| `schemaVersion` | 目前為 `3`。**任何結構變更必須升版號並加遷移邏輯** |
+| `schemaVersion` | 目前為 `5`。**任何結構變更必須升版號並加遷移邏輯** |
 | `logs` | 訓練紀錄，key 格式：`w<week>-d<day>-<exerciseId>-s<setIndex>` |
 | `history` | 各動作最近一次的 `{ weight, reps }` |
 | `mode` | `'maintenance' \| 'bulking'` |

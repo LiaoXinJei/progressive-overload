@@ -195,9 +195,10 @@ refactor: 抽出 VolumeConfig 為獨立模組
 
 > **⚠️ 重要：只要改到 `localStorage` 中存放結構（`rp_focus_pro_data`），必須評估相容性。**
 
-- 目前 `schemaVersion: 3`
+- 目前 `schemaVersion: 5`
 - 變更結構時，必須在載入流程（`App.jsx` 的 `useEffect` 還原段）加入遷移邏輯，避免舊使用者資料遺失
 - 範例：v2 → v3 將 `history` 從 `number` 升級為 `{ weight, reps }` 物件
+- 寫回 `useEffect` 在讀檔成功（`isHydrated`）前不會執行，避免 StrictMode 下初始空狀態蓋掉舊資料
 
 ---
 
@@ -213,7 +214,7 @@ refactor: 抽出 VolumeConfig 為獨立模組
 | Session 配色（push / pull / legs） | 同上的 `SESSION_TYPE_THEME` |
 | 動作 RIR 警示徽章 | 在 `WORKOUTS` 動作物件加 `noteRIR: '2-3'` 字串 |
 | 動作底下灰字提示 | 在 `WORKOUTS` 動作物件加 `noteText: '...'` 字串 |
-| 移除 / 改名動作 | `App.jsx` 的 v3→v4 migration block（`REMOVED_IDS` / `RENAMED_IDS`）+ bump `schemaVersion` |
+| 移除 / 改名動作 | `App.jsx` 的 v3→v4 migration block（`REMOVED_IDS` / `RENAMED_IDS`）+ 動作庫同步（v4→v5 的 `REMOVED_LIBRARY_IDS` / `ADDED_LIBRARY_IDS` 寫法）+ bump `schemaVersion` |
 | 訓練核心 UI | `src/components/training/TrainingView.jsx` |
 | 營養追蹤 | `src/components/nutrition/NutritionView.jsx` |
 | 動作庫管理 | `src/components/settings/ExerciseLibraryManager.jsx` |
