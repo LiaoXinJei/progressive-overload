@@ -48,11 +48,13 @@ const render = (props) => {
   act(() => root.render(<TrainingView {...props} />));
 };
 
-// 統計面板裡某肌群的實際組數（動作卡片也有同名肌群標籤，統計面板在最後）
-const statSets = (label) => {
+// 統計面板裡某肌群的「實際 / 目標」文字（動作卡片也有同名肌群標籤，統計面板在最後）
+const statText = (label) => {
   const spans = [...container.querySelectorAll('span')].filter(s => s.textContent === label);
-  return parseInt(spans.at(-1).nextElementSibling.textContent, 10);
+  return spans.at(-1).nextElementSibling.textContent;
 };
+
+const statSets = (label) => parseInt(statText(label), 10);
 
 // 統計面板預設開啟、App 首次 render 就會走到這裡；缺 import 時整個 App 白畫面
 test('統計面板開啟時、W1–W10 × D1–D5 都能渲染', () => {
@@ -62,6 +64,12 @@ test('統計面板開啟時、W1–W10 × D1–D5 都能渲染', () => {
       assert.ok(container.textContent.includes('本週訓練量'), `W${week} D${day + 1} 缺少統計面板`);
     }
   }
+});
+
+test('統計面板顯示肌群目標組數', () => {
+  // W1 胸部目標 = VOLUME_CONFIG.CHEST[0] = 10
+  render(baseProps());
+  assert.match(statText('胸部'), /^\d+ \/ 10(?!\d)/);
 });
 
 test('只改 exerciseOverrides 時、本週訓練量即時更新', () => {
