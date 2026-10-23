@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   RotateCcw, Activity, AlertTriangle, TrendingUp, ShieldCheck,
   Timer, Settings, Bell, BellOff, ChevronUp
@@ -54,6 +54,21 @@ const RPFocusPro = () => {
 
   const scrollToTop = useCallback(() => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
+
+  // header 是 sticky，高度隨螢幕寬度與分頁改變；寫進 --app-header-h 給 pair sticky bar 當 top
+  const headerRef = useRef(null);
+  useEffect(() => {
+    const el = headerRef.current;
+    if (!el) return;
+    const update = () => {
+      document.documentElement.style.setProperty('--app-header-h', `${el.offsetHeight}px`);
+    };
+    update();
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
   }, []);
 
   // ==================== 計時器邏輯 ====================
@@ -271,7 +286,7 @@ const RPFocusPro = () => {
     <div className="min-h-screen bg-neutral-950 text-neutral-200 font-sans pb-20">
 
       {/* ==================== Header ==================== */}
-      <header className="bg-neutral-900 border-b border-neutral-800 sticky top-0 z-50 shadow-2xl">
+      <header ref={headerRef} className="bg-neutral-900 border-b border-neutral-800 sticky top-0 z-50 shadow-2xl">
         <div className="max-w-6xl mx-auto px-4 py-4">
           <div className="flex flex-col md:flex-row justify-between items-center gap-4">
 

@@ -2,7 +2,7 @@
 
 import { test } from 'vitest';
 import assert from 'node:assert/strict';
-import { getPairRoundState, getPairEndTimestamp } from './pairRoundState.js';
+import { getPairRoundState, getPairEndTimestamp, getPairTailProgress } from './pairRoundState.js';
 
 const pair = { primary: 'A', secondary: 'B', rest: 75 };
 const W = 1;
@@ -106,6 +106,25 @@ test('done: 所有 round 皆 complete', () => {
   const r = getPairRoundState(pair, 2, 2, W, D, logs);
   assert.equal(r.state, 'done');
   assert.equal(r.lastCompleteRoundEndTs, 2200);
+});
+
+test('getPairTailProgress: 等組數沒有 tail', () => {
+  assert.deepEqual(getPairTailProgress(pair, 3, 3, W, D, {}), { total: 0, settled: 0 });
+});
+
+test('getPairTailProgress: A 多兩組、done 與 skipped 都算 settled', () => {
+  const logs = {
+    [k('A', 2)]: done(3000),
+    [k('A', 3)]: skipped(),
+    [k('B', 1)]: done(2000), // 核心輪不計
+  };
+  assert.deepEqual(getPairTailProgress(pair, 4, 2, W, D, logs), { total: 2, settled: 2 });
+  assert.deepEqual(getPairTailProgress(pair, 4, 2, W, D, {}), { total: 2, settled: 0 });
+});
+
+test('getPairTailProgress: B 多一組', () => {
+  const logs = { [k('B', 2)]: done(3000) };
+  assert.deepEqual(getPairTailProgress(pair, 2, 3, W, D, logs), { total: 1, settled: 1 });
 });
 
 test('不等組數：coreRoundCount = min(A,B)、tail 不入 rounds', () => {

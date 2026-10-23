@@ -165,6 +165,21 @@ export const isPairTailSet = (pair, aSets, bSets, exerciseId, setIdx) => {
 };
 
 /**
+ * pair tail 組進度（只有組數較多的一方有 tail）。
+ * 核心輪全部 complete 不代表 pair 做完；tail 組全 settled 才算。
+ * @returns {{ total: number, settled: number }}
+ */
+export const getPairTailProgress = (pair, aSets, bSets, currentWeek, currentDay, logs) => {
+  const coreRoundCount = Math.min(aSets, bSets);
+  const [exerciseId, sets] = aSets > bSets ? [pair.primary, aSets] : [pair.secondary, bSets];
+  let settled = 0;
+  for (let i = coreRoundCount; i < sets; i++) {
+    if (isSettled(logs[getLogKey(currentWeek, currentDay, exerciseId, i)])) settled++;
+  }
+  return { total: sets - coreRoundCount, settled };
+};
+
+/**
  * 通知排程 context。依「當日最近一筆 done log」推得。
  *
  * type:
@@ -273,9 +288,21 @@ export const getRestContext = ({
       };
     }
     if (pairState.state === 'done') {
+      const anchor = pairState.lastCompleteRoundEndTs ?? latestTs;
+      // 核心輪做完但還有 tail 組 → 同動作下一組（tail 為單動作語意）
+      const tail = getPairTailProgress(
+        pair, aEntry.sets, bEntry.sets, currentWeek, currentDay, logs,
+      );
+      if (tail.settled < tail.total) {
+        return {
+          type: 'in-set',
+          delay: globalDelay,
+          anchorTs: anchor,
+          notifyKey: `${keyBase}:in-set:${anchor}`,
+        };
+      }
       // pair 整體完成 → 接 between-exercises（若還有工作）或 idle
       if (!hasPendingInPlan()) return idle();
-      const anchor = pairState.lastCompleteRoundEndTs ?? latestTs;
       return {
         type: 'between-exercises',
         delay: globalDelay,
