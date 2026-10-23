@@ -105,9 +105,17 @@ const RPFocusPro = () => {
 
   // ==================== 數據持久化 ====================
 
+  // 讀檔成功前不寫回。StrictMode（dev）會把 effect 跑兩次，
+  // 不擋的話第一次寫回的初始空狀態會被第二次讀檔讀到，資料被清空。
+  // 讀檔失敗時維持 false：不寫回，保留原本的 localStorage。
+  const [isHydrated, setIsHydrated] = useState(false);
+
   useEffect(() => {
     const saved = localStorage.getItem('rp_focus_pro_data');
-    if (!saved) return;
+    if (!saved) {
+      setIsHydrated(true);
+      return;
+    }
     try {
       const data = JSON.parse(saved);
 
@@ -229,12 +237,14 @@ const RPFocusPro = () => {
       setActiveTab(data.activeTab || 'training');
       setNutritionProfile(data.nutritionProfile || null);
       setNutritionLogs(data.nutritionLogs || {});
+      setIsHydrated(true);
     } catch (e) {
       console.error('載入數據失敗:', e);
     }
   }, []);
 
   useEffect(() => {
+    if (!isHydrated) return;
     const state = {
       schemaVersion: 4,
       logs, history, mode,
@@ -245,7 +255,7 @@ const RPFocusPro = () => {
       nutritionProfile, nutritionLogs
     };
     localStorage.setItem('rp_focus_pro_data', JSON.stringify(state));
-  }, [logs, history, mode, currentWeek, currentDay, showStats, customExerciseNames, customExercises, customSets, exerciseOrder, exerciseLibrary, exerciseOverrides, weightIncrement, restNotificationDelay, activeTab, nutritionProfile, nutritionLogs]);
+  }, [isHydrated, logs, history, mode, currentWeek, currentDay, showStats, customExerciseNames, customExercises, customSets, exerciseOrder, exerciseLibrary, exerciseOverrides, weightIncrement, restNotificationDelay, activeTab, nutritionProfile, nutritionLogs]);
 
   // ==================== 重置 ====================
 
