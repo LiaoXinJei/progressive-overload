@@ -146,6 +146,31 @@ test('BUG-11：完成後清空次數或重量，歷史保留原值、不會被�
   assert.deepEqual(state.history.pullup, { weight: 60, reps: '10' });
 });
 
+test('BUG-11：改前面已完成的組時，後面還有完成的組，歷史保留後面那組', () => {
+  const state = renderView({
+    logs: {
+      [key('pullup', 0)]: done(60, '10', Date.now() - 3 * MIN),
+      [key('pullup', 1)]: done(62, '8', Date.now()),
+    },
+    history: { pullup: { weight: 62, reps: '8' } },
+  });
+  typeInto(row(0).reps, '12');
+  typeInto(row(0).weight, '64');
+  assert.equal(state.logs[key('pullup', 0)].reps, '12');
+  assert.deepEqual(state.history.pullup, { weight: 62, reps: '8' });
+});
+
+test('BUG-11：後面的組已完成、回頭補記前面的組，歷史保留後面那組', () => {
+  const state = renderView({
+    logs: { [key('pullup', 1)]: done(62, '8', Date.now()) },
+    history: { pullup: { weight: 62, reps: '8' } },
+  });
+  typeInto(row(0).weight, '60');
+  typeInto(row(0).reps, '10');
+  assert.equal(state.logs[key('pullup', 0)].done, true);
+  assert.deepEqual(state.history.pullup, { weight: 62, reps: '8' });
+});
+
 test('BUG-11（不變）：還沒完成的組改重量，不寫歷史', () => {
   const state = renderView({ history: { pullup: { weight: 60, reps: '10' } } });
   typeInto(row(0).weight, '70');

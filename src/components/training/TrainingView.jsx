@@ -191,9 +191,10 @@ const TrainingView = ({
 
   // ==================== 訓練記錄操作 ====================
 
-  // 已完成的組被修改時，把最新的重量 / 次數同步到歷史；任一欄空白就不寫，保留原值
+  // 已完成的組被修改時，把最新的重量 / 次數同步到歷史；任一欄空白就不寫，保留原值。
+  // historyKey 為 null 代表同動作後面還有完成的組，歷史以後面那組為準
   const syncHistoryIfDone = (historyKey, log) => {
-    if (!log.done || !hasWeight(log.weight) || !log.reps) return;
+    if (!historyKey || !log.done || !hasWeight(log.weight) || !log.reps) return;
     setHistory(h => ({ ...h, [historyKey]: { weight: parseFloat(log.weight), reps: log.reps } }));
   };
 
@@ -271,7 +272,7 @@ const TrainingView = ({
       const weight = hasWeight(current.weight) ? current.weight
         : hasWeight(historyWeight) ? historyWeight : '';
       const shouldComplete = value && hasWeight(weight);
-      if (shouldComplete) {
+      if (shouldComplete && historyKey) {
         setHistory(h => ({
           ...h,
           [historyKey]: { weight: parseFloat(weight), reps: value }
@@ -643,6 +644,9 @@ const TrainingView = ({
             // 替換過的動作用替換後動作的歷史，不沿用原本那格的
             const historyKey = ex._libraryId ?? ex.id;
             const historyEntry = history[historyKey] || {};
+            const laterSetDone = [...Array(setsCount)].some((_, j) =>
+              j > idx && logs[`w${currentWeek}-d${currentDay}-${ex.id}-s${j}`]?.done);
+            const historyWriteKey = laterSetDone ? null : historyKey;
             const historyWeight = historyEntry.weight;
             const historyReps = historyEntry.reps;
             const hasHistory = (historyWeight !== undefined && historyWeight !== '') || (historyReps !== undefined && historyReps !== '');
@@ -680,7 +684,7 @@ const TrainingView = ({
                         <label className="text-[10px] text-neutral-500 block mb-1">重量 (kg)</label>
                         <div className="flex items-center gap-1">
                           <button
-                            onClick={() => adjustWeight(logKey, historyKey, -1, historyWeight)}
+                            onClick={() => adjustWeight(logKey, historyWriteKey, -1, historyWeight)}
                             className="p-2 bg-neutral-900 hover:bg-neutral-800 rounded-lg transition-colors"
                             title={`-${weightIncrement}kg`}
                           >
@@ -691,7 +695,7 @@ const TrainingView = ({
                             type="number"
                             step={weightIncrement}
                             value={logData.weight ?? ''}
-                            onChange={(e) => updateLog(logKey, historyKey, 'weight', e.target.value)}
+                            onChange={(e) => updateLog(logKey, historyWriteKey, 'weight', e.target.value)}
                             onKeyDown={(e) => {
                               if (e.key === 'Enter') {
                                 e.preventDefault();
@@ -705,7 +709,7 @@ const TrainingView = ({
                             focus:outline-none focus:ring-2 focus:ring-emerald-500"
                           />
                           <button
-                            onClick={() => adjustWeight(logKey, historyKey, 1, historyWeight)}
+                            onClick={() => adjustWeight(logKey, historyWriteKey, 1, historyWeight)}
                             className="p-2 bg-neutral-900 hover:bg-neutral-800 rounded-lg transition-colors"
                             title={`+${weightIncrement}kg`}
                           >
@@ -719,7 +723,7 @@ const TrainingView = ({
                           data-reps-input
                           type="number"
                           value={logData.reps || ''}
-                          onChange={(e) => handleRepsChange(logKey, historyKey, e.target.value, historyWeight)}
+                          onChange={(e) => handleRepsChange(logKey, historyWriteKey, e.target.value, historyWeight)}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter') {
                               e.preventDefault();
