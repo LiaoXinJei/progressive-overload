@@ -47,14 +47,14 @@ VitePWA({
 
 | 欄位 | 用途 |
 |------|------|
-| `schemaVersion` | 目前為 `5`。**任何結構變更必須升版號並加遷移邏輯** |
+| `schemaVersion` | 目前為 `6`。**任何結構變更必須升版號並加遷移邏輯** |
 | `logs` | 訓練紀錄，key 格式：`w<week>-d<day>-<exerciseId>-s<setIndex>` |
 | `history` | 各動作最近一次的 `{ weight, reps }` |
 | `mode` | `'maintenance' \| 'bulking'` |
 | `viewState` | `{ currentWeek, currentDay, showStats }` |
 | `customExerciseNames` | 使用者改名 |
 | `customExercises` | 使用者新增的動作 |
-| `customSets` | 各動作組數覆寫 |
+| `customSets` | 各動作每週的組數覆寫（±1），key 為 `w{週}-{session}-{動作 id}`，只影響那一週 |
 | `exerciseOrder` | 拖曳後的順序 |
 | `exerciseLibrary` | 完整動作庫（含自訂） |
 | `exerciseOverrides` | session 內動作替換 |

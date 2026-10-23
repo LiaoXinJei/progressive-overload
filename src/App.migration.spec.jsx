@@ -129,3 +129,30 @@ test('替換設定指向已移除或已改名的動作時清掉，其他替換�
     'C-lateral_raise': 'lib_custom_1',
   });
 });
+
+// ==================== BUG-14：組數覆寫改成分週 ====================
+
+test('v5 → v6：舊的不分週組數覆寫清掉，schemaVersion 升到 6', () => {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({
+    schemaVersion: 5,
+    customSets: { 'A-leg_ext': 5, 'C-tri_overhead_seated': 3 },
+    exerciseOverrides: { 'B-pullup': 'lib_pulldown_wide' },
+  }));
+
+  render(<App />);
+
+  expect(stored().schemaVersion).toBe(6);
+  expect(stored().customSets).toEqual({});
+  expect(stored().exerciseOverrides).toEqual({ 'B-pullup': 'lib_pulldown_wide' });
+});
+
+test('v6 的分週組數覆寫原樣保留', () => {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({
+    schemaVersion: 6,
+    customSets: { 'w4-A-leg_ext': 5, 'w2-C-lib_skullcrusher': 3 },
+  }));
+
+  render(<App />);
+
+  expect(stored().customSets).toEqual({ 'w4-A-leg_ext': 5, 'w2-C-lib_skullcrusher': 3 });
+});

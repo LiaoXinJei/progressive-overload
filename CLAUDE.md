@@ -195,7 +195,7 @@ refactor: 抽出 VolumeConfig 為獨立模組
 
 > **⚠️ 重要：只要改到 `localStorage` 中存放結構（`rp_focus_pro_data`），必須評估相容性。**
 
-- 目前 `schemaVersion: 5`
+- 目前 `schemaVersion: 6`
 - 變更結構時，必須在載入流程（`App.jsx` 的 `useEffect` 還原段）加入遷移邏輯，避免舊使用者資料遺失
 - 範例：v2 → v3 將 `history` 從 `number` 升級為 `{ weight, reps }` 物件
 - 寫回 `useEffect` 在讀檔成功（`isHydrated`）前不會執行，避免 StrictMode 下初始空狀態蓋掉舊資料

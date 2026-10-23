@@ -95,3 +95,20 @@ test('splitByWeights：最大餘數法、總和不變、同餘數給前面的 se
   assert.deepEqual(splitByWeights(10, ['A', 'C', 'E']), [4, 3, 3]);
   assert.deepEqual(splitByWeights(0, ['A', 'C']), [0, 0]);
 });
+
+// ==================== BUG-14：組數覆寫分週 ====================
+
+const setsOf = (week, key, id, opts = {}) =>
+  buildSessionPlan(week, key, opts).find(p => p.exercise.id === id).sets;
+
+test('組數覆寫只套用在設定的那一週', () => {
+  const customSets = { 'w4-A-leg_ext': 2 };
+  assert.equal(setsOf(4, 'A', 'leg_ext', { customSets }), 2);
+  for (const week of [1, 3, 5, 10]) {
+    assert.equal(setsOf(week, 'A', 'leg_ext', { customSets }), setsOf(week, 'A', 'leg_ext'), `W${week}`);
+  }
+});
+
+test('舊格式（不分週）的組數覆寫不再套用', () => {
+  assert.equal(setsOf(4, 'A', 'leg_ext', { customSets: { 'A-leg_ext': 1 } }), setsOf(4, 'A', 'leg_ext'));
+});

@@ -51,6 +51,14 @@ export const splitByWeights = (total, keys, weights) => {
   return result;
 };
 
+// 組數覆寫（±1）分週存：只影響那一週
+export const customSetsKey = (week, workoutKey, exerciseId) => `w${week}-${workoutKey}-${exerciseId}`;
+
+// 拿掉某個動作在每一週的組數覆寫
+export const withoutCustomSets = (customSets, workoutKey, exerciseId) => Object.fromEntries(
+  Object.entries(customSets).filter(([key]) => key.replace(/^w\d+-/, '') !== `${workoutKey}-${exerciseId}`)
+);
+
 export const getRepRange = (exerciseType, week) => {
   const phase = getPhase(week);
   const config = PHASE_CONFIG[phase];
@@ -65,7 +73,7 @@ export const getRepRange = (exerciseType, week) => {
  * @param {string} workoutKey - 'A' | 'B' | 'C' | 'D' | 'E'
  * @param {object} opts
  * @param {Record<string, Array<object>>} opts.customExercises
- * @param {Record<string, number>} opts.customSets
+ * @param {Record<string, number>} opts.customSets - key 見 customSetsKey
  * @param {Record<string, string[]>} opts.exerciseOrder
  * @param {Record<string, string>} opts.exerciseOverrides
  * @param {Array<object>} opts.exerciseLibrary
@@ -136,10 +144,10 @@ export const buildSessionPlan = (week, workoutKey, opts) => {
     return { exercise, sets };
   });
 
-  allResults = allResults.map(({ exercise, sets }) => {
-    const overrideKey = `${workoutKey}-${exercise.id}`;
-    return { exercise, sets: customSets[overrideKey] ?? sets };
-  });
+  allResults = allResults.map(({ exercise, sets }) => ({
+    exercise,
+    sets: customSets[customSetsKey(week, workoutKey, exercise.id)] ?? sets,
+  }));
 
   const order = exerciseOrder[workoutKey];
   if (order && order.length > 0) {

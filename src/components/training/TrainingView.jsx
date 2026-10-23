@@ -12,6 +12,7 @@ import {
 import { getPairRoundState, getPairEndTimestamp, getPairTailProgress } from '../../utils/pairRoundState';
 import {
   buildSessionPlan, getWorkoutForDay, getPhase, getRepRange, getWeeklyMuscleVolume,
+  customSetsKey, withoutCustomSets,
 } from '../../utils/sessionPlan';
 
 const LOWER_MUSCLES = new Set(['QUADS', 'HAMS']);
@@ -312,7 +313,6 @@ const TrainingView = ({
   const applyLibraryToExercise = (exerciseId, libraryItem) => {
     const overrideKey = `${workoutKey}-${exerciseId}`;
     setExerciseOverrides(prev => ({ ...prev, [overrideKey]: libraryItem.id }));
-    setCustomSets(prev => ({ ...prev, [overrideKey]: libraryItem.defaultSets }));
     setCustomExerciseNames(prev => {
       if (!(exerciseId in prev)) return prev;
       const updated = { ...prev };
@@ -330,11 +330,7 @@ const TrainingView = ({
       delete updated[overrideKey];
       return updated;
     });
-    setCustomSets(prev => {
-      const updated = { ...prev };
-      delete updated[overrideKey];
-      return updated;
-    });
+    setCustomSets(prev => withoutCustomSets(prev, workoutKey, exerciseId));
     setPickerForExId(null);
     setPickerSearch('');
   };
@@ -369,15 +365,11 @@ const TrainingView = ({
       ...prev,
       [workoutKey]: (prev[workoutKey] || []).filter(id => id !== exerciseId)
     }));
-    setCustomSets(prev => {
-      const updated = { ...prev };
-      delete updated[`${workoutKey}-${exerciseId}`];
-      return updated;
-    });
+    setCustomSets(prev => withoutCustomSets(prev, workoutKey, exerciseId));
   };
 
   const adjustExerciseSets = (exerciseId, delta, currentSets) => {
-    const key = `${workoutKey}-${exerciseId}`;
+    const key = customSetsKey(currentWeek, workoutKey, exerciseId);
     const newSets = Math.max(1, Math.min(10, currentSets + delta));
     setCustomSets(prev => ({ ...prev, [key]: newSets }));
   };
