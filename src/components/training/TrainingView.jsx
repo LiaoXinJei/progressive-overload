@@ -232,14 +232,31 @@ const TrainingView = ({
     });
   };
 
-  const skipSet = (logKey) => {
+  // 取消完成（再按 ✓ 或直接跳過）：歷史還原成完成前的值（完成時存在 log.historyBefore），
+  // 打錯的數字才不會留在歷史、被下一組當成上次紀錄。historyKey 為 null 代表後面還有完成的組，歷史不動
+  const uncomplete = (historyKey, log) => {
+    const next = { ...log, done: false, completedAt: undefined };
+    delete next.historyBefore;
+    if (historyKey && 'historyBefore' in log) {
+      setHistory(h => {
+        const updated = { ...h };
+        if (log.historyBefore) updated[historyKey] = log.historyBefore;
+        else delete updated[historyKey];
+        return updated;
+      });
+    }
+    return next;
+  };
+
+  const skipSet = (logKey, historyKey) => {
     setLogs(prev => {
       const current = prev[logKey] || {};
       const newSkipped = !current.skipped;
+      const base = current.done ? uncomplete(historyKey, current) : current;
       return {
         ...prev,
         [logKey]: {
-          ...current,
+          ...base,
           skipped: newSkipped,
           done: false,
           completedAt: undefined
@@ -248,19 +265,19 @@ const TrainingView = ({
     });
   };
 
-  // ✓ 按鈕：未完成 → 完成（空白欄位用上次紀錄，重量都沒有就當 0 kg 自體重）；已完成 → 取消完成。
-  // 取消完成不回復歷史，因為沒有保存完成前的值
+  // ✓ 按鈕：未完成 → 完成（空白欄位用上次紀錄，重量都沒有就當 0 kg 自體重）；已完成 → 取消完成
   const completeSet = (logKey, historyKey, historyEntry = {}) => {
     setLogs(prev => {
       const current = prev[logKey] || {};
       if (current.done) {
-        return { ...prev, [logKey]: { ...current, done: false, completedAt: undefined } };
+        return { ...prev, [logKey]: uncomplete(historyKey, current) };
       }
       const reps = current.reps || (hasReps(historyEntry.reps) ? String(historyEntry.reps) : '');
       if (!reps) return prev;
       const weight = hasWeight(current.weight) ? current.weight
         : hasWeight(historyEntry.weight) ? historyEntry.weight : 0;
       const next = { ...current, weight, reps, done: true, completedAt: Date.now() };
+      if (historyKey) next.historyBefore = history[historyKey] ?? null;
       syncHistoryIfDone(historyKey, next);
       return { ...prev, [logKey]: next };
     });
@@ -719,7 +736,7 @@ const TrainingView = ({
                     </>
                   )}
                   <button
-                    onClick={() => skipSet(logKey)}
+                    onClick={() => skipSet(logKey, historyWriteKey)}
                     title={logData.skipped ? '取消跳過' : '跳過此組'}
                     className={`p-1.5 rounded-lg transition-colors flex-shrink-0
                     ${logData.skipped

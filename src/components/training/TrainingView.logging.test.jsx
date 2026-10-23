@@ -178,6 +178,53 @@ test('✓：跳過的組不顯示 ✓，取消跳過後恢復', () => {
   assert.notEqual(row(0).complete, null);
 });
 
+test('✓：打錯重量完成後取消再跳過，歷史回到完成前的值，下一組不會沿用打錯的數字', () => {
+  const state = renderView({ history: { pullup: { weight: 60, reps: '8' } } });
+  typeInto(row(0).weight, '600');
+  typeInto(row(0).reps, '8');
+  click(row(0).complete);
+  assert.deepEqual(state.history.pullup, { weight: 600, reps: '8' });
+  click(row(0).complete);
+  click(container.querySelector('[data-set-row] button[title="跳過此組"]'));
+  assert.deepEqual(state.history.pullup, { weight: 60, reps: '8' });
+  assert.equal(row(1).weight.placeholder, '60');
+  click(row(1).complete);
+  assert.equal(state.logs[key('pullup', 1)].weight, 60);
+});
+
+test('✓：完成後又改過數字再取消，歷史回到完成前；原本沒有歷史就拿掉', () => {
+  const state = renderView();
+  typeInto(row(0).weight, '600');
+  typeInto(row(0).reps, '8');
+  click(row(0).complete);
+  typeInto(row(0).weight, '700');
+  assert.deepEqual(state.history.pullup, { weight: 700, reps: '8' });
+  click(row(0).complete);
+  assert.equal(state.history.pullup, undefined);
+});
+
+test('✓：已完成的組直接按跳過，歷史也回到完成前的值', () => {
+  const state = renderView({ history: { pullup: { weight: 60, reps: '8' } } });
+  typeInto(row(0).weight, '600');
+  typeInto(row(0).reps, '8');
+  click(row(0).complete);
+  click(container.querySelector('[data-set-row] button[title="跳過此組"]'));
+  assert.equal(state.logs[key('pullup', 0)].skipped, true);
+  assert.deepEqual(state.history.pullup, { weight: 60, reps: '8' });
+});
+
+test('✓：後面的組還是完成的，取消前面的組不動歷史', () => {
+  const state = renderView({ history: { pullup: { weight: 60, reps: '8' } } });
+  typeInto(row(0).weight, '62');
+  typeInto(row(0).reps, '8');
+  click(row(0).complete);
+  typeInto(row(1).weight, '64');
+  typeInto(row(1).reps, '8');
+  click(row(1).complete);
+  click(row(0).complete);
+  assert.deepEqual(state.history.pullup, { weight: 64, reps: '8' });
+});
+
 // ==================== BUG-03：次數只記到第一位數 ====================
 
 test('BUG-03：輸入兩位數次數再按 ✓，歷史與下一組 placeholder 要是完整的 12', () => {

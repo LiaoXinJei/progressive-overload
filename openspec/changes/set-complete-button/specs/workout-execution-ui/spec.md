@@ -8,7 +8,7 @@
 - 未完成的組 SHALL 標記 `done: true`、`completedAt` 為按下的時間，並開始休息計時
 - 空白的重量與次數 SHALL 依序採用自己填的值、該動作上次紀錄；重量兩者都沒有時 SHALL 記為 0 kg（自體重）
 - 若同動作後面沒有已完成的組，SHALL 把這組的重量與次數寫進 history
-- 已完成的組 SHALL 取消完成（`done: false`、清掉 `completedAt`），重量與次數保留
+- 已完成的組 SHALL 取消完成（`done: false`、清掉 `completedAt`），重量與次數保留；若完成時有寫 history，SHALL 把 history 回復成完成前的值
 
 次數自己沒填、上次紀錄也沒有次數時，✓ SHALL 停用。跳過的組 SHALL NOT 顯示 ✓。
 
@@ -27,6 +27,10 @@
 #### Scenario: 再按一次取消
 - **WHEN** 使用者對已完成的組再按 ✓
 - **THEN** 這組 SHALL 回到未完成、completedAt 清掉、重量與次數保留、「休息中」消失
+
+#### Scenario: 打錯重量完成後取消
+- **WHEN** history 有 `{ weight: 60, reps: '8' }`，使用者重量打 600、按 ✓、再按 ✓ 取消、改按跳過
+- **THEN** history SHALL 回到 `{ weight: 60, reps: '8' }`，下一組空白按 ✓ 記成 60
 
 #### Scenario: 帶入上次紀錄後完成
 - **WHEN** history 有 `{ weight: 20, reps: '8' }`，使用者點組號帶入後按 ✓

@@ -8,9 +8,9 @@
 
 placeholder 已經顯示上次的重量與次數，按 ✓ 就等於「照上次做」。順序：自己填的值 → 上次紀錄 → 重量 0 kg。次數沒有第三層，沒填也沒有上次次數時 ✓ 停用（title「先輸入次數」），避免存一筆沒有次數的完成組。
 
-### D2：取消完成不回復 history
+### D2：取消完成時 history 回復成完成前的值
 
-完成時會把這組寫進 history，但沒有保存寫入前的值，取消時無從回復。實際影響小：寫進去的就是使用者剛填的值；下一次完成或改數字時會再覆蓋。要回復得在 logs 多存欄位，牽涉 schema，先不做。
+原本取消不回復 history。Jim 的 branch review 2 找到情境：重量打錯 600 → ✓ → 取消 → 跳過，history 留著 600，下一組空白按 ✓ 就記成 600。改成完成時把寫入前的 history 存在 log 的 `historyBefore`（原本沒有就存 `null`），取消完成（再按 ✓、或已完成的組直接按跳過）時還原，`null` 就拿掉那筆 history。`historyBefore` 是選填欄位，舊 log 沒有就不還原，不用 bump schemaVersion。後面還有完成的組時（historyKey 為 null）完成和取消都不動 history，見 D3。
 
 ### D3：history 只跟著「這個動作最後一個完成的組」
 
