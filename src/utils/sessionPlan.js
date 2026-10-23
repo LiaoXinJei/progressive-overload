@@ -4,7 +4,7 @@
 // 供 restContext 推導使用。
 
 import {
-  WORKOUTS, VOLUME_CONFIG, PHASE_CONFIG,
+  WORKOUTS, VOLUME_CONFIG, PHASE_CONFIG, SESSION_WEIGHTS,
   MUSCLE_SESSION_MAP, MAX_SETS_PER_EXERCISE,
 } from '../constants/workouts';
 
@@ -31,6 +31,24 @@ export const getWeeklyMuscleVolume = (muscle, week) => {
     return targets[0];
   }
   return targets[week - 1];
+};
+
+/**
+ * 最大餘數法：total 照 weights 比例分成整數，總和不變。
+ * 餘數一樣時給 keys 裡排前面的；沒給 weights 就平均分。
+ */
+export const splitByWeights = (total, keys, weights) => {
+  const w = keys.map(k => (weights ? weights[k] ?? 0 : 1));
+  const sum = w.reduce((a, b) => a + b, 0);
+  if (sum === 0) return keys.map(() => 0);
+  const quotas = w.map(x => (total * x) / sum);
+  const result = quotas.map(Math.floor);
+  const left = total - result.reduce((a, b) => a + b, 0);
+  const order = keys
+    .map((_, i) => i)
+    .sort((a, b) => (quotas[b] - result[b]) - (quotas[a] - result[a]) || a - b);
+  for (let i = 0; i < left; i++) result[order[i]] += 1;
+  return result;
 };
 
 export const getRepRange = (exerciseType, week) => {
@@ -74,13 +92,9 @@ export const buildSessionPlan = (week, workoutKey, opts) => {
 
   const muscleSessionTargets = {};
   for (const muscle of Object.keys(muscleExCounts)) {
-    const weeklyTarget = getWeeklyMuscleVolume(muscle, week);
     const sessions = MUSCLE_SESSION_MAP[muscle];
-    const totalSessions = sessions.length;
-    const sessionIdx = sessions.indexOf(workoutKey);
-    const base = Math.floor(weeklyTarget / totalSessions);
-    const remainder = weeklyTarget % totalSessions;
-    muscleSessionTargets[muscle] = base + (sessionIdx < remainder ? 1 : 0);
+    const targets = splitByWeights(getWeeklyMuscleVolume(muscle, week), sessions, SESSION_WEIGHTS[muscle]);
+    muscleSessionTargets[muscle] = targets[sessions.indexOf(workoutKey)];
   }
 
   const muscleAssigned = {};

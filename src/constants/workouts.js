@@ -16,6 +16,23 @@ export const VOLUME_CONFIG = {
   CALVES:    [10, 12, 14, 14],
 };
 
+// ==================== Session 權重 ====================
+// 肌群週目標照這個比例分到各 session（數字取規格 W4 各 session 的組數）
+// 週總量以 VOLUME_CONFIG 為準，用最大餘數法取整數；沒列的肌群平均分
+
+export const SESSION_WEIGHTS = {
+  CHEST:     { A: 8, C: 4 },
+  BACK:      { B: 9, D: 9 },
+  SHOULDERS: { C: 6 },
+  SIDE_DELT: { A: 7, C: 7 },
+  REAR_DELT: { B: 6, D: 6 },
+  TRICEPS:   { A: 6, C: 3 },
+  BICEPS:    { B: 6, D: 6 },
+  QUADS:     { A: 3, C: 3, E: 7 },
+  HAMS:      { B: 3, D: 3, E: 8 },
+  CALVES:    { A: 2, B: 2, C: 2, D: 2, E: 6 },
+};
+
 // ==================== 單動作組數上限 ====================
 
 export const MAX_SETS_PER_EXERCISE = 4;

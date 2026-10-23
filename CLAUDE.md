@@ -57,7 +57,7 @@ HAMS:      [4, 4, 4, 4]      // 固定（純維持）
 ```
 
 分配演算法：
-1. 查找肌群週目標 → 2. 均分到包含該肌群的 sessions → 3. 再均分到各動作（第一個動作拿餘數）
+1. 查找肌群週目標 → 2. 照 `SESSION_WEIGHTS` 比例分到包含該肌群的 sessions（最大餘數法） → 3. 再均分到各動作（最後一個動作拿餘數）
 
 ---
 
@@ -209,6 +209,7 @@ refactor: 抽出 VolumeConfig 為獨立模組
 | 肌群週容量 | `src/constants/workouts.js` 的 `VOLUME_CONFIG` |
 | 訓練菜單 | 同上的 `WORKOUTS`（`MUSCLE_SESSION_MAP` 會自動重算） |
 | 週期配置（次數區間） | 同上的 `PHASE_CONFIG` |
+| 肌群在各 session 的分配比例 | 同上的 `SESSION_WEIGHTS` |
 | 單動作組數上限 | 同上的 `MAX_SETS_PER_EXERCISE` |
 | Superset 配對 | 同上的 `SUPERSET_PAIRS`（key 為 session ID、value 為配對清單） |
 | Session 配色（push / pull / legs） | 同上的 `SESSION_TYPE_THEME` |

@@ -38,8 +38,8 @@
 ### 容量分配演算法
 
 1. 查肌群週目標（`VOLUME_CONFIG[muscle][weekIndex]`）
-2. 均分到包含該肌群的 sessions（在 `MUSCLE_SESSION_MAP` 預計算）
-3. 再均分到該 session 內的動作（**第一個動作拿餘數**）
+2. 照 `SESSION_WEIGHTS[muscle]` 的比例分到包含該肌群的 sessions（`MUSCLE_SESSION_MAP` 預計算），用最大餘數法（`splitByWeights`）取整數，總和等於週目標；餘數一樣給排前面的 session，沒列權重的肌群平均分。權重取規格 W4 各 session 的組數，週總量以 `VOLUME_CONFIG` 為準
+3. 再均分到該 session 內的動作（**最後一個動作拿餘數**）
 4. 受 `MAX_SETS_PER_EXERCISE`（預設 4）封頂，避免單動作組數爆炸
 5. 每個動作至少 1 組。減量週目標低，均分後可能變 0 組（例如 W5 LEGS 日），所以這幾個肌群的減量週實際總組數會略高於目標
 
