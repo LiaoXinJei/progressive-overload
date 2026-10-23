@@ -1,4 +1,4 @@
-import { precacheAndRoute } from 'workbox-precaching';
+import { precacheAndRoute, cleanupOutdatedCaches } from 'workbox-precaching';
 import { clientsClaim } from 'workbox-core';
 
 // registerType: 'autoUpdate' 搭配 injectManifest 時、plugin 不會自動補這兩行；
@@ -6,6 +6,8 @@ import { clientsClaim } from 'workbox-core';
 self.skipWaiting();
 clientsClaim();
 
+// 只清掉舊版 workbox 留下的 precache，不動這一版剛 precache 好的
+cleanupOutdatedCaches();
 precacheAndRoute(self.__WB_MANIFEST);
 
 let notificationTimer = null;
