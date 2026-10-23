@@ -287,6 +287,13 @@ const RPFocusPro = () => {
         migratedOverrides = nextOverrides;
       }
 
+      // v5 → v6 migration：組數覆寫改成分週（key 加週次）
+      // 舊 key 分不出是哪一週設定的，直接清掉，組數回到週期演算法的預設
+      const needsV6Migration = (data.schemaVersion ?? 3) < 6;
+      if (needsV6Migration) {
+        migratedCustomSets = {};
+      }
+
       setLogs(migratedLogs);
       setHistory(migratedHistory);
       setMode(data.mode || 'maintenance');
@@ -313,7 +320,7 @@ const RPFocusPro = () => {
   useEffect(() => {
     if (!isHydrated) return;
     const state = {
-      schemaVersion: 5,
+      schemaVersion: 6,
       logs, history, mode,
       viewState: { currentWeek, currentDay, showStats },
       customExerciseNames, customExercises, customSets, exerciseOrder,

@@ -16,6 +16,23 @@ export const VOLUME_CONFIG = {
   CALVES:    [10, 12, 14, 14],
 };
 
+// ==================== Session 權重 ====================
+// 肌群週目標照這個比例分到各 session（數字取規格 W4 各 session 的組數）
+// 週總量以 VOLUME_CONFIG 為準，用最大餘數法取整數；沒列的肌群平均分
+
+export const SESSION_WEIGHTS = {
+  CHEST:     { A: 8, C: 4 },
+  BACK:      { B: 9, D: 9 },
+  SHOULDERS: { C: 6 },
+  SIDE_DELT: { A: 7, C: 7 },
+  REAR_DELT: { B: 6, D: 6 },
+  TRICEPS:   { A: 6, C: 3 },
+  BICEPS:    { B: 6, D: 6 },
+  QUADS:     { A: 3, C: 3, E: 7 },
+  HAMS:      { B: 3, D: 3, E: 8 },
+  CALVES:    { A: 2, B: 2, C: 2, D: 2, E: 6 },
+};
+
 // ==================== 單動作組數上限 ====================
 
 export const MAX_SETS_PER_EXERCISE = 4;
@@ -74,6 +91,8 @@ export const WORKOUTS = {
       { id: 'lateral_raise_cable', name: '單臂滑輪側平舉', muscle: 'SIDE_DELT', type: 'isolation', isUpper: true },
       { id: 'lateral_raise_machine', name: '機械側平舉', muscle: 'SIDE_DELT', type: 'isolation', isUpper: true },
       { id: 'tri_overhead_seated', name: '坐姿過頭三頭伸展', muscle: 'TRICEPS', type: 'isolation', isUpper: true },
+      // 沿用動作庫的 id，替換紀錄與歷史不用搬
+      { id: 'lib_skullcrusher', name: '骷髏粉碎機', muscle: 'TRICEPS', type: 'isolation', isUpper: true },
       { id: 'single_leg_press', name: '單腿腿推', muscle: 'QUADS', type: 'compound', isUpper: false },
       { id: 'calf_standing_c', name: '機械站姿提踵', muscle: 'CALVES', type: 'isolation', isUpper: false },
     ]
@@ -139,7 +158,7 @@ export const SUPERSET_PAIRS = {
   ],
   C: [
     { primary: 'lateral_raise_cable', secondary: 'tri_overhead_seated', rest: 75 },
-    { primary: 'lateral_raise_machine', secondary: 'tri_overhead_seated', rest: 75 },
+    { primary: 'lateral_raise_machine', secondary: 'lib_skullcrusher', rest: 75 },
   ],
   D: [
     { primary: 'face_pull', secondary: 'bi_hammer', rest: 75 },
@@ -221,8 +240,7 @@ const EXTRA_LIBRARY_ITEMS = [
   // REAR_DELT（限有支撐版本）
   { id: 'lib_rear_delt_db_chest', name: '胸靠俯身啞鈴飛鳥（後三角）', muscle: 'REAR_DELT', type: 'isolation', defaultSets: 3 },
 
-  // TRICEPS
-  { id: 'lib_skullcrusher', name: '骷髏粉碎機', muscle: 'TRICEPS', type: 'isolation', defaultSets: 3 },
+  // TRICEPS（lib_skullcrusher 已在 WORKOUTS.C，由 collectFromWorkouts 帶入）
   { id: 'lib_close_grip_bp', name: '窄握臥推', muscle: 'TRICEPS', type: 'compound', defaultSets: 3 },
   { id: 'lib_tri_rope_overhead_seated', name: '坐姿繩索過頭三頭', muscle: 'TRICEPS', type: 'isolation', defaultSets: 3 },
 

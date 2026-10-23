@@ -4,7 +4,7 @@
 // 供 restContext 推導使用。
 
 import {
-  WORKOUTS, VOLUME_CONFIG, PHASE_CONFIG,
+  WORKOUTS, VOLUME_CONFIG, PHASE_CONFIG, SESSION_WEIGHTS,
   MUSCLE_SESSION_MAP, MAX_SETS_PER_EXERCISE,
 } from '../constants/workouts';
 
@@ -33,6 +33,32 @@ export const getWeeklyMuscleVolume = (muscle, week) => {
   return targets[week - 1];
 };
 
+/**
+ * 最大餘數法：total 照 weights 比例分成整數，總和不變。
+ * 餘數一樣時給 keys 裡排前面的；沒給 weights 就平均分。
+ */
+export const splitByWeights = (total, keys, weights) => {
+  const w = keys.map(k => (weights ? weights[k] ?? 0 : 1));
+  const sum = w.reduce((a, b) => a + b, 0);
+  if (sum === 0) return keys.map(() => 0);
+  const quotas = w.map(x => (total * x) / sum);
+  const result = quotas.map(Math.floor);
+  const left = total - result.reduce((a, b) => a + b, 0);
+  const order = keys
+    .map((_, i) => i)
+    .sort((a, b) => (quotas[b] - result[b]) - (quotas[a] - result[a]) || a - b);
+  for (let i = 0; i < left; i++) result[order[i]] += 1;
+  return result;
+};
+
+// 組數覆寫（±1）分週存：只影響那一週
+export const customSetsKey = (week, workoutKey, exerciseId) => `w${week}-${workoutKey}-${exerciseId}`;
+
+// 拿掉某個動作在每一週的組數覆寫
+export const withoutCustomSets = (customSets, workoutKey, exerciseId) => Object.fromEntries(
+  Object.entries(customSets).filter(([key]) => key.replace(/^w\d+-/, '') !== `${workoutKey}-${exerciseId}`)
+);
+
 export const getRepRange = (exerciseType, week) => {
   const phase = getPhase(week);
   const config = PHASE_CONFIG[phase];
@@ -47,7 +73,7 @@ export const getRepRange = (exerciseType, week) => {
  * @param {string} workoutKey - 'A' | 'B' | 'C' | 'D' | 'E'
  * @param {object} opts
  * @param {Record<string, Array<object>>} opts.customExercises
- * @param {Record<string, number>} opts.customSets
+ * @param {Record<string, number>} opts.customSets - key 見 customSetsKey
  * @param {Record<string, string[]>} opts.exerciseOrder
  * @param {Record<string, string>} opts.exerciseOverrides
  * @param {Array<object>} opts.exerciseLibrary
@@ -74,13 +100,9 @@ export const buildSessionPlan = (week, workoutKey, opts) => {
 
   const muscleSessionTargets = {};
   for (const muscle of Object.keys(muscleExCounts)) {
-    const weeklyTarget = getWeeklyMuscleVolume(muscle, week);
     const sessions = MUSCLE_SESSION_MAP[muscle];
-    const totalSessions = sessions.length;
-    const sessionIdx = sessions.indexOf(workoutKey);
-    const base = Math.floor(weeklyTarget / totalSessions);
-    const remainder = weeklyTarget % totalSessions;
-    muscleSessionTargets[muscle] = base + (sessionIdx < remainder ? 1 : 0);
+    const targets = splitByWeights(getWeeklyMuscleVolume(muscle, week), sessions, SESSION_WEIGHTS[muscle]);
+    muscleSessionTargets[muscle] = targets[sessions.indexOf(workoutKey)];
   }
 
   const muscleAssigned = {};
@@ -122,10 +144,10 @@ export const buildSessionPlan = (week, workoutKey, opts) => {
     return { exercise, sets };
   });
 
-  allResults = allResults.map(({ exercise, sets }) => {
-    const overrideKey = `${workoutKey}-${exercise.id}`;
-    return { exercise, sets: customSets[overrideKey] ?? sets };
-  });
+  allResults = allResults.map(({ exercise, sets }) => ({
+    exercise,
+    sets: customSets[customSetsKey(week, workoutKey, exercise.id)] ?? sets,
+  }));
 
   const order = exerciseOrder[workoutKey];
   if (order && order.length > 0) {

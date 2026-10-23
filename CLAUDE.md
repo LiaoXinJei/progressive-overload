@@ -57,7 +57,7 @@ HAMS:      [4, 4, 4, 4]      // 固定（純維持）
 ```
 
 分配演算法：
-1. 查找肌群週目標 → 2. 均分到包含該肌群的 sessions → 3. 再均分到各動作（第一個動作拿餘數）
+1. 查找肌群週目標 → 2. 照 `SESSION_WEIGHTS` 比例分到包含該肌群的 sessions（最大餘數法） → 3. 再均分到各動作（最後一個動作拿餘數）
 
 ---
 
@@ -195,7 +195,7 @@ refactor: 抽出 VolumeConfig 為獨立模組
 
 > **⚠️ 重要：只要改到 `localStorage` 中存放結構（`rp_focus_pro_data`），必須評估相容性。**
 
-- 目前 `schemaVersion: 5`
+- 目前 `schemaVersion: 6`
 - 變更結構時，必須在載入流程（`App.jsx` 的 `useEffect` 還原段）加入遷移邏輯，避免舊使用者資料遺失
 - 範例：v2 → v3 將 `history` 從 `number` 升級為 `{ weight, reps }` 物件
 - 寫回 `useEffect` 在讀檔成功（`isHydrated`）前不會執行，避免 StrictMode 下初始空狀態蓋掉舊資料
@@ -209,6 +209,7 @@ refactor: 抽出 VolumeConfig 為獨立模組
 | 肌群週容量 | `src/constants/workouts.js` 的 `VOLUME_CONFIG` |
 | 訓練菜單 | 同上的 `WORKOUTS`（`MUSCLE_SESSION_MAP` 會自動重算） |
 | 週期配置（次數區間） | 同上的 `PHASE_CONFIG` |
+| 肌群在各 session 的分配比例 | 同上的 `SESSION_WEIGHTS` |
 | 單動作組數上限 | 同上的 `MAX_SETS_PER_EXERCISE` |
 | Superset 配對 | 同上的 `SUPERSET_PAIRS`（key 為 session ID、value 為配對清單） |
 | Session 配色（push / pull / legs） | 同上的 `SESSION_TYPE_THEME` |
