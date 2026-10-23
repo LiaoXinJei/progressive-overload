@@ -513,9 +513,11 @@ const TrainingView = ({
     }).length;
     const allDone = (completedCount + skippedCount) === setsCount;
 
-    const firstSetKey = `w${currentWeek}-d${currentDay}-${ex.id}-s0`;
-    const firstSetLog = logs[firstSetKey];
-    const hasPrevEndTs = !hideInterRest && typeof prevEndTs === 'number';
+    // 動作間休息看第一個沒跳過的組；整個動作都跳過就不顯示
+    const firstActiveLog = [...Array(setsCount)]
+      .map((_, idx) => logs[`w${currentWeek}-d${currentDay}-${ex.id}-s${idx}`] || {})
+      .find(log => !log.skipped);
+    const hasPrevEndTs = !hideInterRest && typeof prevEndTs === 'number' && firstActiveLog !== undefined;
 
     return (
       <div className={`p-6 transition-all ${allDone ? 'bg-emerald-500/5 opacity-60' : ''}`}>
@@ -610,7 +612,7 @@ const TrainingView = ({
 
         {/* Inter-Exercise Rest Time */}
         {hasPrevEndTs && (() => {
-          if (!firstSetLog?.done) {
+          if (!firstActiveLog.done) {
             const elapsed = Math.floor((currentTime - prevEndTs) / 1000);
             return (
               <div className="mb-4 p-3 bg-blue-900/20 border border-blue-800 rounded-xl">
@@ -620,8 +622,8 @@ const TrainingView = ({
               </div>
             );
           }
-          if (firstSetLog?.completedAt) {
-            const restSeconds = Math.floor((firstSetLog.completedAt - prevEndTs) / 1000);
+          if (firstActiveLog.completedAt) {
+            const restSeconds = Math.floor((firstActiveLog.completedAt - prevEndTs) / 1000);
             return restSeconds >= 0 ? (
               <div className="mb-4 p-3 bg-neutral-800/50 border border-neutral-700 rounded-xl">
                 <div className="text-sm text-neutral-500 flex items-center gap-2">

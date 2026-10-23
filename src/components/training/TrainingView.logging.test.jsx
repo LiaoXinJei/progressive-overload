@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // 執行：npm test
 //
-// 組數紀錄（輸入次數、歷史、替換動作）的回歸測試，對應 BUG-03 / 11 / 16。
+// 組數紀錄（輸入次數、歷史、替換動作、動作間休息）的回歸測試，對應 BUG-03 / 11 / 16 / 20。
 
 import React, { act, useState } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -9,12 +9,14 @@ import { test, afterEach } from 'vitest';
 import assert from 'node:assert/strict';
 import TrainingView from './TrainingView.jsx';
 import { DEFAULT_EXERCISE_LIBRARY } from '../../constants/workouts';
+import { buildSessionPlan } from '../../utils/sessionPlan';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 const WEEK = 1;
 const DAY = 1; // PULL A：引體向上 → 單臂啞鈴划船，兩個都是 single
 const key = (exId, idx) => `w${WEEK}-d${DAY}-${exId}-s${idx}`;
+const MIN = 60 * 1000;
 
 let root = null;
 let container = null;
@@ -177,4 +179,53 @@ test('BUG-16：替換後的動作用自己的歷史當 placeholder', () => {
   });
   assert.equal(row(0).weight.placeholder, '50');
   assert.equal(row(0).reps.placeholder, '12');
+});
+
+// ==================== BUG-20：第一組跳過，動作間休息一直跳 ====================
+
+const pullupSets = buildSessionPlan(WEEK, 'B', { exerciseLibrary: DEFAULT_EXERCISE_LIBRARY })
+  .find(e => e.exercise.id === 'pullup').sets;
+
+// 引體向上全部完成，最後一組在 t0
+const pullupDone = (t0) => Object.fromEntries([...Array(pullupSets)].map((_, i) =>
+  [key('pullup', i), done(0, '8', t0 - (pullupSets - 1 - i) * 3 * MIN)]));
+
+// 回傳文字與是否跳動，不回傳 DOM 節點（斷言失敗時 vitest 序列化節點會讓 worker 掛掉）
+const interRest = () => {
+  const el = [...container.querySelectorAll('div')]
+    .find(d => d.children.length === 0 && d.textContent.startsWith('動作間休息'));
+  return el ? { text: el.textContent, pulsing: el.className.includes('animate-pulse') } : null;
+};
+
+test('BUG-20：划船第一組跳過、第二組已完成 → 動作間休息停在第二組完成時間、不再跳動', () => {
+  const now = Date.now();
+  const t0 = now - 60 * MIN;
+  renderView({
+    logs: {
+      ...pullupDone(t0),
+      [key('db_row', 0)]: { skipped: true },
+      [key('db_row', 1)]: done(30, '10', t0 + 2 * MIN),
+    },
+    currentTime: now,
+  });
+  assert.deepEqual(interRest(), { text: '動作間休息: 2:00', pulsing: false });
+});
+
+test('BUG-20：划船第一組跳過、後面都還沒做 → 還在休息，照現在時間跳動', () => {
+  const now = Date.now();
+  const t0 = now - 5 * MIN;
+  renderView({
+    logs: { ...pullupDone(t0), [key('db_row', 0)]: { skipped: true } },
+    currentTime: now,
+  });
+  assert.deepEqual(interRest(), { text: '動作間休息: 5:00', pulsing: true });
+});
+
+test('BUG-20：划船每組都跳過 → 不顯示動作間休息', () => {
+  const now = Date.now();
+  const rowSets = buildSessionPlan(WEEK, 'B', { exerciseLibrary: DEFAULT_EXERCISE_LIBRARY })
+    .find(e => e.exercise.id === 'db_row').sets;
+  const skipped = Object.fromEntries([...Array(rowSets)].map((_, i) => [key('db_row', i), { skipped: true }]));
+  renderView({ logs: { ...pullupDone(now - 60 * MIN), ...skipped }, currentTime: now });
+  assert.equal(interRest(), null);
 });
