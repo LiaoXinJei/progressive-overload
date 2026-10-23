@@ -1,6 +1,6 @@
-// 執行：node --test src/utils/restContext.test.js
+// 執行：npm test
 
-import { test } from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import {
   getPairForExerciseId,
