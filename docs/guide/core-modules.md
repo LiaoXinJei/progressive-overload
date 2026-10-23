@@ -98,8 +98,8 @@
 ## Gemini AI 食物辨識
 
 - **位置**：`src/utils/geminiApi.js`
-- **模型**：`gemini-2.0-flash`
-- **端點**：`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent`
+- **模型**：`gemini-3.6-flash`（`gemini-2.0-flash` 已於 2026-06-01 停用）
+- **端點**：`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent`
 - **流程**：
   1. 使用者上傳食物照片
   2. 轉成 Base64
