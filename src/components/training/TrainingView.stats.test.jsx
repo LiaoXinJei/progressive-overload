@@ -3,13 +3,21 @@
 
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
-import { test, afterEach } from 'vitest';
+import { test, afterEach, vi } from 'vitest';
 import assert from 'node:assert/strict';
 import TrainingView from './TrainingView.jsx';
 import { DEFAULT_EXERCISE_LIBRARY } from '../../constants/workouts';
 import { buildSessionPlan } from '../../utils/sessionPlan';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+
+// 這裡只看統計面板，不測拖拉排序。@hello-pangea/dnd 每次 render 都很重（jsdom 裡約佔一半時間），
+// 換成直接把 children 畫出來的空殼；拖拉的整合由其他 TrainingView 測試用真的套件測
+vi.mock('@hello-pangea/dnd', () => ({
+  DragDropContext: ({ children }) => children,
+  Droppable: ({ children }) => children({ innerRef() {}, droppableProps: {}, placeholder: null }, {}),
+  Draggable: ({ children }) => children({ innerRef() {}, draggableProps: {}, dragHandleProps: {} }, { isDragging: false }),
+}));
 
 let root = null;
 let container = null;
@@ -57,12 +65,12 @@ const statText = (label) => {
 const statSets = (label) => parseInt(statText(label), 10);
 
 // 統計面板預設開啟、App 首次 render 就會走到這裡；缺 import 時整個 App 白畫面
-test('統計面板開啟時、W1–W10 × D1–D5 都能渲染', () => {
+// 每天一個 test、裡面跑 W1–W10：換週時動作卡片不變、只更新文字，比每次都換天（整批卡片重建）快很多，
+// 單一 test 也短，機器忙時不會撞到 vitest 預設的 5 秒逾時
+test.each([1, 2, 3, 4, 5])('統計面板開啟時、D%i 的 W1–W10 都能渲染', (d) => {
   for (let week = 1; week <= 10; week++) {
-    for (let day = 0; day <= 4; day++) {
-      render({ ...baseProps(), currentWeek: week, currentDay: day });
-      assert.ok(container.textContent.includes('本週訓練量'), `W${week} D${day + 1} 缺少統計面板`);
-    }
+    render({ ...baseProps(), currentWeek: week, currentDay: d - 1 });
+    assert.ok(container.textContent.includes('本週訓練量'), `W${week} D${d} 缺少統計面板`);
   }
 });
 
