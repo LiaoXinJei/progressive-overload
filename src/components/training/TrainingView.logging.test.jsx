@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
 // 執行：npm test
 //
-// 組數紀錄（輸入次數、歷史、替換動作、動作間休息）的回歸測試，對應 BUG-03 / 11 / 16 / 20。
+// 組數紀錄（✓ 完成、輸入次數、歷史、替換動作、動作間休息）的回歸測試，對應 BUG-03 / 04 / 11 / 16 / 19 / 20。
 
 import React, { act, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { test, afterEach } from 'vitest';
+import { test, afterEach, vi } from 'vitest';
 import assert from 'node:assert/strict';
 import TrainingView from './TrainingView.jsx';
 import { DEFAULT_EXERCISE_LIBRARY } from '../../constants/workouts';
@@ -22,6 +22,7 @@ let root = null;
 let container = null;
 
 afterEach(() => {
+  vi.restoreAllMocks();
   act(() => root?.unmount());
   container?.remove();
   root = null;
@@ -79,31 +80,130 @@ const row = (n) => {
     weight: el.querySelector('[data-weight-input]'),
     reps: el.querySelector('[data-reps-input]'),
     plus: el.querySelector('button[title="+2kg"]'),
+    complete: el.querySelector('[data-complete-btn]'),
+    setNo: el.querySelector('button'),
   };
 };
 
 const done = (weight, reps, completedAt) => ({ weight, reps, done: true, completedAt });
 
+// ==================== ✓ 完成按鈕（BUG-03 / 04 / 19） ====================
+
+// 回傳文字，不回傳 DOM 節點
+const leafText = (prefix) => [...container.querySelectorAll('div')]
+  .find(d => d.children.length === 0 && d.textContent.startsWith(prefix))?.textContent ?? null;
+
+test('✓：輸入重量和次數不會自動完成，不寫歷史、不開始休息', () => {
+  const state = renderView();
+  typeInto(row(0).weight, '60');
+  typeInto(row(0).reps, '10');
+  assert.notEqual(state.logs[key('pullup', 0)].done, true);
+  assert.equal(state.logs[key('pullup', 0)].completedAt, undefined);
+  assert.deepEqual(state.history, {});
+  assert.equal(leafText('休息中'), null);
+});
+
+test('✓：按下才完成，寫歷史並開始休息計時', () => {
+  const state = renderView();
+  typeInto(row(0).weight, '60');
+  typeInto(row(0).reps, '10');
+  click(row(0).complete);
+  const log = state.logs[key('pullup', 0)];
+  assert.equal(log.done, true);
+  assert.equal(typeof log.completedAt, 'number');
+  assert.deepEqual(state.history.pullup, { weight: 60, reps: '10' });
+  assert.equal(row(0).complete.getAttribute('aria-pressed'), 'true');
+  assert.match(leafText('休息中') ?? '', /^休息中: /);
+});
+
+test('✓：再按一次取消完成，休息計時消失、數字保留', () => {
+  const state = renderView();
+  typeInto(row(0).weight, '60');
+  typeInto(row(0).reps, '10');
+  click(row(0).complete);
+  click(row(0).complete);
+  const log = state.logs[key('pullup', 0)];
+  assert.equal(log.done, false);
+  assert.equal(log.completedAt, undefined);
+  assert.equal(log.weight, '60');
+  assert.equal(log.reps, '10');
+  assert.equal(row(0).complete.title, '完成此組');
+  assert.equal(leafText('休息中'), null);
+});
+
+test('✓：帶入上次紀錄（點組號）後按 ✓ 一下就完成', () => {
+  const state = renderView({ history: { pullup: { weight: 20, reps: '8' } } });
+  click(row(0).setNo);
+  assert.notEqual(state.logs[key('pullup', 0)].done, true);
+  click(row(0).complete);
+  const log = state.logs[key('pullup', 0)];
+  assert.equal(log.done, true);
+  assert.equal(log.weight, 20);
+  assert.equal(log.reps, '8');
+});
+
+test('✓：什麼都沒填、有上次紀錄時直接按 ✓，用上次的重量與次數（placeholder）完成', () => {
+  const state = renderView({ history: { pullup: { weight: 20, reps: '8' } } });
+  click(row(0).complete);
+  const log = state.logs[key('pullup', 0)];
+  assert.equal(log.done, true);
+  assert.equal(log.weight, 20);
+  assert.equal(log.reps, '8');
+});
+
+test('✓（BUG-04）：重量空白、沒有歷史時按 ✓，當 0 kg 自體重完成並寫進歷史', () => {
+  const state = renderView();
+  typeInto(row(0).reps, '8');
+  click(row(0).complete);
+  const log = state.logs[key('pullup', 0)];
+  assert.equal(log.done, true);
+  assert.equal(log.weight, 0);
+  assert.equal(row(0).weight.value, '0');
+  assert.deepEqual(state.history.pullup, { weight: 0, reps: '8' });
+});
+
+test('✓：沒填次數、也沒有上次次數時不能按', () => {
+  const state = renderView();
+  typeInto(row(0).weight, '60');
+  assert.equal(row(0).complete.disabled, true);
+  click(row(0).complete);
+  assert.notEqual(state.logs[key('pullup', 0)].done, true);
+  assert.deepEqual(state.history, {});
+});
+
+test('✓：跳過的組不顯示 ✓，取消跳過後恢復', () => {
+  renderView({ logs: { [key('pullup', 0)]: { skipped: true } } });
+  assert.equal(row(0).complete, null);
+  click(container.querySelector('[data-set-row] button[title="取消跳過"]'));
+  assert.notEqual(row(0).complete, null);
+});
+
 // ==================== BUG-03：次數只記到第一位數 ====================
 
-test('BUG-03：輸入兩位數次數，歷史與下一組 placeholder 要是完整的 12', () => {
+test('BUG-03：輸入兩位數次數再按 ✓，歷史與下一組 placeholder 要是完整的 12', () => {
   const state = renderView();
   typeInto(row(0).weight, '60');
   typeInto(row(0).reps, '1');
   typeInto(row(0).reps, '12');
+  click(row(0).complete);
   assert.equal(state.logs[key('pullup', 0)].reps, '12');
   assert.deepEqual(state.history.pullup, { weight: 60, reps: '12' });
   assert.equal(row(1).reps.placeholder, '12');
 });
 
-test('BUG-03（不變）：完成時間記在第一次自動完成，之後改次數不會重設', () => {
-  const state = renderView();
+test('BUG-03：完成時間記在按 ✓ 的時候，不是打字的時候；之後改次數不會重設', () => {
+  const t0 = Date.now();
+  vi.spyOn(Date, 'now').mockReturnValue(t0);
+  const state = renderView({ currentTime: t0 });
   typeInto(row(0).weight, '60');
-  typeInto(row(0).reps, '1');
-  const first = state.logs[key('pullup', 0)].completedAt;
-  assert.equal(typeof first, 'number');
   typeInto(row(0).reps, '12');
-  assert.equal(state.logs[key('pullup', 0)].completedAt, first);
+  assert.equal(state.logs[key('pullup', 0)].completedAt, undefined);
+  vi.spyOn(Date, 'now').mockReturnValue(t0 + 40 * 1000);
+  click(row(0).complete);
+  assert.equal(state.logs[key('pullup', 0)].completedAt, t0 + 40 * 1000);
+  vi.spyOn(Date, 'now').mockReturnValue(t0 + 90 * 1000);
+  typeInto(row(0).reps, '11');
+  assert.equal(state.logs[key('pullup', 0)].completedAt, t0 + 40 * 1000);
 });
 
 // ==================== BUG-11：完成後再改，歷史沒跟著改 ====================
@@ -167,6 +267,7 @@ test('BUG-11：後面的組已完成、回頭補記前面的組，歷史保留�
   });
   typeInto(row(0).weight, '60');
   typeInto(row(0).reps, '10');
+  click(row(0).complete);
   assert.equal(state.logs[key('pullup', 0)].done, true);
   assert.deepEqual(state.history.pullup, { weight: 62, reps: '8' });
 });
@@ -187,12 +288,15 @@ test('BUG-16：替換成別的動作後，不顯示原動作的歷史', () => {
   assert.equal(row(0).reps.placeholder, '—');
 });
 
-test('BUG-16：替換後的動作輸入次數，不會套原動作重量、也不會覆蓋原動作歷史', () => {
+test('BUG-16：替換後的動作按 ✓，不會套原動作重量、也不會覆蓋原動作歷史', () => {
   const state = renderView({ ...REPLACED, history: { pullup: { weight: 100, reps: '8' } } });
   typeInto(row(0).reps, '10');
-  assert.notEqual(state.logs[key('pullup', 0)]?.done, true);
+  click(row(0).complete);
+  assert.equal(state.logs[key('pullup', 0)].weight, 0);
+  click(row(0).complete); // 取消，重新記
   typeInto(row(0).weight, '45');
   typeInto(row(0).reps, '12');
+  click(row(0).complete);
   assert.deepEqual(state.history.pullup, { weight: 100, reps: '8' });
   assert.deepEqual(state.history.lib_pulldown_wide, { weight: 45, reps: '12' });
 });

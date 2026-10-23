@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import {
   Activity, BarChart2, ChevronDown, ChevronUp,
-  TrendingUp, ShieldCheck, Plus, Minus,
+  TrendingUp, ShieldCheck, Plus, Minus, Check,
   Edit2, XCircle, GripVertical, Trash2, X, Search
 } from 'lucide-react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
@@ -18,6 +18,7 @@ const LOWER_MUSCLES = new Set(['QUADS', 'HAMS']);
 
 // 重量 0 是有效值（自體重），只有空白才算沒填
 const hasWeight = (w) => w !== undefined && w !== null && w !== '';
+const hasReps = (r) => r !== undefined && r !== null && r !== '';
 
 const formatMmSs = (seconds) => {
   const s = Math.max(0, Math.floor(seconds));
@@ -246,53 +247,21 @@ const TrainingView = ({
     });
   };
 
-  const completeSet = (logKey, exerciseId) => {
-    setLogs(prev => {
-      const current = prev[logKey] || {};
-      const histEntry = history[exerciseId] || {};
-      const weight = current.weight || histEntry.weight || '';
-      const newDone = !current.done;
-      if (newDone && weight) {
-        setHistory(h => ({
-          ...h,
-          [exerciseId]: { weight: parseFloat(weight), reps: current.reps || histEntry.reps || '' }
-        }));
-      }
-      return {
-        ...prev,
-        [logKey]: {
-          ...current, weight, done: newDone,
-          completedAt: newDone ? Date.now() : undefined
-        }
-      };
-    });
-  };
-
-  const handleRepsChange = (logKey, historyKey, value, historyWeight) => {
+  // ✓ 按鈕：未完成 → 完成（空白欄位用上次紀錄，重量都沒有就當 0 kg 自體重）；已完成 → 取消完成。
+  // 取消完成不回復歷史，因為沒有保存完成前的值
+  const completeSet = (logKey, historyKey, historyEntry = {}) => {
     setLogs(prev => {
       const current = prev[logKey] || {};
       if (current.done) {
-        const next = { ...current, reps: value };
-        syncHistoryIfDone(historyKey, next);
-        return { ...prev, [logKey]: next };
+        return { ...prev, [logKey]: { ...current, done: false, completedAt: undefined } };
       }
+      const reps = current.reps || (hasReps(historyEntry.reps) ? String(historyEntry.reps) : '');
+      if (!reps) return prev;
       const weight = hasWeight(current.weight) ? current.weight
-        : hasWeight(historyWeight) ? historyWeight : '';
-      const shouldComplete = value && hasWeight(weight);
-      if (shouldComplete && historyKey) {
-        setHistory(h => ({
-          ...h,
-          [historyKey]: { weight: parseFloat(weight), reps: value }
-        }));
-      }
-      return {
-        ...prev,
-        [logKey]: {
-          ...current,
-          reps: value,
-          ...(shouldComplete ? { weight, done: true, completedAt: Date.now() } : {})
-        }
-      };
+        : hasWeight(historyEntry.weight) ? historyEntry.weight : 0;
+      const next = { ...current, weight, reps, done: true, completedAt: Date.now() };
+      syncHistoryIfDone(historyKey, next);
+      return { ...prev, [logKey]: next };
     });
   };
 
@@ -658,12 +627,15 @@ const TrainingView = ({
             const historyWeight = historyEntry.weight;
             const historyReps = historyEntry.reps;
             const hasHistory = (historyWeight !== undefined && historyWeight !== '') || (historyReps !== undefined && historyReps !== '');
+            // 次數是唯一必填：沒填也沒有上次次數時 ✓ 不能按；重量空白按 ✓ 當 0 kg
+            const canComplete = logData.done || Boolean(logData.reps) || hasReps(historyReps);
 
             return (
               <React.Fragment key={idx}>
+                {/* 手機 390px 一列要放下 組號 / 重量± / 次數 / 跳過 / ✓：sm 以下縮小 gap、padding 與重量框 */}
                 <div
                   data-set-row
-                  className={`flex items-center gap-3 p-3 rounded-xl transition-all
+                  className={`flex items-center gap-2 p-2 sm:gap-3 sm:p-3 rounded-xl transition-all
                   ${logData.skipped
                     ? 'bg-neutral-800/20 border border-neutral-800 opacity-40'
                     : logData.done
@@ -675,7 +647,7 @@ const TrainingView = ({
                     onClick={() => !logData.skipped && hasHistory && fillFromHistory(logKey, historyKey)}
                     disabled={logData.skipped || !hasHistory}
                     title={hasHistory ? '帶入上次重量與次數' : '尚無上次紀錄'}
-                    className={`text-xl font-black w-8 text-center transition-colors
+                    className={`text-xl font-black w-6 sm:w-8 flex-shrink-0 text-center transition-colors
                       ${logData.skipped ? 'text-neutral-700 line-through cursor-default'
                         : hasHistory ? 'text-neutral-600 hover:text-emerald-400 cursor-pointer'
                         : 'text-neutral-600 cursor-default'}`}
@@ -713,7 +685,7 @@ const TrainingView = ({
                               }
                             }}
                             placeholder={hasWeight(historyWeight) ? String(historyWeight) : '—'}
-                            className="w-20 bg-neutral-900 px-3 py-2 rounded-lg text-center font-mono text-sm
+                            className="w-14 sm:w-20 bg-neutral-900 px-1 sm:px-3 py-2 rounded-lg text-center font-mono text-sm
                             focus:outline-none focus:ring-2 focus:ring-emerald-500"
                           />
                           <button
@@ -725,13 +697,13 @@ const TrainingView = ({
                           </button>
                         </div>
                       </div>
-                      <div className="flex-1">
+                      <div className="flex-1 min-w-0">
                         <label className="text-[10px] text-neutral-500 block mb-1">次數</label>
                         <input
                           data-reps-input
                           type="number"
                           value={logData.reps || ''}
-                          onChange={(e) => handleRepsChange(logKey, historyWriteKey, e.target.value, historyWeight)}
+                          onChange={(e) => updateLog(logKey, historyWriteKey, 'reps', e.target.value)}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter') {
                               e.preventDefault();
@@ -746,7 +718,7 @@ const TrainingView = ({
                             }
                           }}
                           placeholder={historyReps !== undefined && historyReps !== '' ? String(historyReps) : '—'}
-                          className="w-full bg-neutral-900 px-3 py-2 rounded-lg text-center font-mono text-sm
+                          className="w-full min-w-0 bg-neutral-900 px-1 sm:px-3 py-2 rounded-lg text-center font-mono text-sm
                           focus:outline-none focus:ring-2 focus:ring-emerald-500"
                         />
                       </div>
@@ -762,6 +734,27 @@ const TrainingView = ({
                   >
                     <XCircle size={16} />
                   </button>
+                  {logData.skipped ? (
+                    <div className="w-10 flex-shrink-0" />
+                  ) : (
+                    <button
+                      type="button"
+                      data-complete-btn
+                      onClick={() => completeSet(logKey, historyWriteKey, historyEntry)}
+                      disabled={!canComplete}
+                      title={logData.done ? '取消完成' : canComplete ? '完成此組' : '先輸入次數'}
+                      aria-label={logData.done ? '取消完成' : '完成此組'}
+                      aria-pressed={Boolean(logData.done)}
+                      className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors
+                      ${logData.done
+                        ? 'bg-emerald-500 text-black'
+                        : canComplete
+                          ? 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700 hover:text-emerald-400'
+                          : 'bg-neutral-900 text-neutral-700 cursor-not-allowed'}`}
+                    >
+                      <Check size={18} strokeWidth={3} />
+                    </button>
+                  )}
                 </div>
 
                 {/* Rest Time Display（pair 核心輪由 sticky bar 呈現；tail 組回到單動作 inline 休息） */}

@@ -77,6 +77,7 @@ const firstPullupRow = () => {
     weight: row.querySelector('[data-weight-input]'),
     reps: row.querySelector('[data-reps-input]'),
     minus: row.querySelector('button[title="-2kg"]'),
+    complete: row.querySelector('[data-complete-btn]'),
   };
 };
 
@@ -95,25 +96,27 @@ test('第 5 點：沒有歷史時按「−」把重量設為 0，輸入框要顯
   assert.equal(firstPullupRow().weight.value, '0');
 });
 
-test('第 5 點：重量 0 再輸入次數，要自動完成並把 0 kg 寫進歷史', () => {
+test('第 5 點：重量 0 再輸入次數、按 ✓，要完成並把 0 kg 寫進歷史', () => {
   const state = renderView();
   click(firstPullupRow().minus);
   typeInto(firstPullupRow().reps, '8');
+  click(firstPullupRow().complete);
   assert.equal(state.logs[PULLUP_S0]?.done, true);
   assert.equal(state.logs[PULLUP_S0]?.weight, 0);
   assert.deepEqual(state.history.pullup, { weight: 0, reps: '8' });
 });
 
-test('第 5 點：歷史重量是 0 時，placeholder 顯示 0，只輸入次數就能自動完成', () => {
+test('第 5 點：歷史重量是 0 時，placeholder 顯示 0，只輸入次數再按 ✓ 就完成', () => {
   const state = renderView({ history: { pullup: { weight: 0, reps: '8' } } });
   const row = firstPullupRow();
   assert.equal(row.weight.placeholder, '0');
   typeInto(row.reps, '8');
+  click(firstPullupRow().complete);
   assert.equal(state.logs[PULLUP_S0]?.done, true);
   assert.equal(state.logs[PULLUP_S0]?.weight, 0);
 });
 
-test('第 5 點（不變）：重量空白又沒有歷史時，輸入次數不會自動完成', () => {
+test('第 5 點（不變）：重量空白又沒有歷史時，只輸入次數不會完成', () => {
   const state = renderView();
   typeInto(firstPullupRow().reps, '8');
   assert.notEqual(state.logs[PULLUP_S0]?.done, true);
