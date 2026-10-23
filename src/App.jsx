@@ -302,6 +302,17 @@ const RPFocusPro = () => {
           nextCustomSets[`w${week}-${oldKey}`] = migratedCustomSets[oldKey];
         });
         migratedCustomSets = nextCustomSets;
+
+        // 同一版把 lib_skullcrusher 加進 WORKOUTS.C 當內建動作（BUG-02）。之前把 C 日某個動作替換成
+        // 骷髏粉碎機的使用者會出現兩個骷髏粉碎機。保留內建那格、拿掉替換：內建動作不能刪，而且它是
+        // 第二組 superset 的搭檔；兩格的歷史 key 都是 lib_skullcrusher，上次紀錄不會掉。
+        // 被替換的那格回到原動作，它過去週次的 log 會顯示在原動作名下（跟按「恢復原動作」一樣）
+        const nextOverrides = {};
+        Object.entries(migratedOverrides).forEach(([key, libId]) => {
+          if (key.startsWith('C-') && key !== 'C-lib_skullcrusher' && libId === 'lib_skullcrusher') return;
+          nextOverrides[key] = libId;
+        });
+        migratedOverrides = nextOverrides;
       }
 
       setLogs(migratedLogs);

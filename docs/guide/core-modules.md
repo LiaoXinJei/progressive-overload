@@ -169,5 +169,5 @@
 - **Key**：`rp_focus_pro_data`
 - **`schemaVersion`**：`6`
 - **入口**：`src/App.jsx` 的兩個 `useEffect`（載入 + 寫回）
-- **遷移**：v2 → v3 把 `history[id]` 從 `number` 升級為 `{ weight, reps }` 物件；v3 → v4 腿部訓練計劃 v3 FINAL（動作移除 / 改名、進度重置）；v4 → v5 動作庫與替換設定對齊 v3 FINAL；v5 → v6 組數覆寫改成分週（有 log 的週轉成分週 key，其他清掉）
+- **遷移**：v2 → v3 把 `history[id]` 從 `number` 升級為 `{ weight, reps }` 物件；v3 → v4 腿部訓練計劃 v3 FINAL（動作移除 / 改名、進度重置）；v4 → v5 動作庫與替換設定對齊 v3 FINAL；v5 → v6 組數覆寫改成分週（有 log 的週轉成分週 key，其他清掉），並拿掉 C 日替換成 `lib_skullcrusher` 的設定（避免跟內建那格重複）
 - **規則**：任何結構變更**必須加遷移邏輯**，不可破壞舊使用者資料

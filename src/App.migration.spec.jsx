@@ -7,6 +7,7 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
 import { DEFAULT_EXERCISE_LIBRARY } from './constants/workouts';
+import { buildSessionPlan } from './utils/sessionPlan';
 
 // 這裡只測持久化，訓練頁 UI 換成空元件
 vi.mock('./components/training/TrainingView', () => ({ default: () => null }));
@@ -180,4 +181,35 @@ test('v5 → v6：有 log 的週把舊組數覆寫轉成那幾週的分週 key�
   expect(data.customSets).toEqual({ 'w1-A-bp_flat': 5, 'w2-A-bp_flat': 5, 'w3-B-pullup': 2 });
   // log 原樣保留
   expect(data.logs['w1-d0-bp_flat-s4']).toEqual(doneSet);
+});
+
+test('v5 → v6：C 日替換成骷髏粉碎機的舊設定拿掉，PUSH B 只剩內建那格骷髏粉碎機', () => {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({
+    schemaVersion: 5,
+    exerciseOverrides: {
+      'C-tri_overhead_seated': 'lib_skullcrusher',
+      // 別的 session 換成骷髏粉碎機、C 日其他替換、使用者自己造成的同名替換都不動
+      'A-tri_cross_body': 'lib_skullcrusher',
+      'C-lateral_raise_cable': 'lib_custom_1',
+      'A-bp_incline_db': 'bp_flat',
+    },
+    history: { lib_skullcrusher: { weight: 30, reps: '10' } },
+  }));
+
+  render(<App />);
+
+  const data = stored();
+  expect(data.exerciseOverrides).toEqual({
+    'A-tri_cross_body': 'lib_skullcrusher',
+    'C-lateral_raise_cable': 'lib_custom_1',
+    'A-bp_incline_db': 'bp_flat',
+  });
+  const names = buildSessionPlan(1, 'C', {
+    exerciseOverrides: data.exerciseOverrides,
+    exerciseLibrary: data.exerciseLibrary,
+  }).map(({ exercise }) => exercise.name);
+  expect(names.filter(name => name === '骷髏粉碎機')).toHaveLength(1);
+  expect(names).toContain('坐姿過頭三頭伸展');
+  // 內建那格的歷史 key 也是 lib_skullcrusher，上次紀錄沿用
+  expect(data.history.lib_skullcrusher).toEqual({ weight: 30, reps: '10' });
 });
