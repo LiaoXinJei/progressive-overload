@@ -1,38 +1,13 @@
-// 執行：npm test（或 node --test src/components/training/TrainingView.test.js）
+// 執行：npm test
 //
-// TrainingView 渲染回歸測試：用 Vite 的 ssrLoadModule 載入元件（處理 JSX 與無副檔名 import），
-// 再以 react-dom/server 渲染。不需要瀏覽器或 DOM。
+// TrainingView 渲染回歸測試：以 react-dom/server 渲染，不需要瀏覽器或 DOM。
 
-import { test, before, after } from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
-import { fileURLToPath } from 'node:url';
 import React from 'react';
 import { renderToString } from 'react-dom/server';
-import { createServer } from 'vite';
-import react from '@vitejs/plugin-react';
-
-const root = fileURLToPath(new URL('../../..', import.meta.url));
-
-let server;
-let TrainingView;
-let DEFAULT_EXERCISE_LIBRARY;
-
-before(async () => {
-  server = await createServer({
-    configFile: false,
-    root,
-    plugins: [react()],
-    logLevel: 'silent',
-    appType: 'custom',
-    server: { middlewareMode: true, hmr: false, ws: false },
-  });
-  ({ default: TrainingView } = await server.ssrLoadModule('/src/components/training/TrainingView.jsx'));
-  ({ DEFAULT_EXERCISE_LIBRARY } = await server.ssrLoadModule('/src/constants/workouts.js'));
-});
-
-after(async () => {
-  await server?.close();
-});
+import TrainingView from './TrainingView.jsx';
+import { DEFAULT_EXERCISE_LIBRARY } from '../../constants/workouts';
 
 const noop = () => {};
 

@@ -10,8 +10,9 @@
 | `npm run dev` | 啟動開發伺服器（預設 http://localhost:5173），支援 HMR |
 | `npm run build` | 建置生產版本，輸出至 `dist/` |
 | `npm run preview` | 在本地預覽 `dist/` 建置結果 |
+| `npm test` | 用 Vitest 跑全部測試（`vitest run`） |
 
-> 目前**沒有**自動化測試套件（`npm test` 未配置）。新增測試前請先與使用者討論測試框架選型（Vitest 是與 Vite 最相容的首選）。
+> 測試設定在 `vitest.config.js`，預設 node 環境。元件測試在檔頭加 `// @vitest-environment jsdom` 改用 jsdom，例如 `src/components/training/TrainingView.test.jsx`。
 
 ---
 

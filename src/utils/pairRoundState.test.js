@@ -1,7 +1,6 @@
-// 執行：node --test src/utils/pairRoundState.test.js
-// 使用 Node 內建 test runner、不需要額外 devDep。
+// 執行：npm test
 
-import { test } from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { getPairRoundState, getPairEndTimestamp } from './pairRoundState.js';
 
