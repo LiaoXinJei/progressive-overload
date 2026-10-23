@@ -288,10 +288,20 @@ const RPFocusPro = () => {
       }
 
       // v5 → v6 migration：組數覆寫改成分週（key 加週次）
-      // 舊 key 分不出是哪一週設定的，直接清掉，組數回到週期演算法的預設
+      // 舊 key 分不出是哪一週設定的。那個動作有 log 的週轉成分週 key，保住當時的組數，
+      // 不然按過 +1 做完的第 4、5 組會被藏起來；沒 log 的週清掉，組數回到週期演算法的預設
       const needsV6Migration = (data.schemaVersion ?? 3) < 6;
       if (needsV6Migration) {
-        migratedCustomSets = {};
+        const nextCustomSets = {};
+        Object.keys(migratedLogs).forEach(logKey => {
+          const match = logKey.match(/^w(\d+)-d(\d+)-(.+)-s\d+$/);
+          if (!match) return;
+          const week = Number(match[1]);
+          const oldKey = `${getWorkoutForDay(week, Number(match[2]))}-${match[3]}`;
+          if (migratedCustomSets[oldKey] === undefined) return;
+          nextCustomSets[`w${week}-${oldKey}`] = migratedCustomSets[oldKey];
+        });
+        migratedCustomSets = nextCustomSets;
       }
 
       setLogs(migratedLogs);

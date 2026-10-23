@@ -156,3 +156,28 @@ test('v6 的分週組數覆寫原樣保留', () => {
 
   expect(stored().customSets).toEqual({ 'w4-A-leg_ext': 5, 'w2-C-lib_skullcrusher': 3 });
 });
+
+test('v5 → v6：有 log 的週把舊組數覆寫轉成那幾週的分週 key，已做的組不會被藏起來', () => {
+  const doneSet = { weight: 60, reps: '8', done: true };
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({
+    schemaVersion: 5,
+    // W1 平板臥推按過 +1 做完 5 組、W2 做了 1 組；引體向上 -1 只在 W3 有紀錄；C 的覆寫完全沒有 log
+    customSets: { 'A-bp_flat': 5, 'B-pullup': 2, 'C-tri_overhead_seated': 4 },
+    logs: {
+      ...Object.fromEntries([0, 1, 2, 3, 4].map(i => [`w1-d0-bp_flat-s${i}`, doneSet])),
+      'w2-d0-bp_flat-s0': doneSet,
+      'w3-d1-pullup-s0': { skipped: true },
+      // 別的動作、別的 session 的 log 不影響
+      'w4-d2-bp_flat-s0': doneSet,
+      'w4-d0-bp_incline_db-s0': doneSet,
+    },
+  }));
+
+  render(<App />);
+
+  const data = stored();
+  expect(data.schemaVersion).toBe(6);
+  expect(data.customSets).toEqual({ 'w1-A-bp_flat': 5, 'w2-A-bp_flat': 5, 'w3-B-pullup': 2 });
+  // log 原樣保留
+  expect(data.logs['w1-d0-bp_flat-s4']).toEqual(doneSet);
+});
