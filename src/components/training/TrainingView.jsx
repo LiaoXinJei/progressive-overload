@@ -400,8 +400,16 @@ const TrainingView = ({
       .filter(Boolean);
     if (timestamps.length === 0) return 0;
     const start = Math.min(...timestamps);
-    return Math.floor((currentTime - start) / 1000);
-  }, [logs, currentWeek, currentDay, currentTime]);
+    // 每組都完成或跳過就算結束，計時停在最後一組；還沒做完才用現在時間
+    const plan = getSessionPlan(currentWeek, getWorkoutForDay(currentWeek, currentDay));
+    const finished = plan.every(({ exercise, sets }) =>
+      [...Array(sets)].every((_, idx) => {
+        const log = logs[`${prefix}${exercise.id}-s${idx}`];
+        return log?.done || log?.skipped;
+      }));
+    const end = finished ? Math.max(...timestamps) : currentTime;
+    return Math.floor((end - start) / 1000);
+  }, [logs, currentWeek, currentDay, currentTime, customExercises, customSets, exerciseOrder, exerciseOverrides, exerciseLibrary]);
 
   const overMinutes = sessionDuration > 3600 ? Math.floor((sessionDuration - 3600) / 60) : 0;
 

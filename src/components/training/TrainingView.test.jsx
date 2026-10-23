@@ -7,12 +7,14 @@ import { test, afterEach } from 'vitest';
 import assert from 'node:assert/strict';
 import TrainingView from './TrainingView.jsx';
 import { DEFAULT_EXERCISE_LIBRARY } from '../../constants/workouts';
+import { buildSessionPlan } from '../../utils/sessionPlan';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 const WEEK = 1;
 const DAY = 1; // PULL A，第一個動作是引體向上
 const PULLUP_S0 = `w${WEEK}-d${DAY}-pullup-s0`;
+const MIN = 60 * 1000;
 
 let root = null;
 let container = null;
@@ -78,6 +80,11 @@ const firstPullupRow = () => {
   };
 };
 
+const overtimeText = () => {
+  const el = [...container.querySelectorAll('span')].find(s => s.textContent.startsWith('已超時'));
+  return el ? el.textContent : null;
+};
+
 // ==================== 第 5 點：自體重（重量 0） ====================
 
 test('第 5 點：沒有歷史時按「−」把重量設為 0，輸入框要顯示 0 而不是空白', () => {
@@ -110,4 +117,37 @@ test('第 5 點（不變）：重量空白又沒有歷史時，輸入次數不�
   const state = renderView();
   typeInto(firstPullupRow().reps, '8');
   assert.notEqual(state.logs[PULLUP_S0]?.done, true);
+});
+
+// ==================== 第 6 點：超時警示 ====================
+
+// 整個 session 每組都完成，第一組在 start、最後一組在 start + spanMin
+const finishedSessionLogs = (start, spanMin) => {
+  const plan = buildSessionPlan(WEEK, 'B', { exerciseLibrary: DEFAULT_EXERCISE_LIBRARY });
+  const keys = plan.flatMap(({ exercise, sets }) =>
+    [...Array(sets)].map((_, i) => `w${WEEK}-d${DAY}-${exercise.id}-s${i}`));
+  const step = (spanMin * MIN) / (keys.length - 1);
+  return Object.fromEntries(keys.map((key, i) =>
+    [key, { weight: 20, reps: '8', done: true, completedAt: start + Math.round(i * step) }]));
+};
+
+test('第 6 點：三天前做完的 50 分鐘課表，不應顯示超時', () => {
+  const now = Date.now();
+  renderView({ logs: finishedSessionLogs(now - 3 * 24 * 60 * MIN, 50), currentTime: now });
+  assert.equal(overtimeText(), null);
+});
+
+test('第 6 點：三天前做完的 75 分鐘課表，超時停在 15 分鐘', () => {
+  const now = Date.now();
+  renderView({ logs: finishedSessionLogs(now - 3 * 24 * 60 * MIN, 75), currentTime: now });
+  assert.equal(overtimeText(), '已超時 15 分鐘 · 考慮跳過 1 組 isolation');
+});
+
+test('第 6 點（不變）：還沒做完的課表，超時照現在時間即時計算', () => {
+  const now = Date.now();
+  renderView({
+    logs: { [PULLUP_S0]: { weight: 0, reps: '8', done: true, completedAt: now - 70 * MIN } },
+    currentTime: now,
+  });
+  assert.equal(overtimeText(), '已超時 10 分鐘 · 考慮跳過 1 組 isolation');
 });
