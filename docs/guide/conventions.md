@@ -138,7 +138,7 @@ v2 為單純 `number`，已在 `App.jsx` 載入時遷移。
 
 ## 測試
 
-單元測試用 **Vitest**（`npm test`），測試檔放在被測模組旁邊，命名 `*.test.js`。目前只涵蓋 pure function（`src/utils/`）。
+單元測試用 **Vitest**（`npm test`），測試檔放在被測模組旁邊，命名 `*.test.js`。`src/utils/` 的 pure function 直接測；需要 DOM 的測試在檔案開頭加 `// @vitest-environment jsdom`（例如 `src/App.reset.test.jsx`）。
 
 其餘功能驗收以下列方式：
 
