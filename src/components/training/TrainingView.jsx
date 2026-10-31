@@ -21,6 +21,20 @@ const LOWER_MUSCLES = new Set(['QUADS', 'HAMS']);
 const hasWeight = (w) => w !== undefined && w !== null && w !== '';
 const hasReps = (r) => r !== undefined && r !== null && r !== '';
 
+const parseLogKey = (logKey) => {
+  const m = logKey.match(/^w(\d+)-d(\d+)-(.+)-s(\d+)$/);
+  return m ? { week: Number(m[1]), day: Number(m[2]), exerciseId: m[3], setIdx: Number(m[4]) } : null;
+};
+
+// 兩筆 log 的先後：課表順序（週 → 天 → 第幾組），同一格再比完成時間
+const logRank = (pos, log) => [pos.week, pos.day, pos.setIdx, log.completedAt ?? 0];
+const compareRank = (a, b) => {
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return a[i] - b[i];
+  }
+  return 0;
+};
+
 const formatMmSs = (seconds) => {
   const s = Math.max(0, Math.floor(seconds));
   const m = Math.floor(s / 60);
@@ -200,22 +214,77 @@ const TrainingView = ({
 
   // ==================== 訓練記錄操作 ====================
 
-  // 已完成的組被修改時，把最新的重量 / 次數同步到歷史；任一欄空白就不寫，保留原值。
-  // historyKey 為 null 代表同動作後面還有完成的組，歷史以後面那組為準
-  const syncHistoryIfDone = (historyKey, log) => {
-    if (!historyKey || !log.done || !hasWeight(log.weight) || !log.reps) return;
-    setHistory(h => ({ ...h, [historyKey]: { weight: parseFloat(log.weight), reps: log.reps } }));
+  // 這筆 log 算哪個動作的歷史：完成時記在 log.historyKey；舊 log 沒記，照現在的替換設定推
+  const historyKeyOfLog = (logKey, log) => {
+    if (log?.historyKey) return log.historyKey;
+    const pos = parseLogKey(logKey);
+    if (!pos) return null;
+    const overrideId = exerciseOverrides[`${getWorkoutForDay(pos.week, pos.day)}-${pos.exerciseId}`];
+    return overrideId && exerciseLibrary.some(l => l.id === overrideId) ? overrideId : pos.exerciseId;
   };
 
-  const updateLog = (logKey, historyKey, field, value) => {
-    setLogs(prev => {
-      const next = { ...prev[logKey], [field]: value };
-      syncHistoryIfDone(historyKey, next);
-      return { ...prev, [logKey]: next };
+  // 找這個動作在所有週裡最新（earliest 時找最早）的一筆完成組，回傳 log key。
+  // 照課表順序比，不只看完成時間：回頭補記舊週的組，完成時間是現在，但它不是最近一次的訓練表現
+  const findDoneLog = (allLogs, historyKey, { earliest = false, exceptKey = null, filter = () => true } = {}) => {
+    let found = null;
+    let foundRank = null;
+    Object.entries(allLogs).forEach(([k, log]) => {
+      if (k === exceptKey || !log?.done || !filter(log)) return;
+      const pos = parseLogKey(k);
+      if (!pos || historyKeyOfLog(k, log) !== historyKey) return;
+      const rank = logRank(pos, log);
+      const cmp = foundRank ? compareRank(rank, foundRank) : 0;
+      if (!foundRank || (earliest ? cmp < 0 : cmp > 0)) {
+        found = k;
+        foundRank = rank;
+      }
+    });
+    return found;
+  };
+
+  // 完成前的歷史，取消到這個動作一組完成的都不剩時還原用。已經有別的完成組就沿用它們記的值，
+  // 不然會記到別組寫進歷史的數字（例如打錯、後來取消的那組）
+  const historyBeforeFor = (allLogs, logKey, historyKey) => {
+    const other = findDoneLog(allLogs, historyKey, {
+      earliest: true, exceptKey: logKey, filter: log => 'historyBefore' in log,
+    });
+    return other ? allLogs[other].historyBefore : (history[historyKey] ?? null);
+  };
+
+  // 歷史 = 這個動作最新那筆完成組的重量 / 次數。只有動到最新那筆（改它、完成後成為最新、取消它）才改歷史；
+  // 取消後一組完成的都不剩，就還原成第一次完成前的值（log.historyBefore）
+  const syncHistory = (prevLogs, nextLogs, logKey) => {
+    const changed = nextLogs[logKey]?.done ? nextLogs[logKey] : prevLogs[logKey];
+    const historyKey = historyKeyOfLog(logKey, changed);
+    if (!historyKey) return;
+    const prevLatest = findDoneLog(prevLogs, historyKey);
+    const nextLatest = findDoneLog(nextLogs, historyKey);
+    if (prevLatest !== logKey && nextLatest !== logKey) return;
+    setHistory(h => {
+      if (nextLatest) {
+        const { weight, reps } = nextLogs[nextLatest];
+        // 任一欄空白就不寫，保留原值
+        if (!hasWeight(weight) || !hasReps(reps)) return h;
+        return { ...h, [historyKey]: { weight: parseFloat(weight), reps } };
+      }
+      const before = prevLogs[logKey];
+      if (!before || !('historyBefore' in before)) return h;
+      const updated = { ...h };
+      if (before.historyBefore) updated[historyKey] = before.historyBefore;
+      else delete updated[historyKey];
+      return updated;
     });
   };
 
-  const adjustWeight = (logKey, historyKey, direction, fallback = 0) => {
+  const updateLog = (logKey, field, value) => {
+    setLogs(prev => {
+      const nextLogs = { ...prev, [logKey]: { ...prev[logKey], [field]: value } };
+      if (nextLogs[logKey].done) syncHistory(prev, nextLogs, logKey);
+      return nextLogs;
+    });
+  };
+
+  const adjustWeight = (logKey, direction, fallback = 0) => {
     setLogs(prev => {
       const current = prev[logKey] || {};
       const delta = direction * weightIncrement;
@@ -226,34 +295,26 @@ const TrainingView = ({
         ? (parseFloat(current.weight) || 0)
         : fallbackNum;
       const newWeight = base + delta;
-      const next = { ...current, weight: Math.max(0, newWeight) };
-      syncHistoryIfDone(historyKey, next);
-      return { ...prev, [logKey]: next };
+      const nextLogs = { ...prev, [logKey]: { ...current, weight: Math.max(0, newWeight) } };
+      if (current.done) syncHistory(prev, nextLogs, logKey);
+      return nextLogs;
     });
   };
 
-  // 取消完成（再按 ✓ 或直接跳過）：歷史還原成完成前的值（完成時存在 log.historyBefore），
-  // 打錯的數字才不會留在歷史、被下一組當成上次紀錄。historyKey 為 null 代表後面還有完成的組，歷史不動
-  const uncomplete = (historyKey, log) => {
+  // 取消完成（再按 ✓ 或直接跳過）。歷史由 syncHistory 處理：打錯的數字不會留在歷史、被下一組當成上次紀錄
+  const uncomplete = (log) => {
     const next = { ...log, done: false, completedAt: undefined };
     delete next.historyBefore;
-    if (historyKey && 'historyBefore' in log) {
-      setHistory(h => {
-        const updated = { ...h };
-        if (log.historyBefore) updated[historyKey] = log.historyBefore;
-        else delete updated[historyKey];
-        return updated;
-      });
-    }
+    delete next.historyKey;
     return next;
   };
 
-  const skipSet = (logKey, historyKey) => {
+  const skipSet = (logKey) => {
     setLogs(prev => {
       const current = prev[logKey] || {};
       const newSkipped = !current.skipped;
-      const base = current.done ? uncomplete(historyKey, current) : current;
-      return {
+      const base = current.done ? uncomplete(current) : current;
+      const nextLogs = {
         ...prev,
         [logKey]: {
           ...base,
@@ -262,24 +323,32 @@ const TrainingView = ({
           completedAt: undefined
         }
       };
+      if (current.done) syncHistory(prev, nextLogs, logKey);
+      return nextLogs;
     });
   };
 
-  // ✓ 按鈕：未完成 → 完成（空白欄位用上次紀錄，重量都沒有就當 0 kg 自體重）；已完成 → 取消完成
+  // ✓ 按鈕：未完成 → 完成（空白欄位用上次紀錄，重量都沒有就當 0 kg 自體重）；已完成 → 取消完成。
+  // 完成時把這組算哪個動作的歷史記在 log 上，之後替換動作再取消，還原的還是原本那個動作
   const completeSet = (logKey, historyKey, historyEntry = {}) => {
     setLogs(prev => {
       const current = prev[logKey] || {};
+      let next;
       if (current.done) {
-        return { ...prev, [logKey]: uncomplete(historyKey, current) };
+        next = uncomplete(current);
+      } else {
+        const reps = current.reps || (hasReps(historyEntry.reps) ? String(historyEntry.reps) : '');
+        if (!reps) return prev;
+        const weight = hasWeight(current.weight) ? current.weight
+          : hasWeight(historyEntry.weight) ? historyEntry.weight : 0;
+        next = {
+          ...current, weight, reps, done: true, completedAt: Date.now(),
+          historyKey, historyBefore: historyBeforeFor(prev, logKey, historyKey),
+        };
       }
-      const reps = current.reps || (hasReps(historyEntry.reps) ? String(historyEntry.reps) : '');
-      if (!reps) return prev;
-      const weight = hasWeight(current.weight) ? current.weight
-        : hasWeight(historyEntry.weight) ? historyEntry.weight : 0;
-      const next = { ...current, weight, reps, done: true, completedAt: Date.now() };
-      if (historyKey) next.historyBefore = history[historyKey] ?? null;
-      syncHistoryIfDone(historyKey, next);
-      return { ...prev, [logKey]: next };
+      const nextLogs = { ...prev, [logKey]: next };
+      syncHistory(prev, nextLogs, logKey);
+      return nextLogs;
     });
   };
 
@@ -632,9 +701,6 @@ const TrainingView = ({
             // 替換過的動作用替換後動作的歷史，不沿用原本那格的
             const historyKey = ex._libraryId ?? ex.id;
             const historyEntry = history[historyKey] || {};
-            const laterSetDone = [...Array(setsCount)].some((_, j) =>
-              j > idx && logs[`w${currentWeek}-d${currentDay}-${ex.id}-s${j}`]?.done);
-            const historyWriteKey = laterSetDone ? null : historyKey;
             const historyWeight = historyEntry.weight;
             const historyReps = historyEntry.reps;
             const hasHistory = (historyWeight !== undefined && historyWeight !== '') || (historyReps !== undefined && historyReps !== '');
@@ -675,7 +741,7 @@ const TrainingView = ({
                         <label className="text-[10px] text-neutral-500 block mb-1">重量 (kg)</label>
                         <div className="flex items-center gap-1">
                           <button
-                            onClick={() => adjustWeight(logKey, historyWriteKey, -1, historyWeight)}
+                            onClick={() => adjustWeight(logKey, -1, historyWeight)}
                             className="p-2 bg-neutral-900 hover:bg-neutral-800 rounded-lg transition-colors"
                             title={`-${weightIncrement}kg`}
                           >
@@ -686,7 +752,7 @@ const TrainingView = ({
                             type="number"
                             step={weightIncrement}
                             value={logData.weight ?? ''}
-                            onChange={(e) => updateLog(logKey, historyWriteKey, 'weight', e.target.value)}
+                            onChange={(e) => updateLog(logKey, 'weight', e.target.value)}
                             onKeyDown={(e) => {
                               if (e.key === 'Enter') {
                                 e.preventDefault();
@@ -700,7 +766,7 @@ const TrainingView = ({
                             focus:outline-none focus:ring-2 focus:ring-emerald-500"
                           />
                           <button
-                            onClick={() => adjustWeight(logKey, historyWriteKey, 1, historyWeight)}
+                            onClick={() => adjustWeight(logKey, 1, historyWeight)}
                             className="p-2 bg-neutral-900 hover:bg-neutral-800 rounded-lg transition-colors"
                             title={`+${weightIncrement}kg`}
                           >
@@ -714,7 +780,7 @@ const TrainingView = ({
                           data-reps-input
                           type="number"
                           value={logData.reps || ''}
-                          onChange={(e) => updateLog(logKey, historyWriteKey, 'reps', e.target.value)}
+                          onChange={(e) => updateLog(logKey, 'reps', e.target.value)}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter') {
                               e.preventDefault();
@@ -736,7 +802,7 @@ const TrainingView = ({
                     </>
                   )}
                   <button
-                    onClick={() => skipSet(logKey, historyWriteKey)}
+                    onClick={() => skipSet(logKey)}
                     title={logData.skipped ? '取消跳過' : '跳過此組'}
                     className={`p-1.5 rounded-lg transition-colors flex-shrink-0
                     ${logData.skipped
@@ -751,7 +817,7 @@ const TrainingView = ({
                     <button
                       type="button"
                       data-complete-btn
-                      onClick={() => completeSet(logKey, historyWriteKey, historyEntry)}
+                      onClick={() => completeSet(logKey, historyKey, historyEntry)}
                       disabled={!canComplete}
                       title={logData.done ? '取消完成' : canComplete ? '完成此組' : '先輸入次數'}
                       aria-label={logData.done ? '取消完成' : '完成此組'}

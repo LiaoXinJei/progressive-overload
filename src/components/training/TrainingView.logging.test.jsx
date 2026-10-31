@@ -29,26 +29,35 @@ afterEach(() => {
   container = null;
 });
 
-const renderView = ({ logs = {}, history = {}, exerciseOverrides = {}, currentTime = Date.now() } = {}) => {
+const renderView = ({
+  logs = {}, history = {}, exerciseOverrides = {}, customExercises = {}, customSets = {},
+  week = WEEK, day = DAY, currentTime = Date.now(),
+} = {}) => {
   const state = {};
   const Harness = () => {
     const [l, setL] = useState(logs);
     const [h, setH] = useState(history);
+    const [ov, setOv] = useState(exerciseOverrides);
+    const [ce, setCe] = useState(customExercises);
+    const [cs, setCs] = useState(customSets);
     state.logs = l;
     state.history = h;
+    state.exerciseOverrides = ov;
+    state.customExercises = ce;
+    state.customSets = cs;
     const noop = () => {};
     return (
       <TrainingView
         logs={l} setLogs={setL}
         history={h} setHistory={setH}
-        mode="maintenance" currentWeek={WEEK} currentDay={DAY} setCurrentDay={noop}
+        mode="maintenance" currentWeek={week} currentDay={day} setCurrentDay={noop}
         showStats={false} setShowStats={noop}
         customExerciseNames={{}} setCustomExerciseNames={noop}
-        customExercises={{}} setCustomExercises={noop}
-        customSets={{}} setCustomSets={noop}
+        customExercises={ce} setCustomExercises={setCe}
+        customSets={cs} setCustomSets={setCs}
         exerciseOrder={{}} setExerciseOrder={noop}
         exerciseLibrary={DEFAULT_EXERCISE_LIBRARY}
-        exerciseOverrides={exerciseOverrides} setExerciseOverrides={noop}
+        exerciseOverrides={ov} setExerciseOverrides={setOv}
         weightIncrement={2}
         currentTime={currentTime}
       />
@@ -404,4 +413,117 @@ test('BUG-20：划船每組都跳過 → 不顯示動作間休息', () => {
   const skipped = Object.fromEntries([...Array(rowSets)].map((_, i) => [key('db_row', i), { skipped: true }]));
   renderView({ logs: { ...pullupDone(now - 60 * MIN), ...skipped }, currentTime: now });
   assert.equal(interRest(), null);
+});
+
+// ==================== 歷史 = 最新那筆完成的組（回頭改舊週不蓋掉） ====================
+
+const WEEK_MS = 7 * 24 * 60 * MIN;
+// W1、W2 的引體向上都做完：W1 60x10、W2 62x10
+const twoWeeksDone = (t0) => {
+  const logs = {};
+  for (let i = 0; i < pullupSets; i++) {
+    logs[`w1-d1-pullup-s${i}`] = done(60, '10', t0 + i * MIN);
+    logs[`w2-d1-pullup-s${i}`] = done(62, '10', t0 + WEEK_MS + i * MIN);
+  }
+  return logs;
+};
+
+test('歷史：W2 做到 62，回 W1 改最後一組次數，歷史維持 W2 的 62x10', () => {
+  const t0 = Date.now() - 2 * WEEK_MS;
+  const state = renderView({ logs: twoWeeksDone(t0), history: { pullup: { weight: 62, reps: '10' } } });
+  typeInto(row(pullupSets - 1).reps, '9');
+  assert.equal(state.logs[key('pullup', pullupSets - 1)].reps, '9');
+  assert.deepEqual(state.history.pullup, { weight: 62, reps: '10' });
+});
+
+test('歷史：W2 做完，回 W1 取消最後一組，歷史維持 W2，不還原成 W1 之前的值', () => {
+  const t0 = Date.now() - 2 * WEEK_MS;
+  const logs = twoWeeksDone(t0);
+  logs[key('pullup', pullupSets - 1)].historyBefore = { weight: 55, reps: '10' };
+  const state = renderView({ logs, history: { pullup: { weight: 62, reps: '10' } } });
+  click(row(pullupSets - 1).complete);
+  assert.equal(state.logs[key('pullup', pullupSets - 1)].done, false);
+  assert.deepEqual(state.history.pullup, { weight: 62, reps: '10' });
+});
+
+test('歷史：W2 做完，回 W1 補記漏掉的組，歷史維持 W2', () => {
+  const t0 = Date.now() - 2 * WEEK_MS;
+  const logs = twoWeeksDone(t0);
+  delete logs[key('pullup', pullupSets - 1)];
+  const state = renderView({ logs, history: { pullup: { weight: 62, reps: '10' } } });
+  typeInto(row(pullupSets - 1).weight, '58');
+  typeInto(row(pullupSets - 1).reps, '7');
+  click(row(pullupSets - 1).complete);
+  assert.equal(state.logs[key('pullup', pullupSets - 1)].done, true);
+  assert.deepEqual(state.history.pullup, { weight: 62, reps: '10' });
+});
+
+test('歷史：W2 改最新那組的次數，歷史跟著改', () => {
+  const t0 = Date.now() - 2 * WEEK_MS;
+  const state = renderView({ week: 2, logs: twoWeeksDone(t0), history: { pullup: { weight: 62, reps: '10' } } });
+  typeInto(row(pullupSets - 1).reps, '11');
+  assert.deepEqual(state.history.pullup, { weight: 62, reps: '11' });
+});
+
+test('歷史：W2 取消最新那組，歷史退回次新的完成組', () => {
+  const t0 = Date.now() - 2 * WEEK_MS;
+  const logs = twoWeeksDone(t0);
+  logs[`w2-d1-pullup-s${pullupSets - 2}`] = done(62, '9', t0 + WEEK_MS);
+  const state = renderView({ week: 2, logs, history: { pullup: { weight: 62, reps: '10' } } });
+  click(row(pullupSets - 1).complete);
+  assert.deepEqual(state.history.pullup, { weight: 62, reps: '9' });
+});
+
+test('歷史（R7）：s0 打錯 600 完成 → s1 62 完成 → 改 s0 成 58 → 跳過 s1，歷史是 s0 的 58，不是打錯的 600', () => {
+  const state = renderView({ history: { pullup: { weight: 60, reps: '8' } } });
+  typeInto(row(0).weight, '600');
+  typeInto(row(0).reps, '8');
+  click(row(0).complete);
+  typeInto(row(1).weight, '62');
+  typeInto(row(1).reps, '8');
+  click(row(1).complete);
+  typeInto(row(0).weight, '58');
+  click(container.querySelectorAll('[data-set-row]')[1].querySelector('button[title="跳過此組"]'));
+  assert.equal(state.logs[key('pullup', 0)].weight, '58');
+  assert.deepEqual(state.history.pullup, { weight: 58, reps: '8' });
+});
+
+test('歷史：先取消前面打錯的組、再取消後面的組，歷史回到兩組都做之前的值', () => {
+  const state = renderView({ history: { pullup: { weight: 60, reps: '8' } } });
+  typeInto(row(0).weight, '600');
+  typeInto(row(0).reps, '8');
+  click(row(0).complete);
+  typeInto(row(1).weight, '62');
+  typeInto(row(1).reps, '8');
+  click(row(1).complete);
+  click(row(0).complete);
+  assert.deepEqual(state.history.pullup, { weight: 62, reps: '8' });
+  click(row(1).complete);
+  assert.deepEqual(state.history.pullup, { weight: 60, reps: '8' });
+});
+
+test('歷史：完成後才替換動作，再取消完成，還原的是原動作的歷史，不寫進新動作', () => {
+  const state = renderView({ history: { pullup: { weight: 60, reps: '8' } } });
+  typeInto(row(0).weight, '600');
+  typeInto(row(0).reps, '8');
+  click(row(0).complete);
+  assert.equal(state.logs[key('pullup', 0)].historyKey, 'pullup');
+  click(container.querySelector('button[title="替換動作"]'));
+  click([...container.querySelectorAll('button')].find(b => b.textContent.includes('寬握高位下拉')));
+  assert.equal(state.exerciseOverrides['B-pullup'], 'lib_pulldown_wide');
+  click(row(0).complete);
+  assert.deepEqual(state.history.pullup, { weight: 60, reps: '8' });
+  assert.equal('lib_pulldown_wide' in state.history, false);
+});
+
+test('歷史：舊紀錄沒存 historyKey，用現在的替換設定推（替換後的動作）', () => {
+  const t0 = Date.now() - 2 * WEEK_MS;
+  const state = renderView({
+    ...REPLACED,
+    logs: { [key('pullup', 0)]: done(45, '12', t0) },
+    history: { pullup: { weight: 100, reps: '8' }, lib_pulldown_wide: { weight: 45, reps: '12' } },
+  });
+  typeInto(row(0).weight, '47');
+  assert.deepEqual(state.history.lib_pulldown_wide, { weight: 47, reps: '12' });
+  assert.deepEqual(state.history.pullup, { weight: 100, reps: '8' });
 });
