@@ -565,6 +565,8 @@ const RPFocusPro = () => {
               <ExerciseLibraryManager
                 exerciseLibrary={exerciseLibrary}
                 setExerciseLibrary={setExerciseLibrary}
+                exerciseOverrides={exerciseOverrides}
+                setExerciseOverrides={setExerciseOverrides}
               />
             ) : (
             <>
