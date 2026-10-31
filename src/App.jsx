@@ -10,7 +10,7 @@ import TabNavigation from './components/shared/TabNavigation';
 import ExerciseLibraryManager from './components/settings/ExerciseLibraryManager';
 import { DEFAULT_EXERCISE_LIBRARY } from './constants/workouts';
 import { buildSessionPlan, getWorkoutForDay, customSetsKey } from './utils/sessionPlan';
-import { getRestContext } from './utils/pairRoundState';
+import { getRestContext, getLatestDoneSession } from './utils/pairRoundState';
 
 const STORAGE_KEY = 'rp_focus_pro_data';
 const SCHEMA_VERSION = 7;
@@ -456,21 +456,26 @@ const RPFocusPro = () => {
     return { start: Math.min(...timestamps), end: Math.max(...timestamps) };
   }, [logs, currentWeek, currentDay]);
 
-  // restContext 依當日最近一筆 done log + sessionPlan + SUPERSET_PAIRS 推得。
+  // restContext 依最近一筆 done log + sessionPlan + SUPERSET_PAIRS 推得。
+  // 綁最近一筆 done log 所在的週 / 天，不綁畫面：休息中切去看別天 / 別週，背景通知照樣排程。
+  // 最近一筆是以前的課表也沒關係，起算點早就過了，useRestNotification 不會排程。
   // 詳見 src/utils/pairRoundState.js#getRestContext。
-  const currentWorkoutKey = getWorkoutForDay(currentWeek, currentDay);
-  const currentSessionPlan = useMemo(
-    () => buildSessionPlan(currentWeek, currentWorkoutKey, {
+  const latestDoneSession = useMemo(() => getLatestDoneSession(logs), [logs]);
+  const restWeek = latestDoneSession?.week ?? currentWeek;
+  const restDay = latestDoneSession?.day ?? currentDay;
+  const restWorkoutKey = getWorkoutForDay(restWeek, restDay);
+  const restSessionPlan = useMemo(
+    () => buildSessionPlan(restWeek, restWorkoutKey, {
       customExercises, customSets, exerciseOrder, exerciseOverrides, exerciseLibrary,
     }),
-    [currentWeek, currentWorkoutKey, customExercises, customSets, exerciseOrder, exerciseOverrides, exerciseLibrary],
+    [restWeek, restWorkoutKey, customExercises, customSets, exerciseOrder, exerciseOverrides, exerciseLibrary],
   );
   const restContext = useMemo(
     () => getRestContext({
-      logs, currentWeek, currentDay, workoutKey: currentWorkoutKey,
-      sessionPlan: currentSessionPlan, globalDelay: restNotificationDelay,
+      logs, currentWeek: restWeek, currentDay: restDay, workoutKey: restWorkoutKey,
+      sessionPlan: restSessionPlan, globalDelay: restNotificationDelay,
     }),
-    [logs, currentWeek, currentDay, currentWorkoutKey, currentSessionPlan, restNotificationDelay],
+    [logs, restWeek, restDay, restWorkoutKey, restSessionPlan, restNotificationDelay],
   );
 
   useRestNotification({ restContext });

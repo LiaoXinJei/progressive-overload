@@ -9,17 +9,36 @@ import {
   WORKOUTS, MUSCLE_GROUPS, PHASE_CONFIG,
   SUPERSET_PAIRS, SESSION_TYPE_THEME,
 } from '../../constants/workouts';
-import { getPairRoundState, getPairEndTimestamp, getPairTailProgress } from '../../utils/pairRoundState';
+import {
+  getPairRoundState, getPairEndTimestamp, getPairTailProgress, getExercisesEndTimestamp,
+} from '../../utils/pairRoundState';
 import {
   buildSessionPlan, getWorkoutForDay, getPhase, getRepRange, getWeeklyMuscleVolume,
   customSetsKey, withoutCustomSets,
 } from '../../utils/sessionPlan';
 
-const LOWER_MUSCLES = new Set(['QUADS', 'HAMS']);
+const LOWER_MUSCLES = new Set(['QUADS', 'HAMS', 'CALVES']);
 
 // 重量 0 是有效值（自體重），只有空白才算沒填
 const hasWeight = (w) => w !== undefined && w !== null && w !== '';
 const hasReps = (r) => r !== undefined && r !== null && r !== '';
+
+// 完成後這段時間內取消完成，當成誤按 ✓（重新完成用當下時間，不沿用誤按的時間）
+const MISTAP_UNDO_MS = 60 * 1000;
+
+const parseLogKey = (logKey) => {
+  const m = logKey.match(/^w(\d+)-d(\d+)-(.+)-s(\d+)$/);
+  return m ? { week: Number(m[1]), day: Number(m[2]), exerciseId: m[3], setIdx: Number(m[4]) } : null;
+};
+
+// 兩筆 log 的先後：課表順序（週 → 天 → 第幾組），同一格再比完成時間
+const logRank = (pos, log) => [pos.week, pos.day, pos.setIdx, log.completedAt ?? 0];
+const compareRank = (a, b) => {
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return a[i] - b[i];
+  }
+  return 0;
+};
 
 const formatMmSs = (seconds) => {
   const s = Math.max(0, Math.floor(seconds));
@@ -175,7 +194,9 @@ const TrainingView = ({
 
   // ==================== 工具函數 ====================
 
-  const formatTime = (seconds) => {
+  // 休息 / 經過時間不會是負的。按 ✓ 的時間可能比畫面上的 currentTime 晚（App 每秒才更新），差值會短暫小於 0
+  const formatTime = (rawSeconds) => {
+    const seconds = Math.max(0, Math.floor(rawSeconds));
     const hrs = Math.floor(seconds / 3600);
     const mins = Math.floor((seconds % 3600) / 60);
     const secs = seconds % 60;
@@ -200,22 +221,77 @@ const TrainingView = ({
 
   // ==================== 訓練記錄操作 ====================
 
-  // 已完成的組被修改時，把最新的重量 / 次數同步到歷史；任一欄空白就不寫，保留原值。
-  // historyKey 為 null 代表同動作後面還有完成的組，歷史以後面那組為準
-  const syncHistoryIfDone = (historyKey, log) => {
-    if (!historyKey || !log.done || !hasWeight(log.weight) || !log.reps) return;
-    setHistory(h => ({ ...h, [historyKey]: { weight: parseFloat(log.weight), reps: log.reps } }));
+  // 這筆 log 算哪個動作的歷史：完成時記在 log.historyKey；舊 log 沒記，照現在的替換設定推
+  const historyKeyOfLog = (logKey, log) => {
+    if (log?.historyKey) return log.historyKey;
+    const pos = parseLogKey(logKey);
+    if (!pos) return null;
+    const overrideId = exerciseOverrides[`${getWorkoutForDay(pos.week, pos.day)}-${pos.exerciseId}`];
+    return overrideId && exerciseLibrary.some(l => l.id === overrideId) ? overrideId : pos.exerciseId;
   };
 
-  const updateLog = (logKey, historyKey, field, value) => {
-    setLogs(prev => {
-      const next = { ...prev[logKey], [field]: value };
-      syncHistoryIfDone(historyKey, next);
-      return { ...prev, [logKey]: next };
+  // 找這個動作在所有週裡最新（earliest 時找最早）的一筆完成組，回傳 log key。
+  // 照課表順序比，不只看完成時間：回頭補記舊週的組，完成時間是現在，但它不是最近一次的訓練表現
+  const findDoneLog = (allLogs, historyKey, { earliest = false, exceptKey = null, filter = () => true } = {}) => {
+    let found = null;
+    let foundRank = null;
+    Object.entries(allLogs).forEach(([k, log]) => {
+      if (k === exceptKey || !log?.done || !filter(log)) return;
+      const pos = parseLogKey(k);
+      if (!pos || historyKeyOfLog(k, log) !== historyKey) return;
+      const rank = logRank(pos, log);
+      const cmp = foundRank ? compareRank(rank, foundRank) : 0;
+      if (!foundRank || (earliest ? cmp < 0 : cmp > 0)) {
+        found = k;
+        foundRank = rank;
+      }
+    });
+    return found;
+  };
+
+  // 完成前的歷史，取消到這個動作一組完成的都不剩時還原用。已經有別的完成組就沿用它們記的值，
+  // 不然會記到別組寫進歷史的數字（例如打錯、後來取消的那組）
+  const historyBeforeFor = (allLogs, logKey, historyKey) => {
+    const other = findDoneLog(allLogs, historyKey, {
+      earliest: true, exceptKey: logKey, filter: log => 'historyBefore' in log,
+    });
+    return other ? allLogs[other].historyBefore : (history[historyKey] ?? null);
+  };
+
+  // 歷史 = 這個動作最新那筆完成組的重量 / 次數。只有動到最新那筆（改它、完成後成為最新、取消它）才改歷史；
+  // 取消後一組完成的都不剩，就還原成第一次完成前的值（log.historyBefore）
+  const syncHistory = (prevLogs, nextLogs, logKey) => {
+    const changed = nextLogs[logKey]?.done ? nextLogs[logKey] : prevLogs[logKey];
+    const historyKey = historyKeyOfLog(logKey, changed);
+    if (!historyKey) return;
+    const prevLatest = findDoneLog(prevLogs, historyKey);
+    const nextLatest = findDoneLog(nextLogs, historyKey);
+    if (prevLatest !== logKey && nextLatest !== logKey) return;
+    setHistory(h => {
+      if (nextLatest) {
+        const { weight, reps } = nextLogs[nextLatest];
+        // 任一欄空白就不寫，保留原值
+        if (!hasWeight(weight) || !hasReps(reps)) return h;
+        return { ...h, [historyKey]: { weight: parseFloat(weight), reps } };
+      }
+      const before = prevLogs[logKey];
+      if (!before || !('historyBefore' in before)) return h;
+      const updated = { ...h };
+      if (before.historyBefore) updated[historyKey] = before.historyBefore;
+      else delete updated[historyKey];
+      return updated;
     });
   };
 
-  const adjustWeight = (logKey, historyKey, direction, fallback = 0) => {
+  const updateLog = (logKey, field, value) => {
+    setLogs(prev => {
+      const nextLogs = { ...prev, [logKey]: { ...prev[logKey], [field]: value } };
+      if (nextLogs[logKey].done) syncHistory(prev, nextLogs, logKey);
+      return nextLogs;
+    });
+  };
+
+  const adjustWeight = (logKey, direction, fallback = 0) => {
     setLogs(prev => {
       const current = prev[logKey] || {};
       const delta = direction * weightIncrement;
@@ -226,34 +302,31 @@ const TrainingView = ({
         ? (parseFloat(current.weight) || 0)
         : fallbackNum;
       const newWeight = base + delta;
-      const next = { ...current, weight: Math.max(0, newWeight) };
-      syncHistoryIfDone(historyKey, next);
-      return { ...prev, [logKey]: next };
+      const nextLogs = { ...prev, [logKey]: { ...current, weight: Math.max(0, newWeight) } };
+      if (current.done) syncHistory(prev, nextLogs, logKey);
+      return nextLogs;
     });
   };
 
-  // 取消完成（再按 ✓ 或直接跳過）：歷史還原成完成前的值（完成時存在 log.historyBefore），
-  // 打錯的數字才不會留在歷史、被下一組當成上次紀錄。historyKey 為 null 代表後面還有完成的組，歷史不動
-  const uncomplete = (historyKey, log) => {
+  // 取消完成（再按 ✓ 或直接跳過）。歷史由 syncHistory 處理：打錯的數字不會留在歷史、被下一組當成上次紀錄。
+  // 完成超過 MISTAP_UNDO_MS 才取消是事後修正數字：完成時間另存在 firstCompletedAt，重新完成時用回去，
+  // 休息計時、訓練時長才不會被推到現在。完成後馬上取消是誤按，不保留，之後真的做完用當下時間
+  const uncomplete = (log) => {
     const next = { ...log, done: false, completedAt: undefined };
+    const isMistap = log.completedAt == null || Date.now() - log.completedAt < MISTAP_UNDO_MS;
+    if (isMistap) delete next.firstCompletedAt;
+    else next.firstCompletedAt = log.completedAt;
     delete next.historyBefore;
-    if (historyKey && 'historyBefore' in log) {
-      setHistory(h => {
-        const updated = { ...h };
-        if (log.historyBefore) updated[historyKey] = log.historyBefore;
-        else delete updated[historyKey];
-        return updated;
-      });
-    }
+    delete next.historyKey;
     return next;
   };
 
-  const skipSet = (logKey, historyKey) => {
+  const skipSet = (logKey) => {
     setLogs(prev => {
       const current = prev[logKey] || {};
       const newSkipped = !current.skipped;
-      const base = current.done ? uncomplete(historyKey, current) : current;
-      return {
+      const base = current.done ? uncomplete(current) : current;
+      const nextLogs = {
         ...prev,
         [logKey]: {
           ...base,
@@ -262,24 +335,34 @@ const TrainingView = ({
           completedAt: undefined
         }
       };
+      if (current.done) syncHistory(prev, nextLogs, logKey);
+      return nextLogs;
     });
   };
 
-  // ✓ 按鈕：未完成 → 完成（空白欄位用上次紀錄，重量都沒有就當 0 kg 自體重）；已完成 → 取消完成
+  // ✓ 按鈕：未完成 → 完成（空白欄位用上次紀錄，重量都沒有就當 0 kg 自體重）；已完成 → 取消完成。
+  // 完成時把這組算哪個動作的歷史記在 log 上，之後替換動作再取消，還原的還是原本那個動作
   const completeSet = (logKey, historyKey, historyEntry = {}) => {
     setLogs(prev => {
       const current = prev[logKey] || {};
+      let next;
       if (current.done) {
-        return { ...prev, [logKey]: uncomplete(historyKey, current) };
+        next = uncomplete(current);
+      } else {
+        const reps = current.reps || (hasReps(historyEntry.reps) ? String(historyEntry.reps) : '');
+        if (!reps) return prev;
+        const weight = hasWeight(current.weight) ? current.weight
+          : hasWeight(historyEntry.weight) ? historyEntry.weight : 0;
+        // 取消過再重新完成，沿用第一次完成的時間
+        next = {
+          ...current, weight, reps, done: true, completedAt: current.firstCompletedAt ?? Date.now(),
+          historyKey, historyBefore: historyBeforeFor(prev, logKey, historyKey),
+        };
+        delete next.firstCompletedAt;
       }
-      const reps = current.reps || (hasReps(historyEntry.reps) ? String(historyEntry.reps) : '');
-      if (!reps) return prev;
-      const weight = hasWeight(current.weight) ? current.weight
-        : hasWeight(historyEntry.weight) ? historyEntry.weight : 0;
-      const next = { ...current, weight, reps, done: true, completedAt: Date.now() };
-      if (historyKey) next.historyBefore = history[historyKey] ?? null;
-      syncHistoryIfDone(historyKey, next);
-      return { ...prev, [logKey]: next };
+      const nextLogs = { ...prev, [logKey]: next };
+      syncHistory(prev, nextLogs, logKey);
+      return nextLogs;
     });
   };
 
@@ -316,7 +399,8 @@ const TrainingView = ({
       delete updated[overrideKey];
       return updated;
     });
-    setCustomSets(prev => withoutCustomSets(prev, workoutKey, exerciseId));
+    // 有紀錄的週保留組數，做過的組才不會被藏起來；沒紀錄的週回到週期演算法的預設
+    setCustomSets(prev => withoutCustomSets(prev, workoutKey, exerciseId, logs));
     setPickerForExId(null);
     setPickerSearch('');
   };
@@ -342,7 +426,8 @@ const TrainingView = ({
     setShowAddExercise(false);
   };
 
-  const removeCustomExercise = (exerciseId) => {
+  const removeCustomExercise = (exerciseId, name) => {
+    if (!window.confirm(`刪除「${name}」？`)) return;
     setCustomExercises(prev => ({
       ...prev,
       [workoutKey]: (prev[workoutKey] || []).filter(ex => ex.id !== exerciseId)
@@ -352,6 +437,14 @@ const TrainingView = ({
       [workoutKey]: (prev[workoutKey] || []).filter(id => id !== exerciseId)
     }));
     setCustomSets(prev => withoutCustomSets(prev, workoutKey, exerciseId));
+    // 替換設定也一起清，不然留著沒有動作對應的 key
+    setExerciseOverrides(prev => {
+      const overrideKey = `${workoutKey}-${exerciseId}`;
+      if (!(overrideKey in prev)) return prev;
+      const updated = { ...prev };
+      delete updated[overrideKey];
+      return updated;
+    });
   };
 
   const adjustExerciseSets = (exerciseId, delta, currentSets) => {
@@ -474,13 +567,15 @@ const TrainingView = ({
   // 計算每個 group 的「前一 group end timestamp + kind」
   // 用於 single：inter-exercise rest 起算點
   // 用於 pair：sticky bar 上方 enter-pair 提示
+  // 前一 group 每組都完成或跳過才算結束，取完成組最晚的時間；最後一組跳過也照算
   const groupBoundaries = groupedPlan.map((_, idx) => {
     if (idx === 0) return { prevEndTs: null, prevKind: null };
     const prev = groupedPlan[idx - 1];
     if (prev.type === 'single') {
-      const ex = prev.item.exercise;
-      const lastKey = `w${currentWeek}-d${currentDay}-${ex.id}-s${prev.item.sets - 1}`;
-      return { prevEndTs: logs[lastKey]?.completedAt ?? null, prevKind: 'single' };
+      const ts = getExercisesEndTimestamp(
+        [{ exerciseId: prev.item.exercise.id, sets: prev.item.sets }], currentWeek, currentDay, logs,
+      );
+      return { prevEndTs: ts, prevKind: 'single' };
     }
     const [a, b] = prev.items;
     const pairCfg = { primary: a.exercise.id, secondary: b.exercise.id, rest: prev.rest };
@@ -489,7 +584,26 @@ const TrainingView = ({
   });
 
   // pairRest：pair 成員才有 { coreRoundCount, coreDone, coreEndTs }，單動作為 null
-  const renderExerciseInner = ({ entry, dragHandleProps, hideInterRest, pairRest, prevEndTs }) => {
+  // 次數欄按 Enter 要跳去的重量欄。單動作照畫面順序；superset 照輪次（A1 → B1 → A2 → B2 …，tail 組接在後面，
+  // pairOrder 是這個順序的 log key），配對最後一組接畫面上配對後面的第一個重量欄。跳過的組沒有輸入框，自然略過
+  const findNextWeightInput = (repsInput, logKey, pairOrder) => {
+    const allWeightInputs = [...document.querySelectorAll('[data-weight-input]')];
+    if (!pairOrder) {
+      const allRepsInputs = [...document.querySelectorAll('[data-reps-input]')];
+      return allWeightInputs[allRepsInputs.indexOf(repsInput) + 1] ?? null;
+    }
+    const group = repsInput.closest('[data-pair-group]');
+    for (const k of pairOrder.slice(pairOrder.indexOf(logKey) + 1)) {
+      const input = group?.querySelector(`[data-weight-input][data-log-key="${k}"]`);
+      if (input) return input;
+    }
+    let lastInPair = -1;
+    allWeightInputs.forEach((input, i) => { if (group?.contains(input)) lastInPair = i; });
+    return allWeightInputs[lastInPair + 1] ?? null;
+  };
+
+  // pairOrder：pair 成員才有（見 findNextWeightInput），單動作為 undefined
+  const renderExerciseInner = ({ entry, dragHandleProps, hideInterRest, pairRest, prevEndTs, pairOrder }) => {
     const { exercise: ex, sets: setsCount } = entry;
 
     const completedCount = [...Array(setsCount)].filter((_, idx) => {
@@ -538,7 +652,7 @@ const TrainingView = ({
                 </button>
                 {ex.isCustom && (
                   <button
-                    onClick={() => removeCustomExercise(ex.id)}
+                    onClick={() => removeCustomExercise(ex.id, customExerciseNames[ex.id] || ex.name)}
                     className="text-neutral-700 hover:text-rose-500 transition-colors"
                     title="刪除此動作"
                   >
@@ -632,14 +746,13 @@ const TrainingView = ({
             // 替換過的動作用替換後動作的歷史，不沿用原本那格的
             const historyKey = ex._libraryId ?? ex.id;
             const historyEntry = history[historyKey] || {};
-            const laterSetDone = [...Array(setsCount)].some((_, j) =>
-              j > idx && logs[`w${currentWeek}-d${currentDay}-${ex.id}-s${j}`]?.done);
-            const historyWriteKey = laterSetDone ? null : historyKey;
             const historyWeight = historyEntry.weight;
             const historyReps = historyEntry.reps;
             const hasHistory = (historyWeight !== undefined && historyWeight !== '') || (historyReps !== undefined && historyReps !== '');
             // 次數是唯一必填：沒填也沒有上次次數時 ✓ 不能按；重量空白按 ✓ 當 0 kg
             const canComplete = logData.done || Boolean(logData.reps) || hasReps(historyReps);
+            // 點組號帶入上次紀錄：已完成的組不帶，不然會用歷史（可能是後面組的數字）蓋掉這組
+            const canFill = !logData.skipped && !logData.done && hasHistory;
 
             return (
               <React.Fragment key={idx}>
@@ -655,12 +768,12 @@ const TrainingView = ({
                 >
                   <button
                     type="button"
-                    onClick={() => !logData.skipped && hasHistory && fillFromHistory(logKey, historyKey)}
-                    disabled={logData.skipped || !hasHistory}
-                    title={hasHistory ? '帶入上次重量與次數' : '尚無上次紀錄'}
+                    onClick={() => canFill && fillFromHistory(logKey, historyKey)}
+                    disabled={!canFill}
+                    title={logData.done ? '已完成' : hasHistory ? '帶入上次重量與次數' : '尚無上次紀錄'}
                     className={`text-xl font-black w-6 sm:w-8 flex-shrink-0 text-center transition-colors
                       ${logData.skipped ? 'text-neutral-700 line-through cursor-default'
-                        : hasHistory ? 'text-neutral-600 hover:text-emerald-400 cursor-pointer'
+                        : canFill ? 'text-neutral-600 hover:text-emerald-400 cursor-pointer'
                         : 'text-neutral-600 cursor-default'}`}
                   >
                     {idx + 1}
@@ -675,7 +788,7 @@ const TrainingView = ({
                         <label className="text-[10px] text-neutral-500 block mb-1">重量 (kg)</label>
                         <div className="flex items-center gap-1">
                           <button
-                            onClick={() => adjustWeight(logKey, historyWriteKey, -1, historyWeight)}
+                            onClick={() => adjustWeight(logKey, -1, historyWeight)}
                             className="p-2 bg-neutral-900 hover:bg-neutral-800 rounded-lg transition-colors"
                             title={`-${weightIncrement}kg`}
                           >
@@ -683,10 +796,11 @@ const TrainingView = ({
                           </button>
                           <input
                             data-weight-input
+                            data-log-key={logKey}
                             type="number"
                             step={weightIncrement}
                             value={logData.weight ?? ''}
-                            onChange={(e) => updateLog(logKey, historyWriteKey, 'weight', e.target.value)}
+                            onChange={(e) => updateLog(logKey, 'weight', e.target.value)}
                             onKeyDown={(e) => {
                               if (e.key === 'Enter') {
                                 e.preventDefault();
@@ -700,7 +814,7 @@ const TrainingView = ({
                             focus:outline-none focus:ring-2 focus:ring-emerald-500"
                           />
                           <button
-                            onClick={() => adjustWeight(logKey, historyWriteKey, 1, historyWeight)}
+                            onClick={() => adjustWeight(logKey, 1, historyWeight)}
                             className="p-2 bg-neutral-900 hover:bg-neutral-800 rounded-lg transition-colors"
                             title={`+${weightIncrement}kg`}
                           >
@@ -714,14 +828,11 @@ const TrainingView = ({
                           data-reps-input
                           type="number"
                           value={logData.reps || ''}
-                          onChange={(e) => updateLog(logKey, historyWriteKey, 'reps', e.target.value)}
+                          onChange={(e) => updateLog(logKey, 'reps', e.target.value)}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter') {
                               e.preventDefault();
-                              const allWeightInputs = document.querySelectorAll('[data-weight-input]');
-                              const allRepsInputs = document.querySelectorAll('[data-reps-input]');
-                              const currentIndex = Array.from(allRepsInputs).indexOf(e.currentTarget);
-                              const nextWeightInput = allWeightInputs[currentIndex + 1];
+                              const nextWeightInput = findNextWeightInput(e.currentTarget, logKey, pairOrder);
                               if (nextWeightInput) {
                                 nextWeightInput.focus();
                                 nextWeightInput.select();
@@ -736,7 +847,7 @@ const TrainingView = ({
                     </>
                   )}
                   <button
-                    onClick={() => skipSet(logKey, historyWriteKey)}
+                    onClick={() => skipSet(logKey)}
                     title={logData.skipped ? '取消跳過' : '跳過此組'}
                     className={`p-1.5 rounded-lg transition-colors flex-shrink-0
                     ${logData.skipped
@@ -751,7 +862,7 @@ const TrainingView = ({
                     <button
                       type="button"
                       data-complete-btn
-                      onClick={() => completeSet(logKey, historyWriteKey, historyEntry)}
+                      onClick={() => completeSet(logKey, historyKey, historyEntry)}
                       disabled={!canComplete}
                       title={logData.done ? '取消完成' : canComplete ? '完成此組' : '先輸入次數'}
                       aria-label={logData.done ? '取消完成' : '完成此組'}
@@ -770,18 +881,22 @@ const TrainingView = ({
 
                 {/* Rest Time Display（pair 核心輪由 sticky bar 呈現；tail 組回到單動作 inline 休息） */}
                 {(() => {
-                  if (logData.skipped) return null;
                   // pair 內只顯示「下一組是 tail 組」的休息
                   if (pairRest && idx + 1 < pairRest.coreRoundCount) return null;
-                  // 最後一個核心組 → 第一個 tail 組：核心輪做完才開始算，從輪結束（兩邊較晚者）起算
+                  // 最後一個核心組 → 第一個 tail 組：核心輪做完才開始算，從輪結束（兩邊較晚者）起算。
+                  // 起算點看整輪，這組自己跳過也照樣顯示
                   const isCoreToTail = pairRest != null && idx < pairRest.coreRoundCount;
-                  if (isCoreToTail && !pairRest.coreDone) return null;
+                  if (isCoreToTail ? !pairRest.coreDone : !logData.done) return null;
                   const restFromTs = isCoreToTail ? pairRest.coreEndTs : logData.completedAt;
-                  const isLastSet = idx === setsCount - 1;
-                  const nextLogKey = `w${currentWeek}-d${currentDay}-${ex.id}-s${idx + 1}`;
+                  if (restFromTs == null) return null;
+                  // 下一組跳過就往後找第一個沒跳過的組
+                  let nextIdx = idx + 1;
+                  while (nextIdx < setsCount && logs[`w${currentWeek}-d${currentDay}-${ex.id}-s${nextIdx}`]?.skipped) nextIdx++;
+                  if (nextIdx >= setsCount) return null;
+                  const nextLogKey = `w${currentWeek}-d${currentDay}-${ex.id}-s${nextIdx}`;
                   const nextLog = logs[nextLogKey];
 
-                  if (logData.done && !isLastSet && nextLog?.done && !nextLog?.skipped) {
+                  if (nextLog?.done) {
                     const restTime = calculateRestTime(nextLogKey, restFromTs);
                     return restTime ? (
                       <div className="text-xs text-neutral-500 mt-1 pl-11">
@@ -789,15 +904,12 @@ const TrainingView = ({
                       </div>
                     ) : null;
                   }
-                  if (logData.done && !isLastSet && !nextLog?.done && !nextLog?.skipped) {
-                    const cRestTime = getCurrentRestTime(restFromTs);
-                    return (
-                      <div className="text-xs text-emerald-400 mt-1 pl-11 font-semibold animate-pulse">
-                        休息中: {cRestTime}
-                      </div>
-                    );
-                  }
-                  return null;
+                  const cRestTime = getCurrentRestTime(restFromTs);
+                  return (
+                    <div className="text-xs text-emerald-400 mt-1 pl-11 font-semibold animate-pulse">
+                      休息中: {cRestTime}
+                    </div>
+                  );
                 })()}
               </React.Fragment>
             );
@@ -900,12 +1012,19 @@ const TrainingView = ({
                         coreEndTs: pairState.lastCompleteRoundEndTs,
                       };
                       const enterPairLabel = prevKind === 'pair' ? '上一配對' : '上一動作';
+                      // 輪次順序 A1 → B1 → A2 → B2 …，組數多的一方 tail 組接在後面
+                      const pairOrder = [];
+                      for (let i = 0; i < Math.max(a.sets, b.sets); i++) {
+                        if (i < a.sets) pairOrder.push(`w${currentWeek}-d${currentDay}-${a.exercise.id}-s${i}`);
+                        if (i < b.sets) pairOrder.push(`w${currentWeek}-d${currentDay}-${b.exercise.id}-s${i}`);
+                      }
                       return (
                         <Draggable key={group.id} draggableId={group.id} index={groupIdx}>
                           {(provided, snapshot) => (
                             <div
                               ref={provided.innerRef}
                               {...provided.draggableProps}
+                              data-pair-group
                               className={`transition-all ${snapshot.isDragging ? 'bg-neutral-800 shadow-2xl rounded-xl opacity-95' : ''}`}
                             >
                               {/* Pair Header */}
@@ -942,6 +1061,7 @@ const TrainingView = ({
                                       hideInterRest: true,
                                       pairRest,
                                       prevEndTs: null,
+                                      pairOrder,
                                     })}
                                   </React.Fragment>
                                 ))}
@@ -1083,8 +1203,9 @@ const TrainingView = ({
       </div>
 
       {/* ==================== 替換動作 Picker Modal ==================== */}
+      {/* z-[60] 疊在底部 tab 列（z-50）上面；底部留 home indicator 的安全區，按鈕才點得到 */}
       {pickerForExId && (
-        <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-end sm:items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-[60] flex items-end sm:items-center justify-center p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
           <div className="bg-neutral-900 border border-neutral-800 rounded-[32px] w-full max-w-sm shadow-2xl flex flex-col max-h-[80vh]">
             <div className="flex justify-between items-center px-6 pt-6 pb-4 border-b border-neutral-800">
               <h3 className="text-lg font-black text-white">替換動作</h3>
@@ -1157,8 +1278,9 @@ const TrainingView = ({
       )}
 
       {/* ==================== 新增動作 Modal ==================== */}
+      {/* 同替換動作：疊在 tab 列上面、避開 home indicator */}
       {showAddExercise && (
-        <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-end sm:items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-[60] flex items-end sm:items-center justify-center p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
           <div className="bg-neutral-900 border border-neutral-800 rounded-[32px] w-full max-w-sm shadow-2xl">
             <div className="flex justify-between items-center px-6 pt-6 pb-4 border-b border-neutral-800">
               <h3 className="text-lg font-black text-white">新增動作</h3>
@@ -1178,7 +1300,11 @@ const TrainingView = ({
                   type="text"
                   value={newEx.name}
                   onChange={(e) => setNewEx(prev => ({ ...prev, name: e.target.value }))}
-                  onKeyDown={(e) => { if (e.key === 'Enter') addCustomExercise(); }}
+                  onKeyDown={(e) => {
+                    // 注音 / 拼音選字時按 Enter 是確認選字，不是送出（Safari 選字時 keyCode 是 229）
+                    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+                    if (e.key === 'Enter') addCustomExercise();
+                  }}
                   placeholder="例如：槓鈴深蹲"
                   autoFocus
                   className="w-full bg-neutral-800 px-4 py-3 rounded-xl text-sm font-medium text-neutral-100

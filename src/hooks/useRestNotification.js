@@ -75,7 +75,8 @@ export const useRestNotification = ({ restContext }) => {
     if (!ctx) return;
     if (!SCHEDULABLE_TYPES.has(ctx.type)) return;
     if (ctx.delay == null || ctx.anchorTs == null) return;
-    if (Notification.permission !== 'granted') return;
+    // iOS Safari 沒加到主畫面時沒有 Notification 物件，直接讀 permission 會噴錯
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
 
     const elapsed = Date.now() - ctx.anchorTs;
     const remaining = ctx.delay * 1000 - elapsed;
