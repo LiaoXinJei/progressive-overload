@@ -517,7 +517,8 @@ const RPFocusPro = () => {
       )}
 
       {/* ==================== Scroll To Top Button ==================== */}
-      {showScrollTop && (
+      {/* 營養頁不顯示：會壓住右下角的「+」新增餐點和最後一餐的刪除鈕 */}
+      {showScrollTop && activeTab === 'training' && (
         <button
           onClick={scrollToTop}
           className="fixed bottom-24 right-4 z-50 w-12 h-12 rounded-full bg-emerald-600 text-white shadow-lg shadow-emerald-900/50 flex items-center justify-center hover:bg-emerald-500 active:scale-95 transition-all"
