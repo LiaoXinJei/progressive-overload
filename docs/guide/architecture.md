@@ -6,7 +6,7 @@
 progressive-overload/
 ├── index.html                    # Vite 入口
 ├── vite.config.js                # Vite + PWA 設定
-├── tailwind.config.js            # Tailwind 設定
+├── tailwind.config.cjs           # Tailwind 設定（CommonJS，見檔頭註解）
 ├── postcss.config.js
 ├── public/
 │   └── icons/                    # PWA 圖示

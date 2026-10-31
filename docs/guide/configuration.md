@@ -6,7 +6,7 @@
 |------|------|
 | `package.json` | 依賴與 npm scripts |
 | `vite.config.js` | Vite + PWA 設定 |
-| `tailwind.config.js` | Tailwind 掃描範圍與 theme |
+| `tailwind.config.cjs` | Tailwind 掃描範圍與 theme（色票、字體、字級）|
 | `postcss.config.js` | PostCSS plugin（autoprefixer） |
 | `index.html` | Vite 入口 HTML |
 | `.gitignore` | 版控忽略 |

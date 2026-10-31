@@ -15,8 +15,8 @@ export default defineConfig({
         name: 'RP FOCUS PRO',
         short_name: 'RP LOG',
         description: 'Progressive Overload Tracker based on Renaissance Periodization',
-        theme_color: '#171717',
-        background_color: '#171717',
+        theme_color: '#0E0E10',
+        background_color: '#0E0E10',
         display: 'standalone',
         orientation: 'portrait',
         scope: '/',
@@ -42,7 +42,8 @@ export default defineConfig({
         ],
       },
       injectManifest: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
+        // woff2：數字用的 Barlow Condensed 字檔，離線也要有
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
       },
     }),
   ],

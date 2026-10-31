@@ -188,28 +188,13 @@ export const SUPERSET_PAIRS = {
   ],
 };
 
-// ==================== Session 類型配色 ====================
-// 給 Day Selector 與 session 標題使用
+// ==================== Session 類型標籤 ====================
+// 推 / 拉 / 腿只用文字區分（D1–D5、本週循環），不再給顏色
 
 export const SESSION_TYPE_THEME = {
-  push: {
-    accentText: 'text-rose-400',
-    accentBg: 'bg-rose-500',
-    activeBtn: 'bg-rose-500 text-black border-rose-500 shadow-lg',
-    label: '推',
-  },
-  pull: {
-    accentText: 'text-blue-400',
-    accentBg: 'bg-blue-500',
-    activeBtn: 'bg-blue-500 text-black border-blue-500 shadow-lg',
-    label: '拉',
-  },
-  legs: {
-    accentText: 'text-orange-400',
-    accentBg: 'bg-orange-500',
-    activeBtn: 'bg-orange-500 text-black border-orange-500 shadow-lg',
-    label: '腿',
-  },
+  push: { label: '推' },
+  pull: { label: '拉' },
+  legs: { label: '腿' },
 };
 
 // ==================== 動作庫預設資料 ====================
