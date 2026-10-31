@@ -214,6 +214,23 @@ test('v5 → v6：C 日替換成仰臥三頭伸展（舊名骷髏粉碎機）的
   expect(data.history.lib_skullcrusher).toEqual({ weight: 30, reps: '10' });
 });
 
+// ==================== v3 → v4：改名的動作，使用者改的名稱也要搬 ====================
+
+test('v3 → v4：使用者改的動作名稱跟著改名的 id 搬，其他的原樣保留', () => {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({
+    schemaVersion: 3,
+    customExerciseNames: { tri_overhead: '我的過頭三頭', bp_machine: '我的機械胸推', bp_flat: '我的臥推' },
+  }));
+
+  render(<App />);
+
+  expect(stored().customExerciseNames).toEqual({
+    tri_overhead_seated: '我的過頭三頭',
+    lib_machine_press_flat: '我的機械胸推',
+    bp_flat: '我的臥推',
+  });
+});
+
 // ==================== v6 → v7：動作改名、type 修正 ====================
 
 // v6 存檔的動作庫片段

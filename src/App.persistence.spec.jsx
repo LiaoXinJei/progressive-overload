@@ -64,12 +64,124 @@ test('localStorage 是空的時候，照常寫入初始狀態', () => {
   expect(stored()).toMatchObject({ logs: {}, viewState: { currentWeek: 1, currentDay: 0 } });
 });
 
-test('讀檔失敗（JSON 壞掉）時不寫回，保留原始資料', () => {
+// ==================== R3：讀檔失敗後完全不寫、也沒提示 ====================
+
+const corruptBackups = () => Object.keys(localStorage)
+  .filter(key => key.startsWith(`${STORAGE_KEY}_corrupt_`))
+  .map(key => localStorage.getItem(key));
+const alerts = () => [...container.querySelectorAll('[role="alert"]')];
+const click = (el) => act(() => { el.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+const weekButton = (w) => [...container.querySelectorAll('header button')].find(b => b.textContent === `W${w}`);
+
+test('讀檔失敗（JSON 壞掉）時原始字串另存一份，照空資料啟動、之後照常寫入，畫面有提示', () => {
   localStorage.setItem(STORAGE_KEY, '{not json');
   vi.spyOn(console, 'error').mockImplementation(() => {});
   render(<React.StrictMode><App /></React.StrictMode>);
-  expect(localStorage.getItem(STORAGE_KEY)).toBe('{not json');
   console.error.mockRestore();
+
+  // StrictMode 讀檔跑兩次也只備份一份
+  expect(corruptBackups()).toEqual(['{not json']);
+  expect(stored()).toMatchObject({ schemaVersion: 7, logs: {} });
+  expect(alerts()).toHaveLength(1);
+  expect(alerts()[0].textContent).toContain('讀取存檔失敗');
+
+  click(weekButton(3));
+  expect(stored().viewState.currentWeek).toBe(3);
+  expect(corruptBackups()).toEqual(['{not json']);
+});
+
+test('讀檔失敗又沒辦法另存備份時不寫回，保留原始資料並提示', () => {
+  localStorage.setItem(STORAGE_KEY, '{not json');
+  vi.spyOn(console, 'error').mockImplementation(() => {});
+  const setItem = vi.spyOn(Object.getPrototypeOf(localStorage), 'setItem').mockImplementation(() => {
+    throw new DOMException('quota', 'QuotaExceededError');
+  });
+  render(<App />);
+  setItem.mockRestore();
+  console.error.mockRestore();
+
+  click(weekButton(3));
+  expect(localStorage.getItem(STORAGE_KEY)).toBe('{not json');
+  expect(alerts()[0].textContent).toContain('沒辦法另存備份');
+});
+
+// ==================== setItem 沒包 try/catch，空間滿了白畫面 ====================
+
+test('寫入失敗（儲存空間滿了）不會白畫面，只提示一次', () => {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({ schemaVersion: 7, viewState: { currentWeek: 2 } }));
+  vi.spyOn(console, 'error').mockImplementation(() => {});
+  const setItem = vi.spyOn(Object.getPrototypeOf(localStorage), 'setItem').mockImplementation(() => {
+    throw new DOMException('quota', 'QuotaExceededError');
+  });
+
+  render(<App />);
+  expect(alerts()).toHaveLength(1);
+  expect(alerts()[0].textContent).toContain('儲存失敗');
+
+  click([...alerts()[0].querySelectorAll('button')].find(b => b.textContent === '知道了'));
+  expect(alerts()).toHaveLength(0);
+  // 還是存不進去，但不再跳提示
+  click(weekButton(3));
+  expect(alerts()).toHaveLength(0);
+  expect(weekButton(3).className).toContain('bg-white');
+
+  setItem.mockRestore();
+  console.error.mockRestore();
+  click(weekButton(4));
+  expect(stored().viewState.currentWeek).toBe(4);
+});
+
+// ==================== R6：開兩個視窗，舊視窗會蓋掉新資料 ====================
+
+// 模擬別的視窗寫入：同一個 jsdom 視窗自己 setItem 不會收到 storage 事件，手動發
+const writeFromOtherWindow = (data) => {
+  const json = JSON.stringify(data);
+  localStorage.setItem(STORAGE_KEY, json);
+  act(() => {
+    window.dispatchEvent(new StorageEvent('storage', { key: STORAGE_KEY, newValue: json, storageArea: localStorage }));
+  });
+};
+
+test('別的視窗寫入後重新載入，這個視窗之後的操作不會用舊狀態蓋掉新資料', () => {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({ schemaVersion: 7, viewState: { currentWeek: 2 } }));
+  render(<App />);
+
+  const newLog = { 'w2-d0-bp_flat-s0': { weight: 60, reps: '8', done: true, completedAt: 1 } };
+  writeFromOtherWindow({
+    ...stored(),
+    logs: newLog,
+    nutritionProfile: { geminiApiKey: 'AIza-new' },
+  });
+  // 這個視窗隨手換一週
+  click(weekButton(3));
+
+  const data = stored();
+  expect(data.viewState.currentWeek).toBe(3);
+  expect(data.logs).toEqual(newLog);
+  expect(data.nutritionProfile).toEqual({ geminiApiKey: 'AIza-new' });
+});
+
+test('別的視窗寫入的內容載入後跟存檔一樣，不會再寫回（兩個視窗不會互相觸發寫入）', () => {
+  render(<App />);
+  const setItem = vi.spyOn(Object.getPrototypeOf(localStorage), 'setItem');
+
+  writeFromOtherWindow({ ...stored(), logs: { 'w1-d0-bp_flat-s0': { weight: 60, reps: '8', done: true, completedAt: 1 } } });
+
+  // 只有模擬別的視窗那一次
+  expect(setItem).toHaveBeenCalledTimes(1);
+  setItem.mockRestore();
+});
+
+test('別的視窗寫入的是舊版存檔時照樣跑遷移再載入', () => {
+  render(<App />);
+
+  writeFromOtherWindow({
+    schemaVersion: 6,
+    exerciseLibrary: [{ id: 'lib_skullcrusher', name: '骷髏粉碎機', muscle: 'TRICEPS', type: 'isolation', defaultSets: 3 }],
+  });
+
+  expect(stored().schemaVersion).toBe(7);
+  expect(stored().exerciseLibrary[0].name).toBe('仰臥三頭伸展');
 });
 
 test('讀檔後的第一次 render 拋錯時，已存的資料不會被初始空狀態蓋掉', () => {

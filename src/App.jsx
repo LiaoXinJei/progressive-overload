@@ -12,6 +12,11 @@ import { DEFAULT_EXERCISE_LIBRARY } from './constants/workouts';
 import { buildSessionPlan, getWorkoutForDay, customSetsKey } from './utils/sessionPlan';
 import { getRestContext } from './utils/pairRoundState';
 
+const STORAGE_KEY = 'rp_focus_pro_data';
+const SCHEMA_VERSION = 7;
+// 讀不了的存檔另存的 key 前綴，後面接時間戳
+const CORRUPT_KEY_PREFIX = `${STORAGE_KEY}_corrupt_`;
+
 // v6 → v7 改名前的歷代預設名稱（動作庫從 b0a44d2 起才存進 localStorage）。
 // 存檔名稱還是其中之一才換成現在的預設名，使用者自己改過的不動
 const V7_OLD_LIBRARY_NAMES = {
@@ -55,6 +60,310 @@ const V7_OLD_LIBRARY_TYPES = {
 const hasValue = (v) => v !== undefined && v !== null && v !== '';
 // 這組有沒有紀錄：完成、跳過或填過數字
 const hasLogContent = (log) => Boolean(log) && (log.done || log.skipped || hasValue(log.weight) || hasValue(log.reps));
+
+// 讀不了的存檔另存一份再照空資料啟動，之後的寫回才不會把它蓋掉。
+// 回傳備份的 key（內容一樣的備份已經有就沿用，StrictMode 跑兩次不會存兩份），存不進去回傳 null
+const backupCorruptData = (raw) => {
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key?.startsWith(CORRUPT_KEY_PREFIX) && localStorage.getItem(key) === raw) return key;
+    }
+    const key = `${CORRUPT_KEY_PREFIX}${Date.now()}`;
+    localStorage.setItem(key, raw);
+    return key;
+  } catch (e) {
+    console.error('備份讀不了的存檔失敗:', e);
+    return null;
+  }
+};
+
+// 存檔跑完各版遷移，回傳要放進 state 的值。啟動讀檔、別的視窗寫入（storage 事件）共用
+const migrateSavedData = (data) => {
+  // history 結構遷移：v2 number → v3 { weight, reps }
+  const rawHistory = data.history || {};
+  let migratedHistory = {};
+  Object.entries(rawHistory).forEach(([k, v]) => {
+    if (typeof v === 'number') {
+      migratedHistory[k] = { weight: v, reps: '' };
+    } else if (v && typeof v === 'object') {
+      migratedHistory[k] = { weight: v.weight ?? '', reps: v.reps ?? '' };
+    }
+  });
+
+  let migratedLogs = data.logs || {};
+  let migratedCustomSets = data.customSets || {};
+  let migratedOverrides = data.exerciseOverrides || {};
+  let migratedCustomExercises = data.customExercises || {};
+  let migratedExerciseOrder = data.exerciseOrder || {};
+  let migratedViewState = data.viewState || {};
+  let migratedCustomExerciseNames = data.customExerciseNames || {};
+
+  // v3 → v4 migration：腿部訓練計劃 v3 FINAL 升級
+  const needsV4Migration = (data.schemaVersion ?? 3) < 4;
+  if (needsV4Migration) {
+    const REMOVED_IDS = ['pec_deck', 'ohp', 'fly_cable', 'tri_kickback', 'bb_row', 'leg_curl'];
+    const RENAMED_IDS = {
+      tri_overhead: 'tri_overhead_seated',
+      bp_machine: 'lib_machine_press_flat',
+    };
+
+    // 1. history 改名 + 清除
+    Object.entries(RENAMED_IDS).forEach(([oldId, newId]) => {
+      if (migratedHistory[oldId] !== undefined) {
+        migratedHistory[newId] = migratedHistory[oldId];
+        delete migratedHistory[oldId];
+      }
+    });
+    REMOVED_IDS.forEach(id => { delete migratedHistory[id]; });
+
+    // 2. logs 改名 + 清除
+    const nextLogs = {};
+    Object.entries(migratedLogs).forEach(([key, value]) => {
+      const match = key.match(/^(w\d+-d\d+-)(.+)(-s\d+)$/);
+      if (!match) {
+        nextLogs[key] = value;
+        return;
+      }
+      const exId = match[2];
+      if (REMOVED_IDS.includes(exId)) return;
+      if (RENAMED_IDS[exId]) {
+        nextLogs[`${match[1]}${RENAMED_IDS[exId]}${match[3]}`] = value;
+        return;
+      }
+      nextLogs[key] = value;
+    });
+    migratedLogs = nextLogs;
+
+    // 3. customSets / exerciseOverrides 清除（含改名動作的舊覆寫、依對齊決策一併清掉）
+    const purgeOverrideMap = (map) => {
+      const next = {};
+      Object.entries(map).forEach(([key, value]) => {
+        const dashIdx = key.indexOf('-');
+        const exId = dashIdx >= 0 ? key.slice(dashIdx + 1) : key;
+        if (REMOVED_IDS.includes(exId)) return;
+        if (RENAMED_IDS[exId]) return;
+        next[key] = value;
+      });
+      return next;
+    };
+    migratedCustomSets = purgeOverrideMap(migratedCustomSets);
+    migratedOverrides = purgeOverrideMap(migratedOverrides);
+
+    // 4. customExercises 清除
+    const nextCustomEx = {};
+    Object.entries(migratedCustomExercises).forEach(([wKey, list]) => {
+      if (!Array.isArray(list)) return;
+      nextCustomEx[wKey] = list.filter(ex =>
+        !REMOVED_IDS.includes(ex.id) && !RENAMED_IDS[ex.id]
+      );
+    });
+    migratedCustomExercises = nextCustomEx;
+
+    // 5. exerciseOrder 清除/改名
+    const nextOrder = {};
+    Object.entries(migratedExerciseOrder).forEach(([wKey, ids]) => {
+      if (!Array.isArray(ids)) return;
+      nextOrder[wKey] = ids
+        .filter(id => !REMOVED_IDS.includes(id))
+        .map(id => RENAMED_IDS[id] ?? id);
+    });
+    migratedExerciseOrder = nextOrder;
+
+    // 6. 使用者改的動作名稱跟著改名的 id 搬（key 是動作 id）
+    const nextNames = { ...migratedCustomExerciseNames };
+    Object.entries(RENAMED_IDS).forEach(([oldId, newId]) => {
+      if (nextNames[oldId] === undefined) return;
+      nextNames[newId] = nextNames[oldId];
+      delete nextNames[oldId];
+    });
+    migratedCustomExerciseNames = nextNames;
+
+    // 7. 進度重置：W1、Day 0
+    migratedViewState = {
+      ...migratedViewState,
+      currentWeek: 1,
+      currentDay: 0,
+    };
+  }
+
+  let migratedLibrary = Array.isArray(data.exerciseLibrary) && data.exerciseLibrary.length > 0
+    ? data.exerciseLibrary
+    : DEFAULT_EXERCISE_LIBRARY;
+
+  // v4 → v5 migration：動作庫與替換設定對齊 v3 FINAL
+  // v4 migration 沒動 exerciseLibrary、exerciseOverrides 只按 key 清，
+  // 升級上來的使用者還留著 v3 的動作庫，替換設定也可能指向已移除的動作
+  const needsV5Migration = (data.schemaVersion ?? 3) < 5;
+  if (needsV5Migration) {
+    // v3 有、v3 FINAL 拿掉的預設動作（含改名前的舊 id）
+    const REMOVED_LIBRARY_IDS = [
+      'pec_deck', 'leg_curl', 'ohp', 'fly_cable', 'bp_machine', 'tri_overhead', 'tri_kickback', 'bb_row',
+      'lib_db_fly', 'lib_low_cable_fly', 'lib_decline_press', 'lib_t_bar_row', 'lib_chest_supported_row',
+      'lib_deadlift', 'lib_arnold_press', 'lib_machine_press', 'lib_rear_delt_db', 'lib_tri_rope_overhead',
+      'lib_squat_bb', 'lib_hack_squat', 'lib_leg_press', 'lib_bulgarian_split', 'lib_rdl',
+      'lib_seated_leg_curl', 'lib_good_morning',
+    ];
+    // v3 FINAL 新增的預設動作（v3 就有、被使用者刪掉的不補回）
+    const ADDED_LIBRARY_IDS = [
+      'calf_standing_a', 'seated_leg_curl_b', 'calf_seated_b', 'machine_press', 'tri_overhead_seated',
+      'single_leg_press', 'calf_standing_c', 'chest_supported_row', 'lying_leg_curl_d', 'calf_seated_d',
+      'leg_press', 'bulgarian_split_db', 'rdl_db', 'back_ext_45', 'calf_standing_heavy', 'calf_press_legpress',
+      'lib_flat_db_press', 'lib_machine_press_flat', 'lib_machine_press_incline', 'lib_smith_incline',
+      'lib_smith_flat', 'lib_weighted_dips', 'lib_incline_bb_press', 'lib_t_bar_row_chest', 'lib_machine_row',
+      'lib_arnold_press_seated', 'lib_smith_seated_press', 'lib_rear_delt_db_chest',
+      'lib_tri_rope_overhead_seated', 'lib_belt_squat', 'lib_pendulum_squat_noload', 'lib_sissy_squat',
+      'lib_step_up_db', 'lib_leg_ext_alt', 'lib_nordic_curl', 'lib_cable_pullthrough', 'lib_reverse_hyper',
+      'lib_machine_hip_hinge', 'lib_glute_ham_raise', 'lib_calf_donkey', 'lib_calf_single_leg_db',
+      'lib_calf_smith_standing', 'lib_calf_seated_alt',
+    ];
+
+    // 1. 動作庫：補上新增的、拿掉移除的
+    if (migratedLibrary !== DEFAULT_EXERCISE_LIBRARY) {
+      const storedById = new Map(migratedLibrary.map(item => [item.id, item]));
+      const defaultIds = new Set(DEFAULT_EXERCISE_LIBRARY.map(item => item.id));
+      migratedLibrary = [
+        // 預設動作照新的順序，使用者改過的版本優先
+        ...DEFAULT_EXERCISE_LIBRARY
+          .filter(item => storedById.has(item.id) || ADDED_LIBRARY_IDS.includes(item.id))
+          .map(item => storedById.get(item.id) ?? item),
+        // 使用者自訂動作接在後面
+        ...migratedLibrary.filter(item =>
+          !defaultIds.has(item.id) && !REMOVED_LIBRARY_IDS.includes(item.id)
+        ),
+      ];
+    }
+
+    // 2. exerciseOverrides：替換成已移除（含改名）動作的設定清掉，同 v4 的對齊決策不保留
+    const nextOverrides = {};
+    Object.entries(migratedOverrides).forEach(([key, libId]) => {
+      if (REMOVED_LIBRARY_IDS.includes(libId)) return;
+      nextOverrides[key] = libId;
+    });
+    migratedOverrides = nextOverrides;
+  }
+
+  // v5 → v6 migration：組數覆寫改成分週（key 加週次）
+  // 舊 key 分不出是哪一週設定的。那個動作有 log 的週轉成分週 key，保住當時的組數，
+  // 不然按過 +1 做完的第 4、5 組會被藏起來；沒 log 的週清掉，組數回到週期演算法的預設
+  const needsV6Migration = (data.schemaVersion ?? 3) < 6;
+  if (needsV6Migration) {
+    const nextCustomSets = {};
+    Object.keys(migratedLogs).forEach(logKey => {
+      const match = logKey.match(/^w(\d+)-d(\d+)-(.+)-s\d+$/);
+      if (!match) return;
+      const week = Number(match[1]);
+      const oldKey = `${getWorkoutForDay(week, Number(match[2]))}-${match[3]}`;
+      if (migratedCustomSets[oldKey] === undefined) return;
+      nextCustomSets[`w${week}-${oldKey}`] = migratedCustomSets[oldKey];
+    });
+    migratedCustomSets = nextCustomSets;
+
+    // 同一版把 lib_skullcrusher 加進 WORKOUTS.C 當內建動作（BUG-02）。之前把 C 日某個動作替換成
+    // 骷髏粉碎機的使用者會出現兩個骷髏粉碎機。保留內建那格、拿掉替換：內建動作不能刪，而且它是
+    // 第二組 superset 的搭檔；兩格的歷史 key 都是 lib_skullcrusher，上次紀錄不會掉。
+    // 被替換的那格回到原動作，它過去週次的 log 會顯示在原動作名下（跟按「恢復原動作」一樣）
+    const nextOverrides = {};
+    Object.entries(migratedOverrides).forEach(([key, libId]) => {
+      if (key.startsWith('C-') && key !== 'C-lib_skullcrusher' && libId === 'lib_skullcrusher') return;
+      nextOverrides[key] = libId;
+    });
+    migratedOverrides = nextOverrides;
+  }
+
+  // v6 → v7 migration：動作改名（統一用語、拿掉括號說明，說明改到 EXERCISE_NOTES）、type 修正，
+  // 再把 v5 → v6 換預設組數後被藏起來的組補回來
+  const needsV7Migration = (data.schemaVersion ?? 3) < 7;
+  if (needsV7Migration) {
+    // 1. 動作庫：名稱 / type 還是歷代預設值的換成現在的預設。使用者改過的、自訂的不動，刪掉的不補回
+    const defaultsById = new Map(DEFAULT_EXERCISE_LIBRARY.map(item => [item.id, item]));
+    migratedLibrary = migratedLibrary.map(item => {
+      const current = defaultsById.get(item.id);
+      if (!current) return item;
+      const renamed = V7_OLD_LIBRARY_NAMES[item.id]?.includes(item.name);
+      const retyped = V7_OLD_LIBRARY_TYPES[item.id] === item.type;
+      if (!renamed && !retyped) return item;
+      return {
+        ...item,
+        ...(renamed && { name: current.name }),
+        ...(retyped && { type: current.type }),
+      };
+    });
+
+    // 2. v6 改了 SESSION_WEIGHTS、C 日多了 lib_skullcrusher，預設組數變少，畫面只畫到計畫組數，
+    //    v5 照課表做完的組被藏起來（例如 W1 PUSH B 坐姿過頭三頭做完 4 組，升級後只剩 1 組）。
+    //    有 log 的動作，最後一組超過計畫組數就寫那一週的組數覆寫補回來
+    const loggedSets = {};
+    Object.entries(migratedLogs).forEach(([logKey, log]) => {
+      const match = logKey.match(/^(w\d+-d\d+-.+)-s(\d+)$/);
+      if (!match || !hasLogContent(log)) return;
+      loggedSets[match[1]] = Math.max(loggedSets[match[1]] ?? 0, Number(match[2]) + 1);
+    });
+    const nextCustomSets = { ...migratedCustomSets };
+    for (let week = 1; week <= 10; week++) {
+      for (let day = 0; day < 5; day++) {
+        const workoutKey = getWorkoutForDay(week, day);
+        const plan = buildSessionPlan(week, workoutKey, {
+          customExercises: migratedCustomExercises,
+          customSets: migratedCustomSets,
+          exerciseOverrides: migratedOverrides,
+          exerciseLibrary: migratedLibrary,
+        });
+        plan.forEach(({ exercise, sets }) => {
+          const logged = loggedSets[`w${week}-d${day}-${exercise.id}`] ?? 0;
+          if (logged > sets) nextCustomSets[customSetsKey(week, workoutKey, exercise.id)] = logged;
+        });
+      }
+    }
+    migratedCustomSets = nextCustomSets;
+  }
+
+  return {
+    logs: migratedLogs,
+    history: migratedHistory,
+    mode: data.mode || 'maintenance',
+    currentWeek: migratedViewState.currentWeek || 1,
+    currentDay: migratedViewState.currentDay || 0,
+    showStats: migratedViewState.showStats ?? true,
+    customExerciseNames: migratedCustomExerciseNames,
+    customExercises: migratedCustomExercises,
+    customSets: migratedCustomSets,
+    exerciseOrder: migratedExerciseOrder,
+    exerciseLibrary: migratedLibrary,
+    exerciseOverrides: migratedOverrides,
+    weightIncrement: data.weightIncrement ?? 2,
+    restNotificationDelay: data.restNotificationDelay ?? 90,
+    activeTab: data.activeTab || 'training',
+    nutritionProfile: data.nutritionProfile || null,
+    nutritionLogs: data.nutritionLogs || {},
+  };
+};
+
+// 重量步長輸入：輸入中的暫時值（清空、0、0.）先留著，>= 0.25 才寫進設定；
+// 離開欄位時清掉暫時值，不合法就回到上一個合法值
+const WeightIncrementInput = ({ value, onChange }) => {
+  // text 是輸入中的字串，value 是它對應的設定值；設定值被別的地方改掉（例如點常用值）就改顯示設定值
+  const [draft, setDraft] = useState(null);
+  const showDraft = draft !== null && draft.value === value;
+  return (
+    <input
+      type="number"
+      min="0.25"
+      step="0.25"
+      value={showDraft ? draft.text : value}
+      onChange={(e) => {
+        const text = e.target.value;
+        const parsed = parseFloat(text);
+        const legal = parsed >= 0.25;
+        setDraft({ text, value: legal ? parsed : value });
+        if (legal) onChange(parsed);
+      }}
+      onBlur={() => setDraft(null)}
+      className="flex-1 bg-neutral-800 px-4 py-3 rounded-xl text-center font-mono text-lg
+      focus:outline-none focus:ring-2 focus:ring-emerald-500 border border-neutral-700"
+    />
+  );
+};
 
 const RPFocusPro = () => {
   // ==================== 狀態管理 ====================
@@ -162,277 +471,74 @@ const RPFocusPro = () => {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  // ==================== 數據持久化 ====================
+  // ==================== 資料持久化 ====================
 
   // 讀檔成功前不寫回。StrictMode（dev）會把 effect 跑兩次，
   // 不擋的話第一次寫回的初始空狀態會被第二次讀檔讀到，資料被清空。
-  // 讀檔失敗時維持 false：不寫回，保留原本的 localStorage。
+  // 讀檔失敗時原始字串先另存一份才開始寫回；連備份都存不進去就維持 false，保留原本的 localStorage。
   const [isHydrated, setIsHydrated] = useState(false);
+  // 讀檔 / 寫入失敗的提示
+  const [storageNotice, setStorageNotice] = useState(null);
+  // 寫入失敗只提示一次，成功寫入後才會再提示
+  const saveFailedRef = useRef(false);
+
+  const applySavedState = useCallback((s) => {
+    setLogs(s.logs);
+    setHistory(s.history);
+    setMode(s.mode);
+    setCurrentWeek(s.currentWeek);
+    setCurrentDay(s.currentDay);
+    setShowStats(s.showStats);
+    setCustomExerciseNames(s.customExerciseNames);
+    setCustomExercises(s.customExercises);
+    setCustomSets(s.customSets);
+    setExerciseOrder(s.exerciseOrder);
+    setExerciseLibrary(s.exerciseLibrary);
+    setExerciseOverrides(s.exerciseOverrides);
+    setWeightIncrement(s.weightIncrement);
+    setRestNotificationDelay(s.restNotificationDelay);
+    setActiveTab(s.activeTab);
+    setNutritionProfile(s.nutritionProfile);
+    setNutritionLogs(s.nutritionLogs);
+  }, []);
 
   useEffect(() => {
-    const saved = localStorage.getItem('rp_focus_pro_data');
-    if (!saved) {
-      setIsHydrated(true);
-      return;
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      try {
+        applySavedState(migrateSavedData(JSON.parse(saved)));
+      } catch (e) {
+        console.error('載入資料失敗:', e);
+        const backupKey = backupCorruptData(saved);
+        if (!backupKey) {
+          setStorageNotice('讀取存檔失敗，也沒辦法另存備份。為了不蓋掉原本的存檔，這次的變更不會儲存。');
+          return;
+        }
+        setStorageNotice(`讀取存檔失敗，這次從空白資料開始。原本的存檔另外備份在 ${backupKey}，不會被蓋掉。`);
+      }
     }
-    try {
-      const data = JSON.parse(saved);
+    setIsHydrated(true);
+  }, [applySavedState]);
 
-      // history 結構遷移：v2 number → v3 { weight, reps }
-      const rawHistory = data.history || {};
-      let migratedHistory = {};
-      Object.entries(rawHistory).forEach(([k, v]) => {
-        if (typeof v === 'number') {
-          migratedHistory[k] = { weight: v, reps: '' };
-        } else if (v && typeof v === 'object') {
-          migratedHistory[k] = { weight: v.weight ?? '', reps: v.reps ?? '' };
-        }
-      });
-
-      let migratedLogs = data.logs || {};
-      let migratedCustomSets = data.customSets || {};
-      let migratedOverrides = data.exerciseOverrides || {};
-      let migratedCustomExercises = data.customExercises || {};
-      let migratedExerciseOrder = data.exerciseOrder || {};
-      let migratedViewState = data.viewState || {};
-
-      // v3 → v4 migration：腿部訓練計劃 v3 FINAL 升級
-      const needsV4Migration = (data.schemaVersion ?? 3) < 4;
-      if (needsV4Migration) {
-        const REMOVED_IDS = ['pec_deck', 'ohp', 'fly_cable', 'tri_kickback', 'bb_row', 'leg_curl'];
-        const RENAMED_IDS = {
-          tri_overhead: 'tri_overhead_seated',
-          bp_machine: 'lib_machine_press_flat',
-        };
-
-        // 1. history 改名 + 清除
-        Object.entries(RENAMED_IDS).forEach(([oldId, newId]) => {
-          if (migratedHistory[oldId] !== undefined) {
-            migratedHistory[newId] = migratedHistory[oldId];
-            delete migratedHistory[oldId];
-          }
-        });
-        REMOVED_IDS.forEach(id => { delete migratedHistory[id]; });
-
-        // 2. logs 改名 + 清除
-        const nextLogs = {};
-        Object.entries(migratedLogs).forEach(([key, value]) => {
-          const match = key.match(/^(w\d+-d\d+-)(.+)(-s\d+)$/);
-          if (!match) {
-            nextLogs[key] = value;
-            return;
-          }
-          const exId = match[2];
-          if (REMOVED_IDS.includes(exId)) return;
-          if (RENAMED_IDS[exId]) {
-            nextLogs[`${match[1]}${RENAMED_IDS[exId]}${match[3]}`] = value;
-            return;
-          }
-          nextLogs[key] = value;
-        });
-        migratedLogs = nextLogs;
-
-        // 3. customSets / exerciseOverrides 清除（含改名動作的舊覆寫、依對齊決策一併清掉）
-        const purgeOverrideMap = (map) => {
-          const next = {};
-          Object.entries(map).forEach(([key, value]) => {
-            const dashIdx = key.indexOf('-');
-            const exId = dashIdx >= 0 ? key.slice(dashIdx + 1) : key;
-            if (REMOVED_IDS.includes(exId)) return;
-            if (RENAMED_IDS[exId]) return;
-            next[key] = value;
-          });
-          return next;
-        };
-        migratedCustomSets = purgeOverrideMap(migratedCustomSets);
-        migratedOverrides = purgeOverrideMap(migratedOverrides);
-
-        // 4. customExercises 清除
-        const nextCustomEx = {};
-        Object.entries(migratedCustomExercises).forEach(([wKey, list]) => {
-          if (!Array.isArray(list)) return;
-          nextCustomEx[wKey] = list.filter(ex =>
-            !REMOVED_IDS.includes(ex.id) && !RENAMED_IDS[ex.id]
-          );
-        });
-        migratedCustomExercises = nextCustomEx;
-
-        // 5. exerciseOrder 清除/改名
-        const nextOrder = {};
-        Object.entries(migratedExerciseOrder).forEach(([wKey, ids]) => {
-          if (!Array.isArray(ids)) return;
-          nextOrder[wKey] = ids
-            .filter(id => !REMOVED_IDS.includes(id))
-            .map(id => RENAMED_IDS[id] ?? id);
-        });
-        migratedExerciseOrder = nextOrder;
-
-        // 6. 進度重置：W1、Day 0
-        migratedViewState = {
-          ...migratedViewState,
-          currentWeek: 1,
-          currentDay: 0,
-        };
+  // 同時開兩個視窗（分頁 + PWA）時，別的視窗寫入就重新載入，舊視窗才不會用整份舊狀態蓋掉新資料
+  useEffect(() => {
+    const onStorage = (e) => {
+      if (e.key !== STORAGE_KEY || !e.newValue) return;
+      try {
+        applySavedState(migrateSavedData(JSON.parse(e.newValue)));
+        setIsHydrated(true);
+      } catch (err) {
+        console.error('載入別的視窗寫入的資料失敗:', err);
       }
-
-      let migratedLibrary = Array.isArray(data.exerciseLibrary) && data.exerciseLibrary.length > 0
-        ? data.exerciseLibrary
-        : DEFAULT_EXERCISE_LIBRARY;
-
-      // v4 → v5 migration：動作庫與替換設定對齊 v3 FINAL
-      // v4 migration 沒動 exerciseLibrary、exerciseOverrides 只按 key 清，
-      // 升級上來的使用者還留著 v3 的動作庫，替換設定也可能指向已移除的動作
-      const needsV5Migration = (data.schemaVersion ?? 3) < 5;
-      if (needsV5Migration) {
-        // v3 有、v3 FINAL 拿掉的預設動作（含改名前的舊 id）
-        const REMOVED_LIBRARY_IDS = [
-          'pec_deck', 'leg_curl', 'ohp', 'fly_cable', 'bp_machine', 'tri_overhead', 'tri_kickback', 'bb_row',
-          'lib_db_fly', 'lib_low_cable_fly', 'lib_decline_press', 'lib_t_bar_row', 'lib_chest_supported_row',
-          'lib_deadlift', 'lib_arnold_press', 'lib_machine_press', 'lib_rear_delt_db', 'lib_tri_rope_overhead',
-          'lib_squat_bb', 'lib_hack_squat', 'lib_leg_press', 'lib_bulgarian_split', 'lib_rdl',
-          'lib_seated_leg_curl', 'lib_good_morning',
-        ];
-        // v3 FINAL 新增的預設動作（v3 就有、被使用者刪掉的不補回）
-        const ADDED_LIBRARY_IDS = [
-          'calf_standing_a', 'seated_leg_curl_b', 'calf_seated_b', 'machine_press', 'tri_overhead_seated',
-          'single_leg_press', 'calf_standing_c', 'chest_supported_row', 'lying_leg_curl_d', 'calf_seated_d',
-          'leg_press', 'bulgarian_split_db', 'rdl_db', 'back_ext_45', 'calf_standing_heavy', 'calf_press_legpress',
-          'lib_flat_db_press', 'lib_machine_press_flat', 'lib_machine_press_incline', 'lib_smith_incline',
-          'lib_smith_flat', 'lib_weighted_dips', 'lib_incline_bb_press', 'lib_t_bar_row_chest', 'lib_machine_row',
-          'lib_arnold_press_seated', 'lib_smith_seated_press', 'lib_rear_delt_db_chest',
-          'lib_tri_rope_overhead_seated', 'lib_belt_squat', 'lib_pendulum_squat_noload', 'lib_sissy_squat',
-          'lib_step_up_db', 'lib_leg_ext_alt', 'lib_nordic_curl', 'lib_cable_pullthrough', 'lib_reverse_hyper',
-          'lib_machine_hip_hinge', 'lib_glute_ham_raise', 'lib_calf_donkey', 'lib_calf_single_leg_db',
-          'lib_calf_smith_standing', 'lib_calf_seated_alt',
-        ];
-
-        // 1. 動作庫：補上新增的、拿掉移除的
-        if (migratedLibrary !== DEFAULT_EXERCISE_LIBRARY) {
-          const storedById = new Map(migratedLibrary.map(item => [item.id, item]));
-          const defaultIds = new Set(DEFAULT_EXERCISE_LIBRARY.map(item => item.id));
-          migratedLibrary = [
-            // 預設動作照新的順序，使用者改過的版本優先
-            ...DEFAULT_EXERCISE_LIBRARY
-              .filter(item => storedById.has(item.id) || ADDED_LIBRARY_IDS.includes(item.id))
-              .map(item => storedById.get(item.id) ?? item),
-            // 使用者自訂動作接在後面
-            ...migratedLibrary.filter(item =>
-              !defaultIds.has(item.id) && !REMOVED_LIBRARY_IDS.includes(item.id)
-            ),
-          ];
-        }
-
-        // 2. exerciseOverrides：替換成已移除（含改名）動作的設定清掉，同 v4 的對齊決策不保留
-        const nextOverrides = {};
-        Object.entries(migratedOverrides).forEach(([key, libId]) => {
-          if (REMOVED_LIBRARY_IDS.includes(libId)) return;
-          nextOverrides[key] = libId;
-        });
-        migratedOverrides = nextOverrides;
-      }
-
-      // v5 → v6 migration：組數覆寫改成分週（key 加週次）
-      // 舊 key 分不出是哪一週設定的。那個動作有 log 的週轉成分週 key，保住當時的組數，
-      // 不然按過 +1 做完的第 4、5 組會被藏起來；沒 log 的週清掉，組數回到週期演算法的預設
-      const needsV6Migration = (data.schemaVersion ?? 3) < 6;
-      if (needsV6Migration) {
-        const nextCustomSets = {};
-        Object.keys(migratedLogs).forEach(logKey => {
-          const match = logKey.match(/^w(\d+)-d(\d+)-(.+)-s\d+$/);
-          if (!match) return;
-          const week = Number(match[1]);
-          const oldKey = `${getWorkoutForDay(week, Number(match[2]))}-${match[3]}`;
-          if (migratedCustomSets[oldKey] === undefined) return;
-          nextCustomSets[`w${week}-${oldKey}`] = migratedCustomSets[oldKey];
-        });
-        migratedCustomSets = nextCustomSets;
-
-        // 同一版把 lib_skullcrusher 加進 WORKOUTS.C 當內建動作（BUG-02）。之前把 C 日某個動作替換成
-        // 骷髏粉碎機的使用者會出現兩個骷髏粉碎機。保留內建那格、拿掉替換：內建動作不能刪，而且它是
-        // 第二組 superset 的搭檔；兩格的歷史 key 都是 lib_skullcrusher，上次紀錄不會掉。
-        // 被替換的那格回到原動作，它過去週次的 log 會顯示在原動作名下（跟按「恢復原動作」一樣）
-        const nextOverrides = {};
-        Object.entries(migratedOverrides).forEach(([key, libId]) => {
-          if (key.startsWith('C-') && key !== 'C-lib_skullcrusher' && libId === 'lib_skullcrusher') return;
-          nextOverrides[key] = libId;
-        });
-        migratedOverrides = nextOverrides;
-      }
-
-      // v6 → v7 migration：動作改名（統一用語、拿掉括號說明，說明改到 EXERCISE_NOTES）、type 修正，
-      // 再把 v5 → v6 換預設組數後被藏起來的組補回來
-      const needsV7Migration = (data.schemaVersion ?? 3) < 7;
-      if (needsV7Migration) {
-        // 1. 動作庫：名稱 / type 還是歷代預設值的換成現在的預設。使用者改過的、自訂的不動，刪掉的不補回
-        const defaultsById = new Map(DEFAULT_EXERCISE_LIBRARY.map(item => [item.id, item]));
-        migratedLibrary = migratedLibrary.map(item => {
-          const current = defaultsById.get(item.id);
-          if (!current) return item;
-          const renamed = V7_OLD_LIBRARY_NAMES[item.id]?.includes(item.name);
-          const retyped = V7_OLD_LIBRARY_TYPES[item.id] === item.type;
-          if (!renamed && !retyped) return item;
-          return {
-            ...item,
-            ...(renamed && { name: current.name }),
-            ...(retyped && { type: current.type }),
-          };
-        });
-
-        // 2. v6 改了 SESSION_WEIGHTS、C 日多了 lib_skullcrusher，預設組數變少，畫面只畫到計畫組數，
-        //    v5 照課表做完的組被藏起來（例如 W1 PUSH B 坐姿過頭三頭做完 4 組，升級後只剩 1 組）。
-        //    有 log 的動作，最後一組超過計畫組數就寫那一週的組數覆寫補回來
-        const loggedSets = {};
-        Object.entries(migratedLogs).forEach(([logKey, log]) => {
-          const match = logKey.match(/^(w\d+-d\d+-.+)-s(\d+)$/);
-          if (!match || !hasLogContent(log)) return;
-          loggedSets[match[1]] = Math.max(loggedSets[match[1]] ?? 0, Number(match[2]) + 1);
-        });
-        const nextCustomSets = { ...migratedCustomSets };
-        for (let week = 1; week <= 10; week++) {
-          for (let day = 0; day < 5; day++) {
-            const workoutKey = getWorkoutForDay(week, day);
-            const plan = buildSessionPlan(week, workoutKey, {
-              customExercises: migratedCustomExercises,
-              customSets: migratedCustomSets,
-              exerciseOverrides: migratedOverrides,
-              exerciseLibrary: migratedLibrary,
-            });
-            plan.forEach(({ exercise, sets }) => {
-              const logged = loggedSets[`w${week}-d${day}-${exercise.id}`] ?? 0;
-              if (logged > sets) nextCustomSets[customSetsKey(week, workoutKey, exercise.id)] = logged;
-            });
-          }
-        }
-        migratedCustomSets = nextCustomSets;
-      }
-
-      setLogs(migratedLogs);
-      setHistory(migratedHistory);
-      setMode(data.mode || 'maintenance');
-      setCurrentWeek(migratedViewState.currentWeek || 1);
-      setCurrentDay(migratedViewState.currentDay || 0);
-      setShowStats(migratedViewState.showStats ?? true);
-      setCustomExerciseNames(data.customExerciseNames || {});
-      setCustomExercises(migratedCustomExercises);
-      setCustomSets(migratedCustomSets);
-      setExerciseOrder(migratedExerciseOrder);
-      setExerciseLibrary(migratedLibrary);
-      setExerciseOverrides(migratedOverrides);
-      setWeightIncrement(data.weightIncrement ?? 2);
-      setRestNotificationDelay(data.restNotificationDelay ?? 90);
-      setActiveTab(data.activeTab || 'training');
-      setNutritionProfile(data.nutritionProfile || null);
-      setNutritionLogs(data.nutritionLogs || {});
-      setIsHydrated(true);
-    } catch (e) {
-      console.error('載入數據失敗:', e);
-    }
-  }, []);
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, [applySavedState]);
 
   useEffect(() => {
     if (!isHydrated) return;
     const state = {
-      schemaVersion: 7,
+      schemaVersion: SCHEMA_VERSION,
       logs, history, mode,
       viewState: { currentWeek, currentDay, showStats },
       customExerciseNames, customExercises, customSets, exerciseOrder,
@@ -440,22 +546,34 @@ const RPFocusPro = () => {
       weightIncrement, restNotificationDelay, activeTab,
       nutritionProfile, nutritionLogs
     };
-    localStorage.setItem('rp_focus_pro_data', JSON.stringify(state));
+    const json = JSON.stringify(state);
+    try {
+      // 跟 storage 現值一樣就不寫：剛從別的視窗載入的狀態不用再寫回去，兩個視窗不會互相觸發寫入
+      if (localStorage.getItem(STORAGE_KEY) === json) return;
+      localStorage.setItem(STORAGE_KEY, json);
+      saveFailedRef.current = false;
+    } catch (e) {
+      console.error('儲存資料失敗:', e);
+      if (saveFailedRef.current) return;
+      saveFailedRef.current = true;
+      setStorageNotice('儲存失敗，瀏覽器的儲存空間可能滿了，剛才的變更沒有存到。');
+    }
   }, [isHydrated, logs, history, mode, currentWeek, currentDay, showStats, customExerciseNames, customExercises, customSets, exerciseOrder, exerciseLibrary, exerciseOverrides, weightIncrement, restNotificationDelay, activeTab, nutritionProfile, nutritionLogs]);
 
-  // ==================== 重置 ====================
+  // ==================== 重設 ====================
 
   const resetData = () => {
     setLogs({});
     setHistory({});
     setCurrentWeek(1);
     setCurrentDay(0);
+    setCustomExerciseNames({});
     setCustomExercises({});
     setCustomSets({});
     setExerciseOrder({});
     setExerciseOverrides({});
     setExerciseLibrary(DEFAULT_EXERCISE_LIBRARY);
-    // Gemini API Key 是裝置設定、不是訓練數據，重置時保留
+    // Gemini API Key 是裝置設定、不是訓練資料，重設時保留
     setNutritionProfile(prev => (prev?.geminiApiKey ? { geminiApiKey: prev.geminiApiKey } : null));
     setNutritionLogs({});
     setShowResetConfirm(false);
@@ -518,7 +636,7 @@ const RPFocusPro = () => {
               <button
                 onClick={() => setShowResetConfirm(true)}
                 className="text-neutral-600 hover:text-red-500 transition-colors"
-                title="重置所有數據"
+                title="重設所有資料"
               >
                 <RotateCcw size={18} />
               </button>
@@ -535,7 +653,12 @@ const RPFocusPro = () => {
                 return (
                   <button
                     key={w}
-                    onClick={() => { setCurrentWeek(w); setCurrentDay(0); }}
+                    onClick={() => {
+                      // 點目前這週不動；換週才回到 D1
+                      if (w === currentWeek) return;
+                      setCurrentWeek(w);
+                      setCurrentDay(0);
+                    }}
                     className={`flex-shrink-0 w-12 h-10 rounded-lg text-xs font-bold transition-all border
                     ${isCurrent
                       ? 'bg-white text-black border-white scale-110 shadow-lg'
@@ -582,10 +705,11 @@ const RPFocusPro = () => {
       <TabNavigation activeTab={activeTab} setActiveTab={setActiveTab} />
 
       {/* ==================== Reset Modal ==================== */}
+      {/* z-[60]：疊在同樣 z-50、DOM 在前面的底部 TabNavigation 上面 */}
       {showResetConfirm && (
-        <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-6">
+        <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-[60] flex items-center justify-center p-6">
           <div className="bg-neutral-900 border border-neutral-800 p-8 rounded-[40px] max-w-sm w-full shadow-2xl text-center">
-            <h3 className="text-2xl font-black text-white mb-4 italic uppercase">重置所有數據？</h3>
+            <h3 className="text-2xl font-black text-white mb-4 italic uppercase">重設所有資料？</h3>
             <p className="text-neutral-500 mb-8 text-sm font-medium">
               這將清除所有訓練記錄、營養資料和進度。此操作無法復原。
             </p>
@@ -600,7 +724,7 @@ const RPFocusPro = () => {
                 onClick={resetData}
                 className="flex-1 py-4 rounded-2xl bg-red-600 text-white font-black uppercase tracking-widest text-xs hover:bg-red-500 transition-all shadow-lg shadow-red-900/50"
               >
-                確定重置
+                確定重設
               </button>
             </div>
           </div>
@@ -620,7 +744,7 @@ const RPFocusPro = () => {
 
       {/* ==================== Settings Modal ==================== */}
       {showSettings && (
-        <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-6">
+        <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-[60] flex items-center justify-center p-6">
           <div className="bg-neutral-900 border border-neutral-800 p-8 rounded-[40px] max-w-md w-full shadow-2xl overflow-y-auto max-h-[85vh]">
             <div className="flex justify-between items-center mb-6">
               <h3 className="text-2xl font-black text-white italic uppercase flex items-center gap-2">
@@ -665,15 +789,7 @@ const RPFocusPro = () => {
                 重量增減步長
               </label>
               <div className="flex items-center gap-3">
-                <input
-                  type="number"
-                  min="0.25"
-                  step="0.25"
-                  value={weightIncrement}
-                  onChange={(e) => setWeightIncrement(Math.max(0.25, parseFloat(e.target.value) || 0.25))}
-                  className="flex-1 bg-neutral-800 px-4 py-3 rounded-xl text-center font-mono text-lg
-                  focus:outline-none focus:ring-2 focus:ring-emerald-500 border border-neutral-700"
-                />
+                <WeightIncrementInput value={weightIncrement} onChange={setWeightIncrement} />
                 <span className="text-neutral-500 text-sm">kg</span>
               </div>
               <p className="text-neutral-500 text-xs mt-3 leading-relaxed">
@@ -811,6 +927,23 @@ const RPFocusPro = () => {
               完成
             </button>
           </div>
+        </div>
+      )}
+
+      {/* ==================== 讀檔 / 寫入失敗提示 ==================== */}
+      {storageNotice && (
+        <div
+          role="alert"
+          className="fixed top-4 inset-x-4 z-[70] mx-auto max-w-md bg-amber-950 border border-amber-700 rounded-2xl shadow-2xl p-4 flex items-start gap-3"
+        >
+          <AlertTriangle size={18} className="text-amber-400 shrink-0 mt-0.5" />
+          <p className="flex-1 min-w-0 text-sm text-amber-100 leading-relaxed break-words">{storageNotice}</p>
+          <button
+            onClick={() => setStorageNotice(null)}
+            className="shrink-0 text-xs font-bold text-amber-300 hover:text-amber-100 transition-colors"
+          >
+            知道了
+          </button>
         </div>
       )}
     </div>
