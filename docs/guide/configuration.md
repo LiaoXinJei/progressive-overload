@@ -47,7 +47,7 @@ VitePWA({
 
 | 欄位 | 用途 |
 |------|------|
-| `schemaVersion` | 目前為 `6`。**任何結構變更必須升版號並加遷移邏輯** |
+| `schemaVersion` | 目前為 `7`。**任何結構變更必須升版號並加遷移邏輯** |
 | `logs` | 訓練紀錄，key 格式：`w<week>-d<day>-<exerciseId>-s<setIndex>` |
 | `history` | 各動作最近一次的 `{ weight, reps }` |
 | `mode` | `'maintenance' \| 'bulking'` |
@@ -56,7 +56,7 @@ VitePWA({
 | `customExercises` | 使用者新增的動作 |
 | `customSets` | 各動作每週的組數覆寫（±1），key 為 `w{週}-{session}-{動作 id}`，只影響那一週 |
 | `exerciseOrder` | 拖曳後的順序 |
-| `exerciseLibrary` | 完整動作庫（含自訂） |
+| `exerciseLibrary` | 完整動作庫（含自訂）。動作備註不存在這裡，從 `EXERCISE_NOTES` 查 |
 | `exerciseOverrides` | session 內動作替換 |
 | `weightIncrement` | 重量微調幅度（預設 2） |
 | `restNotificationDelay` | 休息通知秒數（預設 90） |
@@ -64,7 +64,12 @@ VitePWA({
 | `nutritionProfile` | 個人資料 + Gemini API Key |
 | `nutritionLogs` | 飲食紀錄 |
 
-讀寫位置：`src/App.jsx`（兩個 `useEffect`）。Storage key：`rp_focus_pro_data`。
+讀寫位置：`src/App.jsx`（讀檔、寫回、`storage` 事件三個 `useEffect`，遷移邏輯在 `migrateSavedData()`）。Storage key：`rp_focus_pro_data`。
+
+- 寫回前比對字串，跟 storage 現值一樣就不寫
+- 別的視窗寫入（`storage` 事件，key 是 `rp_focus_pro_data`）就跑一次 `migrateSavedData()` 重新載入資料；畫面狀態（`viewState`、`activeTab`）留本視窗的。資料跟 storage 一樣、畫面狀態也沒在本視窗改過就不寫回，兩個視窗畫面狀態不同也不會互相觸發寫入
+- 讀檔失敗（JSON 壞掉）：原始字串另存到 `rp_focus_pro_data_corrupt_<timestamp>`，照空資料啟動並提示；連備份都存不進去就不寫回
+- `setItem` 失敗（QuotaExceeded）：不會白畫面，提示一次
 
 ---
 
@@ -119,6 +124,6 @@ VitePWA({
 
 ## 效能考量
 
-- `App.jsx` 寫回 localStorage 的 `useEffect` 依賴整批 state，任何變動都會觸發整份序列化寫入。資料量不大（單一使用者、文字為主）目前可接受；若日後資料膨脹，再評估 debounce 或 selective 寫入
+- `App.jsx` 寫回 localStorage 的 `useEffect` 依賴整批 state，任何變動都會觸發整份序列化（跟現值一樣就不寫）。資料量不大（單一使用者、文字為主）目前可接受；若日後資料膨脹，再評估 debounce 或 selective 寫入
 - 拖曳排序的自動捲動速度已調慢（commit `8f24795`），改 `@hello-pangea/dnd` 設定時請保留此調整
 - Gemini 食物分析屬於使用者主動觸發，無背景輪詢成本

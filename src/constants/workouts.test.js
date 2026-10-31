@@ -2,7 +2,7 @@
 
 import { test } from 'vitest';
 import assert from 'node:assert/strict';
-import { WORKOUTS, SUPERSET_PAIRS, DEFAULT_EXERCISE_LIBRARY } from './workouts.js';
+import { WORKOUTS, SUPERSET_PAIRS, DEFAULT_EXERCISE_LIBRARY, EXERCISE_NOTES } from './workouts.js';
 import { getPairForExerciseId } from '../utils/pairRoundState.js';
 
 test('superset 配對的動作都在該 session 的菜單裡', () => {
@@ -43,4 +43,16 @@ test('每組配對的動作都查得到自己那一組（通知用對的休息�
 test('預設動作庫沒有重複 id', () => {
   const ids = DEFAULT_EXERCISE_LIBRARY.map(item => item.id);
   assert.deepEqual(ids.filter((id, i) => ids.indexOf(id) !== i), []);
+});
+
+test('備註都對得到動作庫的動作，而且只放在 EXERCISE_NOTES（不進動作庫、不存進 localStorage）', () => {
+  const ids = new Set(DEFAULT_EXERCISE_LIBRARY.map(item => item.id));
+  assert.deepEqual(Object.keys(EXERCISE_NOTES).filter(id => !ids.has(id)), []);
+  assert.deepEqual(DEFAULT_EXERCISE_LIBRARY.filter(item => 'noteText' in item).map(item => item.id), []);
+  const inWorkouts = Object.values(WORKOUTS).flatMap(w => w.exercises).filter(ex => 'noteText' in ex);
+  assert.deepEqual(inWorkouts.map(ex => ex.id), []);
+});
+
+test('鐘擺深蹲的脊椎安全備註還在', () => {
+  assert.equal(EXERCISE_NOTES.lib_pendulum_squat_noload, '只做無肩墊、不壓肩的版本');
 });
