@@ -1196,8 +1196,9 @@ const TrainingView = ({
       </div>
 
       {/* ==================== 替換動作 Picker Modal ==================== */}
+      {/* z-[60] 疊在底部 tab 列（z-50）上面；底部留 home indicator 的安全區，按鈕才點得到 */}
       {pickerForExId && (
-        <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-end sm:items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-[60] flex items-end sm:items-center justify-center p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
           <div className="bg-neutral-900 border border-neutral-800 rounded-[32px] w-full max-w-sm shadow-2xl flex flex-col max-h-[80vh]">
             <div className="flex justify-between items-center px-6 pt-6 pb-4 border-b border-neutral-800">
               <h3 className="text-lg font-black text-white">替換動作</h3>
@@ -1270,8 +1271,9 @@ const TrainingView = ({
       )}
 
       {/* ==================== 新增動作 Modal ==================== */}
+      {/* 同替換動作：疊在 tab 列上面、避開 home indicator */}
       {showAddExercise && (
-        <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-end sm:items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-[60] flex items-end sm:items-center justify-center p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
           <div className="bg-neutral-900 border border-neutral-800 rounded-[32px] w-full max-w-sm shadow-2xl">
             <div className="flex justify-between items-center px-6 pt-6 pb-4 border-b border-neutral-800">
               <h3 className="text-lg font-black text-white">新增動作</h3>

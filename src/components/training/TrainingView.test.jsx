@@ -6,6 +6,7 @@ import { createRoot } from 'react-dom/client';
 import { test, afterEach } from 'vitest';
 import assert from 'node:assert/strict';
 import TrainingView from './TrainingView.jsx';
+import TabNavigation from '../shared/TabNavigation.jsx';
 import { DEFAULT_EXERCISE_LIBRARY } from '../../constants/workouts';
 import { buildSessionPlan } from '../../utils/sessionPlan';
 
@@ -145,6 +146,52 @@ test('第 6 點：今天稍早做完的 75 分鐘課表，超時停在 15 分鐘
   const now = new Date(2026, 9, 23, 20, 0).getTime();
   renderView({ logs: finishedSessionLogs(now - 3 * 60 * MIN, 75), currentTime: now });
   assert.equal(overtimeText(), '已超時 15 分鐘 · 考慮跳過 1 組 isolation');
+});
+
+// ==================== 替換 / 新增動作視窗不被底部 tab 列蓋住 ====================
+
+// tailwind 的 z-50 / z-[60]
+const zIndexOf = (el) => {
+  const m = el.className.match(/(?:^|\s)z-(?:\[(\d+)\]|(\d+))(?=\s|$)/);
+  return m ? Number(m[1] ?? m[2]) : null;
+};
+
+test('視窗：替換動作、新增動作疊在底部 tab 列上面，底部留 home indicator 的安全區', () => {
+  const noop = () => {};
+  container = document.createElement('div');
+  document.body.appendChild(container);
+  root = createRoot(container);
+  act(() => root.render(
+    <>
+      <TrainingView
+        logs={{}} setLogs={noop}
+        history={{}} setHistory={noop}
+        mode="maintenance" currentWeek={WEEK} currentDay={DAY} setCurrentDay={noop}
+        showStats={false} setShowStats={noop}
+        customExerciseNames={{}} setCustomExerciseNames={noop}
+        customExercises={{}} setCustomExercises={noop}
+        customSets={{}} setCustomSets={noop}
+        exerciseOrder={{}} setExerciseOrder={noop}
+        exerciseLibrary={DEFAULT_EXERCISE_LIBRARY} exerciseOverrides={{ 'B-pullup': 'lib_pulldown_wide' }} setExerciseOverrides={noop}
+        weightIncrement={2}
+        currentTime={Date.now()}
+      />
+      <TabNavigation activeTab="training" setActiveTab={noop} />
+    </>
+  ));
+  const navZ = zIndexOf(container.querySelector('nav'));
+  const overlayOf = (title) => [...container.querySelectorAll('h3')].find(h => h.textContent === title).closest('.fixed');
+
+  click(container.querySelector('button[title="替換動作"]'));
+  const picker = overlayOf('替換動作');
+  assert.ok(zIndexOf(picker) > navZ, `替換動作 z=${zIndexOf(picker)}，nav z=${navZ}`);
+  assert.match(picker.className, /safe-area-inset-bottom/);
+  click(picker.querySelector('button'));
+
+  click([...container.querySelectorAll('button')].find(b => b.textContent.trim() === '新增動作'));
+  const addModal = overlayOf('新增動作');
+  assert.ok(zIndexOf(addModal) > navZ, `新增動作 z=${zIndexOf(addModal)}，nav z=${navZ}`);
+  assert.match(addModal.className, /safe-area-inset-bottom/);
 });
 
 test('第 6 點（不變）：還沒做完的課表，超時照現在時間即時計算', () => {
