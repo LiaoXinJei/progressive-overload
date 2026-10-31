@@ -23,14 +23,15 @@
 
 ## 核心訓練邏輯
 
-### 非對稱推拉架構（4-Day Fixed Cycle）
+### 非對稱推拉架構（5 練固定週）
 
-固定 4 天週循環，無獨立腿日，微量腿部訓練分散到推拉日：
+A → E 五練依序輪替、不綁星期（`getWorkoutForDay` 把 D1–D5 對到 A–E）。推拉日帶少量腿部與小腿補刀，LEGS 日集中做腿部複合動作：
 
-- Day 0: PUSH A（水平推力 + 微量腿前）
-- Day 1: PULL A（垂直拉力 + 微量腿後）
-- Day 2: PUSH B（垂直推力，純上半身）
-- Day 3: PULL B（水平拉力，純上半身）
+- D1 / A: PUSH A（水平推力 + 腿前 / 小腿補刀）
+- D2 / B: PULL A（垂直拉力 + 腿後 / 小腿補刀）
+- D3 / C: PUSH B（垂直推力 + 雙槓 + 腿前 / 小腿補刀）
+- D4 / D: PULL B（水平拉力 + 腿後 / 小腿補刀）
+- D5 / E: LEGS（腿部複合動作集中日）
 
 ### 雙週期制（Dual Periodization）
 
@@ -46,15 +47,19 @@
 訓練量以**肌群週目標組數**為核心，自動分配到各 session 和動作：
 
 ```
-CHEST:     [12, 14, 16, 18]  // W1(MEV) → W4(MRV)
+CHEST:     [10, 11, 12, 12]  // W1(MEV) → W4(MRV)
 BACK:      [12, 14, 16, 18]
+SHOULDERS: [4, 5, 6, 6]      // 前三角
 SIDE_DELT: [8, 10, 12, 14]
-REAR_DELT: [8, 9, 10, 12]    // 非線性
-TRICEPS:   [8, 9, 10, 12]    // 非線性
-BICEPS:    [8, 9, 10, 12]    // 非線性
-QUADS:     [4, 4, 4, 4]      // 固定（純維持）
-HAMS:      [4, 4, 4, 4]      // 固定（純維持）
+REAR_DELT: [8, 9, 10, 12]
+TRICEPS:   [8, 8, 9, 9]
+BICEPS:    [8, 9, 10, 12]
+QUADS:     [10, 12, 14, 16]
+HAMS:      [8, 10, 12, 14]
+CALVES:    [10, 12, 14, 14]
 ```
+
+（以 `src/constants/workouts.js` 的 `VOLUME_CONFIG` 為準，這裡只是速查。）
 
 分配演算法：
 1. 查找肌群週目標 → 2. 照 `SESSION_WEIGHTS` 比例分到包含該肌群的 sessions（最大餘數法） → 3. 再均分到各動作（最後一個動作拿餘數）
@@ -195,7 +200,7 @@ refactor: 抽出 VolumeConfig 為獨立模組
 
 > **⚠️ 重要：只要改到 `localStorage` 中存放結構（`rp_focus_pro_data`），必須評估相容性。**
 
-- 目前 `schemaVersion: 6`
+- 目前 `schemaVersion: 7`
 - 變更結構時，必須在載入流程（`App.jsx` 的 `useEffect` 還原段）加入遷移邏輯，避免舊使用者資料遺失
 - 範例：v2 → v3 將 `history` 從 `number` 升級為 `{ weight, reps }` 物件
 - 寫回 `useEffect` 在讀檔成功（`isHydrated`）前不會執行，避免 StrictMode 下初始空狀態蓋掉舊資料
@@ -214,8 +219,9 @@ refactor: 抽出 VolumeConfig 為獨立模組
 | Superset 配對 | 同上的 `SUPERSET_PAIRS`（key 為 session ID、value 為配對清單） |
 | Session 配色（push / pull / legs） | 同上的 `SESSION_TYPE_THEME` |
 | 動作 RIR 警示徽章 | 在 `WORKOUTS` 動作物件加 `noteRIR: '2-3'` 字串 |
-| 動作底下灰字提示 | 在 `WORKOUTS` 動作物件加 `noteText: '...'` 字串 |
-| 移除 / 改名動作 | `App.jsx` 的 v3→v4 migration block（`REMOVED_IDS` / `RENAMED_IDS`）+ 動作庫同步（v4→v5 的 `REMOVED_LIBRARY_IDS` / `ADDED_LIBRARY_IDS` 寫法）+ bump `schemaVersion` |
+| 動作底下灰字提示 | `src/constants/workouts.js` 的 `EXERCISE_NOTES`（id → 文字）。備註跟著動作走、不存進 localStorage；不要寫在 `WORKOUTS` 裡（測試會擋） |
+| 移除 / 改 id | `App.jsx` 的 v3→v4 migration block（`REMOVED_IDS` / `RENAMED_IDS`）+ 動作庫同步（v4→v5 的 `REMOVED_LIBRARY_IDS` / `ADDED_LIBRARY_IDS` 寫法）+ bump `schemaVersion` |
+| 只改顯示名稱（id 不變） | 改 `workouts.js` 的 `name`；替換過的格子和動作庫讀存檔，要照 v6→v7 的 `V7_OLD_LIBRARY_NAMES` 寫法列出歷代舊名再 bump `schemaVersion`。測試常用 `h3` 文字完全比對動作名，改名後 `grep -rn 舊名 src` 一起改 |
 | 訓練核心 UI | `src/components/training/TrainingView.jsx` |
 | 營養追蹤 | `src/components/nutrition/NutritionView.jsx` |
 | 動作庫管理 | `src/components/settings/ExerciseLibraryManager.jsx` |

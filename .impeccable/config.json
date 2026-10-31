@@ -1,0 +1,17 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "cramped-padding",
+        "value": "*",
+        "files": [
+          ".impeccable/mocks/**"
+        ],
+        "createdAt": "2026-10-31T14:52:39.505Z",
+        "reason": "決策頁用的一次性草圖，不出貨"
+      }
+    ]
+  }
+}

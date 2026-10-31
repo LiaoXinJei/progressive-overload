@@ -26,3 +26,7 @@ dist-ssr
 # Claude Code
 .claude/worktrees/
 .claude/skills/impeccable/scripts/bin/
+.impeccable/mocks/
+.impeccable/review/
+.impeccable/build/
+.impeccable/config.local.json
