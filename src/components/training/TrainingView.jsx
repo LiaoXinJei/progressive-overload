@@ -567,7 +567,26 @@ const TrainingView = ({
   });
 
   // pairRest：pair 成員才有 { coreRoundCount, coreDone, coreEndTs }，單動作為 null
-  const renderExerciseInner = ({ entry, dragHandleProps, hideInterRest, pairRest, prevEndTs }) => {
+  // 次數欄按 Enter 要跳去的重量欄。單動作照畫面順序；superset 照輪次（A1 → B1 → A2 → B2 …，tail 組接在後面，
+  // pairOrder 是這個順序的 log key），配對最後一組接畫面上配對後面的第一個重量欄。跳過的組沒有輸入框，自然略過
+  const findNextWeightInput = (repsInput, logKey, pairOrder) => {
+    const allWeightInputs = [...document.querySelectorAll('[data-weight-input]')];
+    if (!pairOrder) {
+      const allRepsInputs = [...document.querySelectorAll('[data-reps-input]')];
+      return allWeightInputs[allRepsInputs.indexOf(repsInput) + 1] ?? null;
+    }
+    const group = repsInput.closest('[data-pair-group]');
+    for (const k of pairOrder.slice(pairOrder.indexOf(logKey) + 1)) {
+      const input = group?.querySelector(`[data-weight-input][data-log-key="${k}"]`);
+      if (input) return input;
+    }
+    let lastInPair = -1;
+    allWeightInputs.forEach((input, i) => { if (group?.contains(input)) lastInPair = i; });
+    return allWeightInputs[lastInPair + 1] ?? null;
+  };
+
+  // pairOrder：pair 成員才有（見 findNextWeightInput），單動作為 undefined
+  const renderExerciseInner = ({ entry, dragHandleProps, hideInterRest, pairRest, prevEndTs, pairOrder }) => {
     const { exercise: ex, sets: setsCount } = entry;
 
     const completedCount = [...Array(setsCount)].filter((_, idx) => {
@@ -760,6 +779,7 @@ const TrainingView = ({
                           </button>
                           <input
                             data-weight-input
+                            data-log-key={logKey}
                             type="number"
                             step={weightIncrement}
                             value={logData.weight ?? ''}
@@ -795,10 +815,7 @@ const TrainingView = ({
                           onKeyDown={(e) => {
                             if (e.key === 'Enter') {
                               e.preventDefault();
-                              const allWeightInputs = document.querySelectorAll('[data-weight-input]');
-                              const allRepsInputs = document.querySelectorAll('[data-reps-input]');
-                              const currentIndex = Array.from(allRepsInputs).indexOf(e.currentTarget);
-                              const nextWeightInput = allWeightInputs[currentIndex + 1];
+                              const nextWeightInput = findNextWeightInput(e.currentTarget, logKey, pairOrder);
                               if (nextWeightInput) {
                                 nextWeightInput.focus();
                                 nextWeightInput.select();
@@ -978,12 +995,19 @@ const TrainingView = ({
                         coreEndTs: pairState.lastCompleteRoundEndTs,
                       };
                       const enterPairLabel = prevKind === 'pair' ? '上一配對' : '上一動作';
+                      // 輪次順序 A1 → B1 → A2 → B2 …，組數多的一方 tail 組接在後面
+                      const pairOrder = [];
+                      for (let i = 0; i < Math.max(a.sets, b.sets); i++) {
+                        if (i < a.sets) pairOrder.push(`w${currentWeek}-d${currentDay}-${a.exercise.id}-s${i}`);
+                        if (i < b.sets) pairOrder.push(`w${currentWeek}-d${currentDay}-${b.exercise.id}-s${i}`);
+                      }
                       return (
                         <Draggable key={group.id} draggableId={group.id} index={groupIdx}>
                           {(provided, snapshot) => (
                             <div
                               ref={provided.innerRef}
                               {...provided.draggableProps}
+                              data-pair-group
                               className={`transition-all ${snapshot.isDragging ? 'bg-neutral-800 shadow-2xl rounded-xl opacity-95' : ''}`}
                             >
                               {/* Pair Header */}
@@ -1020,6 +1044,7 @@ const TrainingView = ({
                                       hideInterRest: true,
                                       pairRest,
                                       prevEndTs: null,
+                                      pairOrder,
                                     })}
                                   </React.Fragment>
                                 ))}

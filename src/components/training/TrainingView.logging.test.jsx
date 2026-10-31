@@ -454,6 +454,56 @@ test('BUG-20：划船每組都跳過 → 不顯示動作間休息', () => {
   assert.equal(interRest(), null);
 });
 
+// ==================== 次數欄 Enter 跳到下一組 ====================
+
+const pressEnter = (el) => act(() => {
+  el.focus();
+  el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+});
+const exRows = (name) => [...[...container.querySelectorAll('h3')].find(h => h.textContent === name)
+  .closest('.p-6').querySelectorAll('[data-set-row]')];
+const weightOf = (rowEl) => rowEl.querySelector('[data-weight-input]');
+const repsOf = (rowEl) => rowEl.querySelector('[data-reps-input]');
+
+test('Enter（不變）：單動作次數欄按 Enter 跳到同動作下一組的重量欄', () => {
+  renderView();
+  const r = exRows('引體向上');
+  pressEnter(repsOf(r[0]));
+  assert.equal(document.activeElement === weightOf(r[1]), true);
+});
+
+test('Enter：superset 照輪次跳，A1 → B1 → A2 → B2 → 下一組配對的 A1', () => {
+  renderView(); // W1 PULL A 第一組配對：反向飛鳥 2 組 / 啞鈴二頭彎舉 2 組
+  const a = exRows('反向飛鳥（後三角）');
+  const b = exRows('啞鈴二頭彎舉');
+  const next = exRows('繩索後三角飛鳥');
+  pressEnter(repsOf(a[0]));
+  assert.equal(document.activeElement === weightOf(b[0]), true, 'A1 → B1');
+  pressEnter(repsOf(b[0]));
+  assert.equal(document.activeElement === weightOf(a[1]), true, 'B1 → A2');
+  pressEnter(repsOf(a[1]));
+  assert.equal(document.activeElement === weightOf(b[1]), true, 'A2 → B2');
+  pressEnter(repsOf(b[1]));
+  assert.equal(document.activeElement === weightOf(next[0]), true, 'B2 → 下一組配對');
+});
+
+test('Enter：superset 的 tail 組接在核心輪後面，tail 做完跳到配對後面的動作', () => {
+  // W4 PUSH A 第二組配對：傾斜側平舉 4 組、跨體三頭 3 組，側平舉 s3 是 tail
+  renderView({ week: 4, day: 0 });
+  const a = exRows('傾斜側平舉');
+  const b = exRows('跨體三頭伸展');
+  pressEnter(repsOf(b[2]));
+  assert.equal(document.activeElement === weightOf(a[3]), true, 'B3 → A4（tail）');
+  pressEnter(repsOf(a[3]));
+  assert.equal(document.activeElement === weightOf(exRows('機械腿伸直')[0]), true, 'A4 → 腿伸直');
+});
+
+test('Enter：superset 下一個輪到的組跳過了，跳到再下一個', () => {
+  renderView({ logs: { [key('bi_curl', 0)]: { skipped: true } } });
+  pressEnter(repsOf(exRows('反向飛鳥（後三角）')[0]));
+  assert.equal(document.activeElement === weightOf(exRows('反向飛鳥（後三角）')[1]), true);
+});
+
 // ==================== 歷史 = 最新那筆完成的組（回頭改舊週不蓋掉） ====================
 
 const WEEK_MS = 7 * 24 * 60 * MIN;
