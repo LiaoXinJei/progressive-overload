@@ -79,10 +79,11 @@ const setsOf = (week, workoutKey, exId) => buildSessionPlan(week, workoutKey, { 
   .find(e => e.exercise.id === exId).sets;
 
 // 動作卡片（用標題找）；回傳文字，不回傳 DOM 節點（斷言失敗時序列化節點會讓 worker 掛掉）
-const card = (name) => [...container.querySelectorAll('h3')].find(h => h.textContent === name).closest('.p-6');
-const leafTexts = (prefix, scope = container) => [...scope.querySelectorAll('div')]
-  .filter(d => d.children.length === 0 && d.textContent.startsWith(prefix))
-  .map(d => d.textContent);
+const card = (name) => [...container.querySelectorAll('h3')].find(h => h.textContent === name).closest('[data-exercise]');
+// 休息那行的文字：「休息中 1:30」（還在休息）、「休息 3:00」（已結束）、「動作間休息 2:00」
+const leafTexts = (prefix, scope = container) => [...scope.querySelectorAll('[data-rest-label]')]
+  .map(el => el.textContent)
+  .filter(t => t.startsWith(prefix));
 const completeBtn = (n) => container.querySelectorAll('[data-set-row]')[n].querySelector('[data-complete-btn]');
 
 // ==================== 取消再重新完成：休息時間不變成負數 ====================
@@ -98,7 +99,7 @@ test('重新完成：s1 已完成，s0 取消再按 ✓，s0 下方休息時間�
   });
   click(completeBtn(0));
   click(completeBtn(0));
-  assert.deepEqual(leafTexts('休息時間'), ['休息時間: 3:00']);
+  assert.deepEqual(leafTexts('休息 '), ['休息 3:00']);
 });
 
 // ==================== 休息時間不顯示負數 ====================
@@ -108,7 +109,7 @@ test('負數：按 ✓ 的時間比畫面時間晚（App 每秒才更新 current
   renderView({ currentTime: T0 });
   typeInto(container.querySelector('[data-reps-input]'), '8');
   click(completeBtn(0));
-  assert.deepEqual(leafTexts('休息中'), ['休息中: 0:00']);
+  assert.deepEqual(leafTexts('休息中'), ['休息中 0:00']);
 });
 
 test('負數：前一個動作末組剛按 ✓，下一個動作的動作間休息顯示 0:00', () => {
@@ -120,7 +121,7 @@ test('負數：前一個動作末組剛按 ✓，下一個動作的動作間休�
   const last = card('引體向上').querySelectorAll('[data-set-row]')[n - 1];
   typeInto(last.querySelector('[data-reps-input]'), '8');
   click(last.querySelector('[data-complete-btn]'));
-  assert.deepEqual(leafTexts('動作間休息'), ['動作間休息: 0:00']);
+  assert.deepEqual(leafTexts('動作間休息'), ['動作間休息 0:00']);
 });
 
 // ==================== 動作 / 配對結束：每組都完成或跳過才算，取完成組最晚的時間 ====================
@@ -139,7 +140,7 @@ test('配對結束：tail 組做完，下一個動作的動作間休息從 tail 
     logs: { ...pair2Core, 'w1-d0-tri_cross_body-s2': done(10, '12', T0 + 7 * MIN) },
     currentTime: T0 + 8 * MIN,
   });
-  assert.deepEqual(leafTexts('動作間休息', card('機械腿伸直')), ['動作間休息: 1:00']);
+  assert.deepEqual(leafTexts('動作間休息', card('機械腿伸直')), ['動作間休息 1:00']);
 });
 
 test('配對結束：tail 組還沒做，下一個動作還不開始算動作間休息', () => {
@@ -184,7 +185,7 @@ test('動作結束：引體向上最後一組跳過，單臂划船的動作間�
   for (let i = 0; i < n - 1; i++) logs[`w1-d1-pullup-s${i}`] = done(60, '8', T0);
   logs[`w1-d1-pullup-s${n - 1}`] = { skipped: true };
   renderView({ logs, currentTime: T0 + 2 * MIN });
-  assert.deepEqual(leafTexts('動作間休息'), ['動作間休息: 2:00']);
+  assert.deepEqual(leafTexts('動作間休息'), ['動作間休息 2:00']);
 });
 
 test('動作結束：引體向上前面還有組沒做（只做了最後一組），單臂划船還不算動作間休息', () => {
@@ -201,7 +202,7 @@ test('中間組跳過：W4 臥推 s0 完成、s1 跳過、s2 未做，s0 下方�
     logs: { 'w4-d0-bp_flat-s0': done(60, '8', T0), 'w4-d0-bp_flat-s1': { skipped: true } },
     currentTime: T0 + 90 * 1000,
   });
-  assert.deepEqual(leafTexts('休息中'), ['休息中: 1:30']);
+  assert.deepEqual(leafTexts('休息中'), ['休息中 1:30']);
 });
 
 test('中間組跳過：s0 完成、s1 跳過、s2 完成，s0 下方休息時間算到 s2', () => {
@@ -214,8 +215,8 @@ test('中間組跳過：s0 完成、s1 跳過、s2 完成，s0 下方休息時�
     },
     currentTime: T0 + 4 * MIN,
   });
-  assert.deepEqual(leafTexts('休息時間', card('平板槓鈴臥推')), ['休息時間: 3:00']);
-  assert.deepEqual(leafTexts('休息中', card('平板槓鈴臥推')), ['休息中: 1:00']);
+  assert.deepEqual(leafTexts('休息 ', card('平板槓鈴臥推')), ['休息 3:00']);
+  assert.deepEqual(leafTexts('休息中', card('平板槓鈴臥推')), ['休息中 1:00']);
 });
 
 test('中間組跳過：配對最後一輪有一邊跳過，尾組前的休息照樣從輪結束算', () => {
@@ -228,5 +229,5 @@ test('中間組跳過：配對最後一輪有一邊跳過，尾組前的休息�
   logs['w4-d0-lateral_raise_lean-s2'] = { skipped: true };
   logs['w4-d0-tri_cross_body-s2'] = done(10, '12', T0 + 7 * MIN);
   renderView({ week: 4, day: 0, logs, currentTime: T0 + 8 * MIN });
-  assert.deepEqual(leafTexts('休息中', card('單臂側傾側平舉')), ['休息中: 1:00']);
+  assert.deepEqual(leafTexts('休息中', card('單臂側傾側平舉')), ['休息中 1:00']);
 });

@@ -82,10 +82,8 @@ const firstPullupRow = () => {
   };
 };
 
-const overtimeText = () => {
-  const el = [...container.querySelectorAll('span')].find(s => s.textContent.startsWith('已超時'));
-  return el ? el.textContent : null;
-};
+// 頂部 bar 的「超時 N 分」
+const overtimeText = () => container.querySelector('[data-overtime]')?.textContent ?? null;
 
 // ==================== 第 5 點：自體重（重量 0） ====================
 
@@ -145,7 +143,7 @@ test('第 6 點：今天稍早做完的 75 分鐘課表，超時停在 15 分鐘
   // 三天前的課表不再顯示超時（BUG-06 殘留），這裡固定在同一天
   const now = new Date(2026, 9, 23, 20, 0).getTime();
   renderView({ logs: finishedSessionLogs(now - 3 * 60 * MIN, 75), currentTime: now });
-  assert.equal(overtimeText(), '已超時 15 分鐘 · 考慮跳過 1 組 isolation');
+  assert.equal(overtimeText(), '超時 15 分');
 });
 
 // ==================== 替換 / 新增動作視窗不被底部 tab 列蓋住 ====================
@@ -182,6 +180,7 @@ test('視窗：替換動作、新增動作疊在底部 tab 列上面，底部留
   const navZ = zIndexOf(container.querySelector('nav'));
   const overlayOf = (title) => [...container.querySelectorAll('h3')].find(h => h.textContent === title).closest('.fixed');
 
+  click(container.querySelector('button[aria-label="動作選項"]'));
   click(container.querySelector('button[title="替換動作"]'));
   const picker = overlayOf('替換動作');
   assert.ok(zIndexOf(picker) > navZ, `替換動作 z=${zIndexOf(picker)}，nav z=${navZ}`);
@@ -200,5 +199,5 @@ test('第 6 點（不變）：還沒做完的課表，超時照現在時間即�
     logs: { [PULLUP_S0]: { weight: 0, reps: '8', done: true, completedAt: now - 70 * MIN } },
     currentTime: now,
   });
-  assert.equal(overtimeText(), '已超時 10 分鐘 · 考慮跳過 1 組 isolation');
+  assert.equal(overtimeText(), '超時 10 分');
 });

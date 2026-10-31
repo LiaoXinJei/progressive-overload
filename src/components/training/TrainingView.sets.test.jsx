@@ -60,15 +60,19 @@ const click = (el) => act(() => {
 });
 
 const byTitle = (title) => container.querySelector(`button[title="${title}"]`);
+// 替換動作、增加一組在第一個動作（平板槓鈴臥推）的「動作選項」sheet 裡
+const openOptions = () => click(container.querySelector('button[aria-label="動作選項"]'));
 
 test('BUG-14：按 +1 組只存在這一週的 key', () => {
   const state = renderView();
+  openOptions();
   click(byTitle('增加一組'));
   assert.deepEqual(state.customSets, { [`w${WEEK}-A-bp_flat`]: 5 });
 });
 
 test('BUG-14：替換動作不寫組數，組數照週期算', () => {
   const state = renderView();
+  openOptions();
   click(byTitle('替換動作'));
   const item = [...container.querySelectorAll('button')]
     .find(b => b.textContent.includes('平板啞鈴臥推'));
@@ -79,6 +83,7 @@ test('BUG-14：替換動作不寫組數，組數照週期算', () => {
 
 test('BUG-14：替換選單不顯示動作庫的預設組數', () => {
   renderView();
+  openOptions();
   click(byTitle('替換動作'));
   const item = [...container.querySelectorAll('button')]
     .find(b => b.textContent.includes('平板啞鈴臥推'));
@@ -86,6 +91,7 @@ test('BUG-14：替換選單不顯示動作庫的預設組數', () => {
 });
 
 const restoreOriginal = () => {
+  openOptions();
   click(byTitle('替換動作'));
   click([...container.querySelectorAll('button')].find(b => b.textContent === '恢復為原動作'));
 };

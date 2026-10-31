@@ -14,10 +14,13 @@ vi.mock('./hooks/useRestNotification', () => ({
   useRestNotification: ({ restContext }) => { captured.contexts.push(restContext); },
   requestNotificationPermission: async () => 'granted',
 }));
-// 訓練頁換成只放切換天數按鈕的空殼
+// 訓練頁換成只放切換天數、週次按鈕的空殼（週次真的在 TrainingView 的週次 sheet，選週呼叫 onSelectWeek）
 vi.mock('./components/training/TrainingView', () => ({
-  default: ({ setCurrentDay }) => (
-    <button type="button" data-goto-day3 onClick={() => setCurrentDay(2)}>D3</button>
+  default: ({ setCurrentDay, onSelectWeek }) => (
+    <>
+      <button type="button" data-goto-day3 onClick={() => setCurrentDay(2)}>D3</button>
+      <button type="button" onClick={() => onSelectWeek(3)}>W3</button>
+    </>
   ),
 }));
 

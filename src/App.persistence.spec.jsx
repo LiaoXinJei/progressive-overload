@@ -7,8 +7,19 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
 
-// 這裡只測持久化，訓練頁 UI 換成空元件（個別測試可以換掉實作）
-const trainingView = vi.hoisted(() => ({ render: () => null }));
+// 這裡只測持久化，訓練頁 UI 換成只放殼層按鈕的空殼（個別測試可以換掉實作）：週次按鈕（真的在 TrainingView 的週次 sheet，
+// 選週呼叫 onSelectWeek、目前這週標 aria-current）、設定鈕（真的在 TrainingView 的頂部 bar）
+const trainingView = vi.hoisted(() => {
+  const shell = ({ currentWeek, onSelectWeek, onOpenSettings }) => (
+      <header>
+        {[...Array(10)].map((_, i) => (
+          <button key={i} type="button" aria-current={currentWeek === i + 1 ? 'true' : undefined} onClick={() => onSelectWeek(i + 1)}>W{i + 1}</button>
+        ))}
+        <button type="button" title="設定" onClick={onOpenSettings} />
+      </header>
+    );
+  return { shell, render: shell };
+});
 vi.mock('./components/training/TrainingView', () => ({ default: (props) => trainingView.render(props) }));
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -31,7 +42,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   container.remove();
-  trainingView.render = () => null;
+  trainingView.render = trainingView.shell;
 });
 
 const render = (element) => act(() => root.render(element));
@@ -123,7 +134,7 @@ test('寫入失敗（儲存空間滿了）不會白畫面，只提示一次', ()
   // 還是存不進去，但不再跳提示
   click(weekButton(3));
   expect(alerts()).toHaveLength(0);
-  expect(weekButton(3).className).toContain('bg-white');
+  expect(weekButton(3).getAttribute('aria-current')).toBe('true');
 
   setItem.mockRestore();
   console.error.mockRestore();
@@ -185,7 +196,7 @@ test('別的視窗寫入的是舊版存檔時照樣跑遷移再載入', () => {
 });
 
 const isCurrentWeek = (el, w) => [...el.querySelectorAll('header button')]
-  .find(b => b.textContent === `W${w}`).className.includes('bg-white');
+  .find(b => b.textContent === `W${w}`).getAttribute('aria-current') === 'true';
 
 test('別的視窗寫入時只同步資料：本視窗的週次、天數、頁籤、統計面板開關不變，設定頁也不會被關掉', () => {
   localStorage.setItem(STORAGE_KEY, JSON.stringify({
@@ -211,6 +222,8 @@ test('別的視窗寫入時只同步資料：本視窗的週次、天數、頁�
 
   // 本視窗改一筆資料，寫回的是同步過來的資料 + 本視窗的畫面狀態
   click([...container.querySelectorAll('button')].find(b => b.textContent === '完成'));
+  // 維持 / 增重移進設定裡
+  click(container.querySelector('button[title="設定"]'));
   click([...container.querySelectorAll('button')].find(b => b.textContent.includes('增重模式')));
   const data = stored();
   expect(data.viewState).toEqual({ currentWeek: 2, currentDay: 3, showStats: true });
@@ -243,7 +256,8 @@ test('兩個視窗畫面狀態不同時，同步後不會互相觸發寫入', ()
     .dispatchEvent(new MouseEvent('click', { bubbles: true })));
   expect(writes).toBe(afterMount + 1);
 
-  // 本視窗改資料：寫一次，另一個視窗同步資料後不再寫回
+  // 本視窗改資料：寫一次，另一個視窗同步資料後不再寫回（維持 / 增重在設定裡，打開設定不寫入）
+  click(container.querySelector('button[title="設定"]'));
   click([...container.querySelectorAll('button')].find(b => b.textContent.includes('增重模式')));
   expect(writes).toBe(afterMount + 2);
 
@@ -251,8 +265,9 @@ test('兩個視窗畫面狀態不同時，同步後不會互相觸發寫入', ()
   expect(isCurrentWeek(container, 2)).toBe(true);
   expect(isCurrentWeek(otherContainer, 3)).toBe(true);
   expect(stored()).toMatchObject({ mode: 'bulking', viewState: { currentWeek: 2 } });
+  act(() => otherContainer.querySelector('button[title="設定"]').dispatchEvent(new MouseEvent('click', { bubbles: true })));
   const otherModeButton = [...otherContainer.querySelectorAll('button')].find(b => b.textContent.includes('增重模式'));
-  expect(otherModeButton.className).toContain('bg-orange-600');
+  expect(otherModeButton.getAttribute('aria-pressed')).toBe('true');
 
   setItem.mockRestore();
   act(() => otherRoot.unmount());

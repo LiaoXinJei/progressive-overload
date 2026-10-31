@@ -7,8 +7,18 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
 
-// 這裡只測殼層，訓練頁 UI 換成空元件
-vi.mock('./components/training/TrainingView', () => ({ default: () => null }));
+// 這裡只測殼層，訓練頁 UI 換成只放殼層按鈕的空殼：週次按鈕（真的在 TrainingView 的週次 sheet，選週呼叫 onSelectWeek）、
+// 設定鈕（真的在 TrainingView 的頂部 bar）
+vi.mock('./components/training/TrainingView', () => ({
+  default: ({ currentWeek, onSelectWeek, onOpenSettings }) => (
+    <header>
+      {[...Array(10)].map((_, i) => (
+        <button key={i} type="button" aria-current={currentWeek === i + 1 ? 'true' : undefined} onClick={() => onSelectWeek(i + 1)}>W{i + 1}</button>
+      ))}
+      <button type="button" title="設定" onClick={onOpenSettings} />
+    </header>
+  ),
+}));
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 // Node 22+ 內建的 localStorage 會蓋掉 jsdom 的（Node 25 沒給 --localstorage-file 就不能用），改用 jsdom 的
@@ -104,6 +114,7 @@ test('重設確認和設定 modal 疊在底部頁籤上面（頁籤在 DOM 前�
   render(<App />);
   const navZ = zIndexOf(container.querySelector('nav'));
 
+  openSettings();
   click(container.querySelector('button[title="重設所有資料"]'));
   expect(zIndexOf(overlay())).toBeGreaterThan(navZ);
   click([...container.querySelectorAll('button')].find(b => b.textContent === '取消'));

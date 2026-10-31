@@ -7,8 +7,10 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.jsx';
 
-// 訓練頁本身不渲染
-vi.mock('./components/training/TrainingView', () => ({ default: () => null }));
+// 訓練頁本身不渲染，只留打開設定的按鈕（真的在 TrainingView 的頂部 bar）
+vi.mock('./components/training/TrainingView', () => ({
+  default: ({ onOpenSettings }) => <button type="button" title="設定" onClick={onOpenSettings} />,
+}));
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 // Node 25 內建的 localStorage 會蓋掉 jsdom 的版本（沒給 --localstorage-file 時不能用），改用 jsdom 的
@@ -56,10 +58,11 @@ test('營養頁往下捲也不顯示回頂部按鈕，避免壓住「+」新增�
   expect(container.querySelector('button[title="手動新增餐點"]')).not.toBeNull();
 });
 
-test('訓練頁往下捲照樣顯示回頂部按鈕', async () => {
+// 訓練頁改版拿掉回頂部按鈕（頂部 bar 只有一條、平台看板點了會捲到下一組）
+test('訓練頁往下捲也不顯示回頂部按鈕', async () => {
   await renderWith({ activeTab: 'training' });
   scrollTo(800);
-  expect(container.querySelector('button[aria-label="回到頂部"]')).not.toBeNull();
+  expect(container.querySelector('button[aria-label="回到頂部"]')).toBeNull();
 });
 
 test('設定 > 動作庫刪除正在當替換的動作，確認後 App 的替換設定一起清掉並存檔', async () => {

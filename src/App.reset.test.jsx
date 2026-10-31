@@ -7,8 +7,10 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.jsx';
 
-// 這裡只測重設流程，訓練頁本身不渲染
-vi.mock('./components/training/TrainingView', () => ({ default: () => null }));
+// 這裡只測重設流程，訓練頁本身不渲染，只留打開設定的按鈕（真的在 TrainingView 的頂部 bar；重設入口在設定裡）
+vi.mock('./components/training/TrainingView', () => ({
+  default: ({ onOpenSettings }) => <button type="button" title="設定" onClick={onOpenSettings} />,
+}));
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 // Node 25 內建的 localStorage 會蓋掉 jsdom 的版本（沒給 --localstorage-file 時不能用），改用 jsdom 的
@@ -45,6 +47,7 @@ test('重設所有資料會清掉營養設定與紀錄，但保留 Gemini API Ke
   // 確認重設前資料有正確載入
   assert.equal(JSON.parse(localStorage.getItem(STORAGE_KEY)).nutritionProfile.geminiApiKey, 'AIza-test-key');
 
+  await click(container.querySelector('button[title="設定"]'));
   await click(container.querySelector('button[title="重設所有資料"]'));
   const confirm = [...container.querySelectorAll('button')].find(b => b.textContent.includes('確定重設'));
   await click(confirm);
@@ -63,6 +66,7 @@ test('沒有設定 API Key 時，重設後營養設定維持 null', async () => 
 
   await act(async () => root.render(<App />));
 
+  await click(container.querySelector('button[title="設定"]'));
   await click(container.querySelector('button[title="重設所有資料"]'));
   const confirm = [...container.querySelectorAll('button')].find(b => b.textContent.includes('確定重設'));
   await click(confirm);
@@ -81,6 +85,7 @@ test('重設所有資料會清掉使用者改的動作名稱', async () => {
   await act(async () => root.render(<App />));
   assert.deepEqual(JSON.parse(localStorage.getItem(STORAGE_KEY)).customExerciseNames, { bp_flat: '我的臥推' });
 
+  await click(container.querySelector('button[title="設定"]'));
   await click(container.querySelector('button[title="重設所有資料"]'));
   const confirm = [...container.querySelectorAll('button')].find(b => b.textContent.includes('確定重設'));
   await click(confirm);

@@ -90,7 +90,7 @@ const row = (n) => {
     reps: el.querySelector('[data-reps-input]'),
     plus: el.querySelector('button[title="+2kg"]'),
     complete: el.querySelector('[data-complete-btn]'),
-    setNo: el.querySelector('button'),
+    setNo: el.querySelector('[data-fill-history]'),
   };
 };
 
@@ -99,8 +99,10 @@ const done = (weight, reps, completedAt) => ({ weight, reps, done: true, complet
 // ==================== ✓ 完成按鈕（BUG-03 / 04 / 19） ====================
 
 // 回傳文字，不回傳 DOM 節點
-const leafText = (prefix) => [...container.querySelectorAll('div')]
-  .find(d => d.children.length === 0 && d.textContent.startsWith(prefix))?.textContent ?? null;
+const leafText = (prefix) => [...container.querySelectorAll('[data-rest-label]')]
+  .find(el => el.textContent.startsWith(prefix))?.textContent ?? null;
+// 讓第 n 組變成試舉卡（目前這組）：聚焦它的重量欄。跳過、帶入上次只在試舉卡上
+const focusRow = (n) => act(() => container.querySelectorAll('[data-set-row]')[n].querySelector('[data-weight-input]').focus());
 
 test('✓：輸入重量和次數不會自動完成，不寫歷史、不開始休息', () => {
   const state = renderView();
@@ -122,7 +124,7 @@ test('✓：按下才完成，寫歷史並開始休息計時', () => {
   assert.equal(typeof log.completedAt, 'number');
   assert.deepEqual(state.history.pullup, { weight: 60, reps: '10' });
   assert.equal(row(0).complete.getAttribute('aria-pressed'), 'true');
-  assert.match(leafText('休息中') ?? '', /^休息中: /);
+  assert.match(leafText('休息中') ?? '', /^休息中 /);
 });
 
 test('✓：再按一次取消完成，休息計時消失、數字保留', () => {
@@ -157,6 +159,7 @@ test('組號：已完成的組點組號不會用歷史蓋掉這組的紀錄', ()
     logs: { [key('pullup', 0)]: done(60, '10', t0 - 3 * MIN), [key('pullup', 1)]: done(62, '8', t0) },
     history: { pullup: { weight: 62, reps: '8' } },
   });
+  focusRow(0);
   assert.equal(row(0).setNo.disabled, true);
   click(row(0).setNo);
   assert.equal(state.logs[key('pullup', 0)].weight, 60);
@@ -229,6 +232,7 @@ test('✓：已完成的組直接按跳過，歷史也回到完成前的值', ()
   typeInto(row(0).weight, '600');
   typeInto(row(0).reps, '8');
   click(row(0).complete);
+  focusRow(0);
   click(container.querySelector('[data-set-row] button[title="跳過此組"]'));
   assert.equal(state.logs[key('pullup', 0)].skipped, true);
   assert.deepEqual(state.history.pullup, { weight: 60, reps: '8' });
@@ -324,6 +328,7 @@ test('重新完成：已完成的組按跳過、取消跳過再按 ✓，也沿�
   typeInto(row(0).reps, '8');
   click(row(0).complete);
   vi.spyOn(Date, 'now').mockReturnValue(t0 + 5 * MIN);
+  focusRow(0);
   click(container.querySelector('[data-set-row] button[title="跳過此組"]'));
   click(container.querySelector('[data-set-row] button[title="取消跳過"]'));
   click(row(0).complete);
@@ -443,11 +448,10 @@ const pullupSets = buildSessionPlan(WEEK, 'B', { exerciseLibrary: DEFAULT_EXERCI
 const pullupDone = (t0) => Object.fromEntries([...Array(pullupSets)].map((_, i) =>
   [key('pullup', i), done(0, '8', t0 - (pullupSets - 1 - i) * 3 * MIN)]));
 
-// 回傳文字與是否跳動，不回傳 DOM 節點（斷言失敗時 vitest 序列化節點會讓 worker 掛掉）
+// 回傳文字與是否跳動（還在即時計時），不回傳 DOM 節點（斷言失敗時 vitest 序列化節點會讓 worker 掛掉）
 const interRest = () => {
-  const el = [...container.querySelectorAll('div')]
-    .find(d => d.children.length === 0 && d.textContent.startsWith('動作間休息'));
-  return el ? { text: el.textContent, pulsing: el.className.includes('animate-pulse') } : null;
+  const el = container.querySelector('[data-rest^="exercise"]');
+  return el ? { text: el.querySelector('[data-rest-label]').textContent, pulsing: el.dataset.rest === 'exercise-live' } : null;
 };
 
 test('BUG-20：划船第一組跳過、第二組已完成 → 動作間休息停在第二組完成時間、不再跳動', () => {
@@ -461,7 +465,7 @@ test('BUG-20：划船第一組跳過、第二組已完成 → 動作間休息停
     },
     currentTime: now,
   });
-  assert.deepEqual(interRest(), { text: '動作間休息: 2:00', pulsing: false });
+  assert.deepEqual(interRest(), { text: '動作間休息 2:00', pulsing: false });
 });
 
 test('BUG-20：划船第一組跳過、後面都還沒做 → 還在休息，照現在時間跳動', () => {
@@ -471,7 +475,7 @@ test('BUG-20：划船第一組跳過、後面都還沒做 → 還在休息，照
     logs: { ...pullupDone(t0), [key('db_row', 0)]: { skipped: true } },
     currentTime: now,
   });
-  assert.deepEqual(interRest(), { text: '動作間休息: 5:00', pulsing: true });
+  assert.deepEqual(interRest(), { text: '動作間休息 5:00', pulsing: true });
 });
 
 test('BUG-20：划船每組都跳過 → 不顯示動作間休息', () => {
@@ -487,10 +491,13 @@ test('BUG-20：划船每組都跳過 → 不顯示動作間休息', () => {
 
 const CUSTOM = { B: [{ id: 'custom_1', name: '自訂划船', muscle: 'BACK', type: 'compound', isUpper: true, isCustom: true }] };
 const CUSTOM_OVERRIDES = { 'B-custom_1': 'lib_pulldown_wide', 'B-db_row': 'lib_pulldown_wide' };
+// 刪除在自訂動作的「動作選項」sheet 裡
+const openCustomOptions = () => click(container.querySelector('[data-exercise-id="custom_1"] button[aria-label="動作選項"]'));
 
 test('刪除自訂動作：先跳確認，按取消就不刪', () => {
   const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
   const state = renderView({ customExercises: CUSTOM, exerciseOverrides: CUSTOM_OVERRIDES });
+  openCustomOptions();
   click(container.querySelector('button[title="刪除此動作"]'));
   assert.equal(confirm.mock.calls.length, 1);
   assert.deepEqual(state.customExercises, CUSTOM);
@@ -500,6 +507,7 @@ test('刪除自訂動作：先跳確認，按取消就不刪', () => {
 test('刪除自訂動作：確認後刪掉，也清掉這個動作的替換設定', () => {
   vi.spyOn(window, 'confirm').mockReturnValue(true);
   const state = renderView({ customExercises: CUSTOM, exerciseOverrides: CUSTOM_OVERRIDES });
+  openCustomOptions();
   click(container.querySelector('button[title="刪除此動作"]'));
   assert.deepEqual(state.customExercises, { B: [] });
   assert.deepEqual(state.exerciseOverrides, { 'B-db_row': 'lib_pulldown_wide' });
@@ -552,7 +560,7 @@ const pressEnter = (el) => act(() => {
   el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
 });
 const exRows = (name) => [...[...container.querySelectorAll('h3')].find(h => h.textContent === name)
-  .closest('.p-6').querySelectorAll('[data-set-row]')];
+  .closest('[data-exercise]').querySelectorAll('[data-set-row]')];
 const weightOf = (rowEl) => rowEl.querySelector('[data-weight-input]');
 const repsOf = (rowEl) => rowEl.querySelector('[data-reps-input]');
 
@@ -663,6 +671,7 @@ test('歷史（R7）：s0 打錯 600 完成 → s1 62 完成 → 改 s0 成 58 �
   typeInto(row(1).reps, '8');
   click(row(1).complete);
   typeInto(row(0).weight, '58');
+  focusRow(1);
   click(container.querySelectorAll('[data-set-row]')[1].querySelector('button[title="跳過此組"]'));
   assert.equal(state.logs[key('pullup', 0)].weight, '58');
   assert.deepEqual(state.history.pullup, { weight: 58, reps: '8' });
@@ -688,6 +697,7 @@ test('歷史：完成後才替換動作，再取消完成，還原的是原動�
   typeInto(row(0).reps, '8');
   click(row(0).complete);
   assert.equal(state.logs[key('pullup', 0)].historyKey, 'pullup');
+  click(container.querySelector('button[aria-label="動作選項"]'));
   click(container.querySelector('button[title="替換動作"]'));
   click([...container.querySelectorAll('button')].find(b => b.textContent.includes('寬握高位下拉')));
   assert.equal(state.exerciseOverrides['B-pullup'], 'lib_pulldown_wide');

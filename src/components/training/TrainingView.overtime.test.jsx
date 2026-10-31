@@ -51,10 +51,8 @@ const renderView = ({ logs, currentTime }) => {
   ));
 };
 
-const overtimeText = () => {
-  const el = [...container.querySelectorAll('span')].find(s => s.textContent.startsWith('已超時'));
-  return el ? el.textContent : null;
-};
+// 頂部 bar 的「超時 N 分」
+const overtimeText = () => container.querySelector('[data-overtime]')?.textContent ?? null;
 
 test('三天前只做了一組、沒做完的課表，今天打開不顯示超時', () => {
   renderView({
@@ -119,5 +117,5 @@ test('（不變）今天開始、還沒做完的課表，超時照現在時間�
     logs: { 'w1-d0-bp_flat-s0': done(at(23, 18)) },
     currentTime: at(23, 18) + 70 * MIN,
   });
-  assert.equal(overtimeText(), '已超時 10 分鐘 · 考慮跳過 1 組 isolation');
+  assert.equal(overtimeText(), '超時 10 分');
 });

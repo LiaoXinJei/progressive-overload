@@ -171,7 +171,7 @@ test('BUG-18: 核心輪做完、tail 組未做 → bar 不顯示「完成」、t
 
   // 長的那一方最後一個核心組底下要有休息計時，從核心輪結束（兩邊較晚者）起算
   const restText = restTextAfterSet(card, longName, core - 1);
-  assert.match(restText, /休息中: 0:30/, `rest: "${restText}"`);
+  assert.match(restText, /休息中 0:30/, `rest: "${restText}"`);
 });
 
 test('BUG-18: 核心輪還在 mid-round 時，tail 前不顯示休息（bar 顯示切換中）', (t) => {
@@ -215,6 +215,6 @@ test('BUG-18: tail 組全部做完 → bar 顯示完成、tail 間休息顯示�
 
   const tree = renderDay({ week, day, logs, currentTime: ts + 5_000 });
   const card = pairCard(tree, pair);
-  assert.match(textOf(stickyBarOf(card)), /✓ 完成 · \d+ 輪/);
-  assert.match(restTextAfterSet(card, longName, core - 1), /休息時間: 1:30/);
+  assert.match(textOf(stickyBarOf(card)), /完成 · \d+ 輪/);
+  assert.match(restTextAfterSet(card, longName, core - 1), /休息 1:30/);
 });
