@@ -125,7 +125,7 @@ test('負數：前一個動作末組剛按 ✓，下一個動作的動作間休�
 
 // ==================== 動作 / 配對結束：每組都完成或跳過才算，取完成組最晚的時間 ====================
 
-// W1 PUSH A 第二組配對：傾斜側平舉 2 組、跨體三頭 3 組（第 3 組是 tail），後面接機械腿伸直
+// W1 PUSH A 第二組配對：單臂側傾側平舉 2 組、跨體三頭 3 組（第 3 組是 tail），後面接機械腿伸直
 const pair2Core = {
   'w1-d0-lateral_raise_lean-s0': done(8, '12', T0),
   'w1-d0-tri_cross_body-s0': done(10, '12', T0 + 1 * MIN),
@@ -219,7 +219,7 @@ test('中間組跳過：s0 完成、s1 跳過、s2 完成，s0 下方休息時�
 });
 
 test('中間組跳過：配對最後一輪有一邊跳過，尾組前的休息照樣從輪結束算', () => {
-  // W4 PUSH A 第二組配對：傾斜側平舉 4 組、跨體三頭 3 組，側平舉 s3 是 tail
+  // W4 PUSH A 第二組配對：單臂側傾側平舉 4 組、跨體三頭 3 組，側平舉 s3 是 tail
   const logs = {};
   for (let i = 0; i < 2; i++) {
     logs[`w4-d0-lateral_raise_lean-s${i}`] = done(8, '12', T0 + i * 3 * MIN);
@@ -228,5 +228,5 @@ test('中間組跳過：配對最後一輪有一邊跳過，尾組前的休息�
   logs['w4-d0-lateral_raise_lean-s2'] = { skipped: true };
   logs['w4-d0-tri_cross_body-s2'] = done(10, '12', T0 + 7 * MIN);
   renderView({ week: 4, day: 0, logs, currentTime: T0 + 8 * MIN });
-  assert.deepEqual(leafTexts('休息中', card('傾斜側平舉')), ['休息中: 1:00']);
+  assert.deepEqual(leafTexts('休息中', card('單臂側傾側平舉')), ['休息中: 1:00']);
 });

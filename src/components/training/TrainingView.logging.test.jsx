@@ -565,9 +565,9 @@ test('Enter（不變）：單動作次數欄按 Enter 跳到同動作下一組�
 
 test('Enter：superset 照輪次跳，A1 → B1 → A2 → B2 → 下一組配對的 A1', () => {
   renderView(); // W1 PULL A 第一組配對：反向飛鳥 2 組 / 啞鈴二頭彎舉 2 組
-  const a = exRows('反向飛鳥（後三角）');
+  const a = exRows('反向飛鳥');
   const b = exRows('啞鈴二頭彎舉');
-  const next = exRows('繩索後三角飛鳥');
+  const next = exRows('繩索反向飛鳥');
   pressEnter(repsOf(a[0]));
   assert.equal(document.activeElement === weightOf(b[0]), true, 'A1 → B1');
   pressEnter(repsOf(b[0]));
@@ -579,9 +579,9 @@ test('Enter：superset 照輪次跳，A1 → B1 → A2 → B2 → 下一組配�
 });
 
 test('Enter：superset 的 tail 組接在核心輪後面，tail 做完跳到配對後面的動作', () => {
-  // W4 PUSH A 第二組配對：傾斜側平舉 4 組、跨體三頭 3 組，側平舉 s3 是 tail
+  // W4 PUSH A 第二組配對：單臂側傾側平舉 4 組、跨體三頭 3 組，側平舉 s3 是 tail
   renderView({ week: 4, day: 0 });
-  const a = exRows('傾斜側平舉');
+  const a = exRows('單臂側傾側平舉');
   const b = exRows('跨體三頭伸展');
   pressEnter(repsOf(b[2]));
   assert.equal(document.activeElement === weightOf(a[3]), true, 'B3 → A4（tail）');
@@ -591,8 +591,8 @@ test('Enter：superset 的 tail 組接在核心輪後面，tail 做完跳到配�
 
 test('Enter：superset 下一個輪到的組跳過了，跳到再下一個', () => {
   renderView({ logs: { [key('bi_curl', 0)]: { skipped: true } } });
-  pressEnter(repsOf(exRows('反向飛鳥（後三角）')[0]));
-  assert.equal(document.activeElement === weightOf(exRows('反向飛鳥（後三角）')[1]), true);
+  pressEnter(repsOf(exRows('反向飛鳥')[0]));
+  assert.equal(document.activeElement === weightOf(exRows('反向飛鳥')[1]), true);
 });
 
 // ==================== 歷史 = 最新那筆完成的組（回頭改舊週不蓋掉） ====================
