@@ -67,7 +67,7 @@ VitePWA({
 讀寫位置：`src/App.jsx`（讀檔、寫回、`storage` 事件三個 `useEffect`，遷移邏輯在 `migrateSavedData()`）。Storage key：`rp_focus_pro_data`。
 
 - 寫回前比對字串，跟 storage 現值一樣就不寫
-- 別的視窗寫入（`storage` 事件，key 是 `rp_focus_pro_data`）就跑一次 `migrateSavedData()` 重新載入
+- 別的視窗寫入（`storage` 事件，key 是 `rp_focus_pro_data`）就跑一次 `migrateSavedData()` 重新載入資料；畫面狀態（`viewState`、`activeTab`）留本視窗的。資料跟 storage 一樣、畫面狀態也沒在本視窗改過就不寫回，兩個視窗畫面狀態不同也不會互相觸發寫入
 - 讀檔失敗（JSON 壞掉）：原始字串另存到 `rp_focus_pro_data_corrupt_<timestamp>`，照空資料啟動並提示；連備份都存不進去就不寫回
 - `setItem` 失敗（QuotaExceeded）：不會白畫面，提示一次
 

@@ -184,6 +184,81 @@ test('別的視窗寫入的是舊版存檔時照樣跑遷移再載入', () => {
   expect(stored().exerciseLibrary[0].name).toBe('仰臥三頭伸展');
 });
 
+const isCurrentWeek = (el, w) => [...el.querySelectorAll('header button')]
+  .find(b => b.textContent === `W${w}`).className.includes('bg-white');
+
+test('別的視窗寫入時只同步資料：本視窗的週次、天數、頁籤、統計面板開關不變，設定頁也不會被關掉', () => {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({
+    schemaVersion: 7,
+    viewState: { currentWeek: 2, currentDay: 3, showStats: true },
+    activeTab: 'training',
+  }));
+  render(<App />);
+  click(container.querySelector('button[title="設定"]'));
+
+  const newLog = { 'w5-d1-pullup-s0': { weight: 10, reps: '8', done: true, completedAt: 1 } };
+  writeFromOtherWindow({
+    ...stored(),
+    viewState: { currentWeek: 5, currentDay: 1, showStats: false },
+    activeTab: 'nutrition',
+    logs: newLog,
+    weightIncrement: 5,
+  });
+
+  // 畫面留在本視窗：W2、訓練頁（週次列只有訓練頁才有）、設定頁開著且顯示同步過來的步長
+  expect(isCurrentWeek(container, 2)).toBe(true);
+  expect(container.querySelector('input[step="0.25"]').value).toBe('5');
+
+  // 本視窗改一筆資料，寫回的是同步過來的資料 + 本視窗的畫面狀態
+  click([...container.querySelectorAll('button')].find(b => b.textContent === '完成'));
+  click([...container.querySelectorAll('button')].find(b => b.textContent.includes('增重模式')));
+  const data = stored();
+  expect(data.viewState).toEqual({ currentWeek: 2, currentDay: 3, showStats: true });
+  expect(data.activeTab).toBe('training');
+  expect(data).toMatchObject({ logs: newLog, weightIncrement: 5, mode: 'bulking' });
+});
+
+test('兩個視窗畫面狀態不同時，同步後不會互相觸發寫入', () => {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({ schemaVersion: 7, viewState: { currentWeek: 2, currentDay: 0 } }));
+  // 把同一個 jsdom 裡的兩個 App 當成兩個視窗：任何一邊寫入都發 storage 事件（寫入的那邊也會收到，等於多測一次自己收到）。
+  // 互相觸發的話寫入會一直增加，超過 20 次就不再發事件，免得測試卡死
+  const proto = Object.getPrototypeOf(localStorage);
+  const realSetItem = proto.setItem;
+  let writes = 0;
+  const setItem = vi.spyOn(proto, 'setItem').mockImplementation(function (key, value) {
+    realSetItem.call(this, key, value);
+    if (key !== STORAGE_KEY || ++writes > 20) return;
+    window.dispatchEvent(new StorageEvent('storage', { key, newValue: value, storageArea: localStorage }));
+  });
+
+  const otherContainer = document.createElement('div');
+  document.body.appendChild(otherContainer);
+  const otherRoot = createRoot(otherContainer);
+  render(<App />);
+  act(() => otherRoot.render(<App />));
+  const afterMount = writes;
+
+  // 另一個視窗換到 W3：寫一次
+  act(() => [...otherContainer.querySelectorAll('header button')].find(b => b.textContent === 'W3')
+    .dispatchEvent(new MouseEvent('click', { bubbles: true })));
+  expect(writes).toBe(afterMount + 1);
+
+  // 本視窗改資料：寫一次，另一個視窗同步資料後不再寫回
+  click([...container.querySelectorAll('button')].find(b => b.textContent.includes('增重模式')));
+  expect(writes).toBe(afterMount + 2);
+
+  // 兩邊各自留著自己的週次，資料一致
+  expect(isCurrentWeek(container, 2)).toBe(true);
+  expect(isCurrentWeek(otherContainer, 3)).toBe(true);
+  expect(stored()).toMatchObject({ mode: 'bulking', viewState: { currentWeek: 2 } });
+  const otherModeButton = [...otherContainer.querySelectorAll('button')].find(b => b.textContent.includes('增重模式'));
+  expect(otherModeButton.className).toContain('bg-orange-600');
+
+  setItem.mockRestore();
+  act(() => otherRoot.unmount());
+  otherContainer.remove();
+});
+
 test('讀檔後的第一次 render 拋錯時，已存的資料不會被初始空狀態蓋掉', () => {
   const logs = { 'w2-d1-pullup-s0': { weight: 10, reps: 8, done: true, completedAt: 1 } };
   const seed = JSON.stringify({ schemaVersion: 5, logs, viewState: { currentWeek: 2, currentDay: 1 } });

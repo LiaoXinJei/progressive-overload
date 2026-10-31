@@ -78,6 +78,20 @@ const backupCorruptData = (raw) => {
   }
 };
 
+// 畫面狀態（週次、天數、統計面板開關、頁籤）每個視窗各自一份，多視窗同步只同步其他資料
+const splitViewState = ({ viewState, activeTab, ...data }) => ({
+  data: JSON.stringify(data),
+  view: JSON.stringify({ viewState, activeTab }),
+});
+// storage 字串去掉畫面狀態後的資料部分，讀不了回傳 null
+const dataPartOf = (json) => {
+  try {
+    return splitViewState(JSON.parse(json)).data;
+  } catch {
+    return null;
+  }
+};
+
 // 存檔跑完各版遷移，回傳要放進 state 的值。啟動讀檔、別的視窗寫入（storage 事件）共用
 const migrateSavedData = (data) => {
   // history 結構遷移：v2 number → v3 { weight, reps }
@@ -481,14 +495,14 @@ const RPFocusPro = () => {
   const [storageNotice, setStorageNotice] = useState(null);
   // 寫入失敗只提示一次，成功寫入後才會再提示
   const saveFailedRef = useRef(false);
+  // 這個視窗上次寫進（或看到 storage 已經是）的畫面狀態，用來判斷畫面狀態有沒有在這個視窗改過
+  const lastViewRef = useRef(null);
 
-  const applySavedState = useCallback((s) => {
+  // 資料：啟動讀檔和別的視窗寫入都會套用
+  const applySavedData = useCallback((s) => {
     setLogs(s.logs);
     setHistory(s.history);
     setMode(s.mode);
-    setCurrentWeek(s.currentWeek);
-    setCurrentDay(s.currentDay);
-    setShowStats(s.showStats);
     setCustomExerciseNames(s.customExerciseNames);
     setCustomExercises(s.customExercises);
     setCustomSets(s.customSets);
@@ -497,16 +511,25 @@ const RPFocusPro = () => {
     setExerciseOverrides(s.exerciseOverrides);
     setWeightIncrement(s.weightIncrement);
     setRestNotificationDelay(s.restNotificationDelay);
-    setActiveTab(s.activeTab);
     setNutritionProfile(s.nutritionProfile);
     setNutritionLogs(s.nutritionLogs);
+  }, []);
+
+  // 畫面狀態：只在啟動讀檔時套用，別的視窗寫入時留著這個視窗的
+  const applySavedView = useCallback((s) => {
+    setCurrentWeek(s.currentWeek);
+    setCurrentDay(s.currentDay);
+    setShowStats(s.showStats);
+    setActiveTab(s.activeTab);
   }, []);
 
   useEffect(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
       try {
-        applySavedState(migrateSavedData(JSON.parse(saved)));
+        const loaded = migrateSavedData(JSON.parse(saved));
+        applySavedData(loaded);
+        applySavedView(loaded);
       } catch (e) {
         console.error('載入資料失敗:', e);
         const backupKey = backupCorruptData(saved);
@@ -518,14 +541,15 @@ const RPFocusPro = () => {
       }
     }
     setIsHydrated(true);
-  }, [applySavedState]);
+  }, [applySavedData, applySavedView]);
 
-  // 同時開兩個視窗（分頁 + PWA）時，別的視窗寫入就重新載入，舊視窗才不會用整份舊狀態蓋掉新資料
+  // 同時開兩個視窗（分頁 + PWA）時，別的視窗寫入就重新載入資料，舊視窗才不會用整份舊狀態蓋掉新資料。
+  // 週次、天數、頁籤留在這個視窗；modal 開關不在存檔裡，也不會被關掉
   useEffect(() => {
     const onStorage = (e) => {
       if (e.key !== STORAGE_KEY || !e.newValue) return;
       try {
-        applySavedState(migrateSavedData(JSON.parse(e.newValue)));
+        applySavedData(migrateSavedData(JSON.parse(e.newValue)));
         setIsHydrated(true);
       } catch (err) {
         console.error('載入別的視窗寫入的資料失敗:', err);
@@ -533,7 +557,7 @@ const RPFocusPro = () => {
     };
     window.addEventListener('storage', onStorage);
     return () => window.removeEventListener('storage', onStorage);
-  }, [applySavedState]);
+  }, [applySavedData]);
 
   useEffect(() => {
     if (!isHydrated) return;
@@ -547,10 +571,17 @@ const RPFocusPro = () => {
       nutritionProfile, nutritionLogs
     };
     const json = JSON.stringify(state);
+    const { data, view } = splitViewState(state);
     try {
-      // 跟 storage 現值一樣就不寫：剛從別的視窗載入的狀態不用再寫回去，兩個視窗不會互相觸發寫入
-      if (localStorage.getItem(STORAGE_KEY) === json) return;
+      const saved = localStorage.getItem(STORAGE_KEY);
+      // 不寫的情況：跟 storage 現值一樣；或資料跟 storage 一樣、畫面狀態也沒在這個視窗改過
+      // （剛從別的視窗同步資料過來）。後者不擋的話，兩個視窗畫面狀態不同時會互相觸發寫入
+      if (saved === json || (view === lastViewRef.current && data === dataPartOf(saved))) {
+        lastViewRef.current = view;
+        return;
+      }
       localStorage.setItem(STORAGE_KEY, json);
+      lastViewRef.current = view;
       saveFailedRef.current = false;
     } catch (e) {
       console.error('儲存資料失敗:', e);
