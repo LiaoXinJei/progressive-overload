@@ -419,7 +419,8 @@ const TrainingView = ({
     setShowAddExercise(false);
   };
 
-  const removeCustomExercise = (exerciseId) => {
+  const removeCustomExercise = (exerciseId, name) => {
+    if (!window.confirm(`刪除「${name}」？`)) return;
     setCustomExercises(prev => ({
       ...prev,
       [workoutKey]: (prev[workoutKey] || []).filter(ex => ex.id !== exerciseId)
@@ -429,6 +430,14 @@ const TrainingView = ({
       [workoutKey]: (prev[workoutKey] || []).filter(id => id !== exerciseId)
     }));
     setCustomSets(prev => withoutCustomSets(prev, workoutKey, exerciseId));
+    // 替換設定也一起清，不然留著沒有動作對應的 key
+    setExerciseOverrides(prev => {
+      const overrideKey = `${workoutKey}-${exerciseId}`;
+      if (!(overrideKey in prev)) return prev;
+      const updated = { ...prev };
+      delete updated[overrideKey];
+      return updated;
+    });
   };
 
   const adjustExerciseSets = (exerciseId, delta, currentSets) => {
@@ -636,7 +645,7 @@ const TrainingView = ({
                 </button>
                 {ex.isCustom && (
                   <button
-                    onClick={() => removeCustomExercise(ex.id)}
+                    onClick={() => removeCustomExercise(ex.id, customExerciseNames[ex.id] || ex.name)}
                     className="text-neutral-700 hover:text-rose-500 transition-colors"
                     title="刪除此動作"
                   >

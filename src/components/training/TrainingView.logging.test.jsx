@@ -454,6 +454,28 @@ test('BUG-20：划船每組都跳過 → 不顯示動作間休息', () => {
   assert.equal(interRest(), null);
 });
 
+// ==================== 刪除自訂動作 ====================
+
+const CUSTOM = { B: [{ id: 'custom_1', name: '自訂划船', muscle: 'BACK', type: 'compound', isUpper: true, isCustom: true }] };
+const CUSTOM_OVERRIDES = { 'B-custom_1': 'lib_pulldown_wide', 'B-db_row': 'lib_pulldown_wide' };
+
+test('刪除自訂動作：先跳確認，按取消就不刪', () => {
+  const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+  const state = renderView({ customExercises: CUSTOM, exerciseOverrides: CUSTOM_OVERRIDES });
+  click(container.querySelector('button[title="刪除此動作"]'));
+  assert.equal(confirm.mock.calls.length, 1);
+  assert.deepEqual(state.customExercises, CUSTOM);
+  assert.deepEqual(state.exerciseOverrides, CUSTOM_OVERRIDES);
+});
+
+test('刪除自訂動作：確認後刪掉，也清掉這個動作的替換設定', () => {
+  vi.spyOn(window, 'confirm').mockReturnValue(true);
+  const state = renderView({ customExercises: CUSTOM, exerciseOverrides: CUSTOM_OVERRIDES });
+  click(container.querySelector('button[title="刪除此動作"]'));
+  assert.deepEqual(state.customExercises, { B: [] });
+  assert.deepEqual(state.exerciseOverrides, { 'B-db_row': 'lib_pulldown_wide' });
+});
+
 // ==================== 次數欄 Enter 跳到下一組 ====================
 
 const pressEnter = (el) => act(() => {
