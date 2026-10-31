@@ -9,8 +9,52 @@ import NutritionView from './components/nutrition/NutritionView';
 import TabNavigation from './components/shared/TabNavigation';
 import ExerciseLibraryManager from './components/settings/ExerciseLibraryManager';
 import { DEFAULT_EXERCISE_LIBRARY } from './constants/workouts';
-import { buildSessionPlan, getWorkoutForDay } from './utils/sessionPlan';
+import { buildSessionPlan, getWorkoutForDay, customSetsKey } from './utils/sessionPlan';
 import { getRestContext } from './utils/pairRoundState';
+
+// v6 → v7 改名前的歷代預設名稱（動作庫從 b0a44d2 起才存進 localStorage）。
+// 存檔名稱還是其中之一才換成現在的預設名，使用者自己改過的不動
+const V7_OLD_LIBRARY_NAMES = {
+  lib_skullcrusher: ['骷髏粉碎機'],
+  tri_dips: ['雙槓臂屈伸', '雙槓臂屈伸（身體前傾、胸偏）'],
+  lib_weighted_dips: ['負重雙槓臂屈伸'],
+  bulgarian_split_db: ['保加利亞分腿蹲（啞鈴垂兩側）'],
+  lib_step_up_db: ['啞鈴登階（啞鈴垂兩側）'],
+  back_ext_45: ['45° 背伸展（負重於胸前）'],
+  leg_press: ['腿推（45°）'],
+  rear_fly: ['反向飛鳥（後三角）'],
+  rear_delt_machine: ['機械反向飛鳥（後三角）'],
+  lib_rear_delt_db_chest: ['胸靠俯身啞鈴飛鳥（後三角）'],
+  rear_delt_cable: ['繩索後三角飛鳥'],
+  lib_belt_squat: ['Belt squat（首選、若場館可用）'],
+  lib_pendulum_squat_noload: ['Pendulum 深蹲（限無肩墊版本）'],
+  lib_reverse_hyper: ['Reverse Hyper（若場館可用）'],
+  lib_t_bar_row_chest: ['T-Bar 划船（胸靠版）'],
+  lib_smith_incline: ['Smith 上斜臥推'],
+  lib_smith_flat: ['Smith 平板臥推'],
+  lib_smith_seated_press: ['Smith 坐姿肩推'],
+  lib_calf_smith_standing: ['Smith 站姿提踵'],
+  lib_sissy_squat: ['Sissy squat'],
+  lib_nordic_curl: ['Nordic 腿彎舉'],
+  lib_calf_donkey: ['Donkey 提踵'],
+  lib_glute_ham_raise: ['Glute-Ham Raise'],
+  lateral_raise_cable: ['單臂滑輪側平舉'],
+  face_pull: ['滑輪面拉'],
+  pulldown_narrow: ['窄距下拉'],
+  lib_tri_rope_overhead_seated: ['坐姿繩索過頭三頭'],
+  chest_supported_row: ['胸靠支撐划船'],
+  lateral_raise_lean: ['傾斜側平舉'],
+};
+// v6 → v7 改 type 的動作，值是舊預設 type
+const V7_OLD_LIBRARY_TYPES = {
+  back_ext_45: 'compound',
+  lib_cable_pullthrough: 'compound',
+  seated_row: 'isolation',
+};
+
+const hasValue = (v) => v !== undefined && v !== null && v !== '';
+// 這組有沒有紀錄：完成、跳過或填過數字
+const hasLogContent = (log) => Boolean(log) && (log.done || log.skipped || hasValue(log.weight) || hasValue(log.reps));
 
 const RPFocusPro = () => {
   // ==================== 狀態管理 ====================
@@ -315,6 +359,53 @@ const RPFocusPro = () => {
         migratedOverrides = nextOverrides;
       }
 
+      // v6 → v7 migration：動作改名（統一用語、拿掉括號說明，說明改到 EXERCISE_NOTES）、type 修正，
+      // 再把 v5 → v6 換預設組數後被藏起來的組補回來
+      const needsV7Migration = (data.schemaVersion ?? 3) < 7;
+      if (needsV7Migration) {
+        // 1. 動作庫：名稱 / type 還是歷代預設值的換成現在的預設。使用者改過的、自訂的不動，刪掉的不補回
+        const defaultsById = new Map(DEFAULT_EXERCISE_LIBRARY.map(item => [item.id, item]));
+        migratedLibrary = migratedLibrary.map(item => {
+          const current = defaultsById.get(item.id);
+          if (!current) return item;
+          const renamed = V7_OLD_LIBRARY_NAMES[item.id]?.includes(item.name);
+          const retyped = V7_OLD_LIBRARY_TYPES[item.id] === item.type;
+          if (!renamed && !retyped) return item;
+          return {
+            ...item,
+            ...(renamed && { name: current.name }),
+            ...(retyped && { type: current.type }),
+          };
+        });
+
+        // 2. v6 改了 SESSION_WEIGHTS、C 日多了 lib_skullcrusher，預設組數變少，畫面只畫到計畫組數，
+        //    v5 照課表做完的組被藏起來（例如 W1 PUSH B 坐姿過頭三頭做完 4 組，升級後只剩 1 組）。
+        //    有 log 的動作，最後一組超過計畫組數就寫那一週的組數覆寫補回來
+        const loggedSets = {};
+        Object.entries(migratedLogs).forEach(([logKey, log]) => {
+          const match = logKey.match(/^(w\d+-d\d+-.+)-s(\d+)$/);
+          if (!match || !hasLogContent(log)) return;
+          loggedSets[match[1]] = Math.max(loggedSets[match[1]] ?? 0, Number(match[2]) + 1);
+        });
+        const nextCustomSets = { ...migratedCustomSets };
+        for (let week = 1; week <= 10; week++) {
+          for (let day = 0; day < 5; day++) {
+            const workoutKey = getWorkoutForDay(week, day);
+            const plan = buildSessionPlan(week, workoutKey, {
+              customExercises: migratedCustomExercises,
+              customSets: migratedCustomSets,
+              exerciseOverrides: migratedOverrides,
+              exerciseLibrary: migratedLibrary,
+            });
+            plan.forEach(({ exercise, sets }) => {
+              const logged = loggedSets[`w${week}-d${day}-${exercise.id}`] ?? 0;
+              if (logged > sets) nextCustomSets[customSetsKey(week, workoutKey, exercise.id)] = logged;
+            });
+          }
+        }
+        migratedCustomSets = nextCustomSets;
+      }
+
       setLogs(migratedLogs);
       setHistory(migratedHistory);
       setMode(data.mode || 'maintenance');
@@ -341,7 +432,7 @@ const RPFocusPro = () => {
   useEffect(() => {
     if (!isHydrated) return;
     const state = {
-      schemaVersion: 6,
+      schemaVersion: 7,
       logs, history, mode,
       viewState: { currentWeek, currentDay, showStats },
       customExerciseNames, customExercises, customSets, exerciseOrder,

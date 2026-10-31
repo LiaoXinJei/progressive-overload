@@ -5,10 +5,10 @@
 
 import {
   WORKOUTS, VOLUME_CONFIG, PHASE_CONFIG, SESSION_WEIGHTS,
-  MUSCLE_SESSION_MAP, MAX_SETS_PER_EXERCISE,
+  MUSCLE_SESSION_MAP, MAX_SETS_PER_EXERCISE, EXERCISE_NOTES,
 } from '../constants/workouts';
 
-const LOWER_MUSCLES = new Set(['QUADS', 'HAMS']);
+const LOWER_MUSCLES = new Set(['QUADS', 'HAMS', 'CALVES']);
 
 export const getWorkoutForDay = (week, dayIndex) => {
   return ['A', 'B', 'C', 'D', 'E'][dayIndex];
@@ -122,6 +122,7 @@ export const buildSessionPlan = (week, workoutKey, opts) => {
     allResults.push({ exercise: ex, sets: 3 });
   });
 
+  // 替換動作：名稱、肌群、類型、備註換成動作庫那項的；noteRIR 是格子的限制（保護隔天 LEGS 日），留著
   allResults = allResults.map(({ exercise, sets }) => {
     const overrideKey = `${workoutKey}-${exercise.id}`;
     const overrideId = exerciseOverrides[overrideKey];
@@ -135,13 +136,15 @@ export const buildSessionPlan = (week, workoutKey, opts) => {
             muscle: lib.muscle,
             type: lib.type,
             isUpper: !LOWER_MUSCLES.has(lib.muscle),
+            noteText: EXERCISE_NOTES[lib.id],
             _libraryId: lib.id,
           },
           sets,
         };
       }
     }
-    return { exercise, sets };
+    const noteText = EXERCISE_NOTES[exercise.id];
+    return { exercise: noteText ? { ...exercise, noteText } : exercise, sets };
   });
 
   allResults = allResults.map(({ exercise, sets }) => ({
