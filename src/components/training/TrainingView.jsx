@@ -715,6 +715,8 @@ const TrainingView = ({
             const hasHistory = (historyWeight !== undefined && historyWeight !== '') || (historyReps !== undefined && historyReps !== '');
             // 次數是唯一必填：沒填也沒有上次次數時 ✓ 不能按；重量空白按 ✓ 當 0 kg
             const canComplete = logData.done || Boolean(logData.reps) || hasReps(historyReps);
+            // 點組號帶入上次紀錄：已完成的組不帶，不然會用歷史（可能是後面組的數字）蓋掉這組
+            const canFill = !logData.skipped && !logData.done && hasHistory;
 
             return (
               <React.Fragment key={idx}>
@@ -730,12 +732,12 @@ const TrainingView = ({
                 >
                   <button
                     type="button"
-                    onClick={() => !logData.skipped && hasHistory && fillFromHistory(logKey, historyKey)}
-                    disabled={logData.skipped || !hasHistory}
-                    title={hasHistory ? '帶入上次重量與次數' : '尚無上次紀錄'}
+                    onClick={() => canFill && fillFromHistory(logKey, historyKey)}
+                    disabled={!canFill}
+                    title={logData.done ? '已完成' : hasHistory ? '帶入上次重量與次數' : '尚無上次紀錄'}
                     className={`text-xl font-black w-6 sm:w-8 flex-shrink-0 text-center transition-colors
                       ${logData.skipped ? 'text-neutral-700 line-through cursor-default'
-                        : hasHistory ? 'text-neutral-600 hover:text-emerald-400 cursor-pointer'
+                        : canFill ? 'text-neutral-600 hover:text-emerald-400 cursor-pointer'
                         : 'text-neutral-600 cursor-default'}`}
                   >
                     {idx + 1}

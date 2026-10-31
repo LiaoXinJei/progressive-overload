@@ -151,6 +151,18 @@ test('✓：帶入上次紀錄（點組號）後按 ✓ 一下就完成', () => 
   assert.equal(log.reps, '8');
 });
 
+test('組號：已完成的組點組號不會用歷史蓋掉這組的紀錄', () => {
+  const t0 = Date.now();
+  const state = renderView({
+    logs: { [key('pullup', 0)]: done(60, '10', t0 - 3 * MIN), [key('pullup', 1)]: done(62, '8', t0) },
+    history: { pullup: { weight: 62, reps: '8' } },
+  });
+  assert.equal(row(0).setNo.disabled, true);
+  click(row(0).setNo);
+  assert.equal(state.logs[key('pullup', 0)].weight, 60);
+  assert.equal(state.logs[key('pullup', 0)].reps, '10');
+});
+
 test('✓：什麼都沒填、有上次紀錄時直接按 ✓，用上次的重量與次數（placeholder）完成', () => {
   const state = renderView({ history: { pullup: { weight: 20, reps: '8' } } });
   click(row(0).complete);
