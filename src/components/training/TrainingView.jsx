@@ -1,21 +1,22 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
-  Activity, BarChart2, ChevronDown, ChevronUp,
-  TrendingUp, ShieldCheck, Plus, Minus, Check,
-  Edit2, XCircle, GripVertical, Trash2, X, Search
+  AlertTriangle, Check, ChevronDown, ChevronRight, GripVertical, Link, Minus,
+  MoreHorizontal, Plus, Repeat, Search, Settings, Trash2, Wind,
 } from 'lucide-react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import {
-  WORKOUTS, MUSCLE_GROUPS, PHASE_CONFIG,
+  WORKOUTS, MUSCLE_GROUPS, PHASE_CONFIG, MAX_SETS_PER_EXERCISE,
   SUPERSET_PAIRS, SESSION_TYPE_THEME,
 } from '../../constants/workouts';
 import {
   getPairRoundState, getPairEndTimestamp, getPairTailProgress, getExercisesEndTimestamp,
+  getRestContext,
 } from '../../utils/pairRoundState';
 import {
   buildSessionPlan, getWorkoutForDay, getPhase, getRepRange, getWeeklyMuscleVolume,
   customSetsKey, withoutCustomSets,
 } from '../../utils/sessionPlan';
+import BottomSheet from '../shared/BottomSheet';
 
 const LOWER_MUSCLES = new Set(['QUADS', 'HAMS', 'CALVES']);
 
@@ -25,6 +26,11 @@ const hasReps = (r) => r !== undefined && r !== null && r !== '';
 
 // 完成後這段時間內取消完成，當成誤按 ✓（重新完成用當下時間，不沿用誤按的時間）
 const MISTAP_UNDO_MS = 60 * 1000;
+
+// App 沒傳休息目標時（測試）用的值，同 App 的 restNotificationDelay 預設
+const DEFAULT_REST_TARGET = 90;
+// superset 兩個動作之間的切換目標（見 SUPERSET_PAIRS 註解）
+const SWITCH_TARGET_SEC = 15;
 
 const parseLogKey = (logKey) => {
   const m = logKey.match(/^w(\d+)-d(\d+)-(.+)-s(\d+)$/);
@@ -47,34 +53,64 @@ const formatMmSs = (seconds) => {
   return `${m}:${r.toString().padStart(2, '0')}`;
 };
 
-const RoundDots = ({ rounds }) => (
-  <div className="flex flex-col gap-1">
+// 次數區間、RIR 顯示用 en dash（8–12、2–3）
+const enDash = (range) => String(range).replace('-', '–');
+
+const isSameDay = (a, b) => new Date(a).toDateString() === new Date(b).toDateString();
+
+// 三盞裁判燈：待做 = 暗燈、完成 = 三盞白燈、跳過 = 三盞紅燈。
+// light：剛按 ✓ 完成的那組，三盞依序亮起（.lamps-light，見 index.css）。
+// 讀檔、換天時已經是完成的組不播（App 先畫空資料再讀檔，用狀態變化判斷會每次開 App 都播）
+const Lamps = ({ state, onPaper = false, light = false }) => {
+  const tone = state === 'done'
+    ? (onPaper ? 'bg-white ring-1 ring-inset ring-paper-ink' : 'bg-judge-white')
+    : state === 'skip'
+      ? 'bg-judge-red'
+      : `ring-[1.5px] ring-inset ${onPaper ? 'ring-paper-line' : 'ring-fg-3'}`;
+  return (
+    <span className={`flex gap-[3px] ${light && state === 'done' ? 'lamps-light' : ''}`} aria-hidden="true">
+      {[0, 1, 2].map(i => <span key={i} className={`h-2 w-2 rounded-full ${tone}`} />)}
+    </span>
+  );
+};
+
+// 休息顯示。live（還在休息）：琥珀色 + 到目標的進度條；done（已結束）：次要文字。
+// data-rest / data-rest-label 給測試找，label 文字是「休息中 1:24」「休息 1:52」「動作間休息 2:00」
+const RestLine = ({ kind, label, time, seconds = 0, target = 0, className = '' }) => {
+  if (!kind.endsWith('live')) {
+    return (
+      <div data-rest={kind} className={`flex h-7 items-center px-2 text-xs text-fg-3 ${className}`}>
+        <span data-rest-label>{label} <span className="font-num text-sm tabular-nums">{time}</span></span>
+      </div>
+    );
+  }
+  const elapsed = Math.max(0, Math.floor(seconds));
+  const over = target > 0 && elapsed > target;
+  const pct = target > 0 ? Math.min(100, (elapsed / target) * 100) : 0;
+  return (
+    <div data-rest={kind} role="timer" className={`flex h-8 items-center gap-2 px-2 text-clock ${className}`}>
+      <span data-rest-label className="whitespace-nowrap text-sm font-medium">
+        {label} <span className="font-num text-base font-semibold tabular-nums">{time}</span>
+      </span>
+      <span className="whitespace-nowrap text-xs">
+        {over ? `超過 ${formatMmSs(elapsed - target)}` : `/ 目標 ${formatMmSs(target)}`}
+      </span>
+      <span className="h-0.5 min-w-6 flex-1 rounded-full bg-surface-hi" aria-hidden="true">
+        <span className="block h-full rounded-full bg-clock" style={{ width: `${pct}%` }} />
+      </span>
+    </div>
+  );
+};
+
+// superset 輪次小燈：上排 A、下排 B
+const RoundLamps = ({ rounds }) => (
+  <div className="flex flex-col gap-1" aria-hidden="true">
     {['a', 'b'].map(side => (
       <div key={side} className="flex gap-1">
         {rounds.map(r => {
           const log = side === 'a' ? r.aLog : r.bLog;
-          const done = log?.done;
-          const skipped = log?.skipped;
-          if (skipped) {
-            return (
-              <span
-                key={r.idx}
-                className="w-2.5 h-2.5 rounded-full border border-orange-400/40 flex items-center justify-center text-[8px] text-orange-400/50 leading-none"
-                title={`${side.toUpperCase()}${r.idx + 1} 跳過`}
-              >
-                /
-              </span>
-            );
-          }
-          return (
-            <span
-              key={r.idx}
-              className={`w-2.5 h-2.5 rounded-full border ${
-                done ? 'bg-orange-400 border-orange-400' : 'border-orange-400/40'
-              }`}
-              title={`${side.toUpperCase()}${r.idx + 1} ${done ? '完成' : '待做'}`}
-            />
-          );
+          const tone = log?.skipped ? 'bg-judge-red' : log?.done ? 'bg-judge-white' : 'ring-[1.5px] ring-inset ring-fg-3';
+          return <span key={r.idx} className={`h-2 w-2 rounded-full ${tone}`} />;
         })}
       </div>
     ))}
@@ -94,9 +130,10 @@ const PairStickyBar = ({
 
   // 主訊息渲染
   let mainNode = null;
+  let progress = null;
   if (state === 'idle') {
     mainNode = (
-      <span className="text-orange-200/80 text-xs font-bold">
+      <span className="text-sm text-fg-2">
         準備開始 R{currentRoundIdx + 1}
       </span>
     );
@@ -105,31 +142,37 @@ const PairStickyBar = ({
       ? Math.floor((currentTime - midRoundAnchorTs) / 1000)
       : 0;
     mainNode = (
-      <span className="text-amber-300 text-xs font-bold tabular-nums">
-        ⏱ 切換中: {formatMmSs(elapsed)}
+      <span className="text-sm font-medium text-clock">
+        切換中 <span className="font-num text-base font-semibold tabular-nums">{formatMmSs(elapsed)}</span>
       </span>
     );
   } else if (state === 'between-rounds') {
     const elapsed = lastCompleteRoundEndTs != null
       ? Math.floor((currentTime - lastCompleteRoundEndTs) / 1000)
       : 0;
+    // 超過目標也維持琥珀色（紅色只給跳過），用文字講超過多少
     const over = elapsed > targetSec;
+    progress = Math.min(100, (Math.max(0, elapsed) / targetSec) * 100);
     mainNode = (
-      <span className={`text-xs font-bold tabular-nums ${over ? 'text-rose-400' : 'text-emerald-400'}`}>
-        {over ? '🔴' : '🟢'} 輪間休息: {formatMmSs(elapsed)} / 目標 {formatMmSs(targetSec)}
+      <span className="text-sm font-medium text-clock">
+        輪間休息 <span className="font-num text-base font-semibold tabular-nums">{formatMmSs(elapsed)}</span>
+        {' '}
+        <span className="text-xs font-normal">
+          {over ? `超過 ${formatMmSs(elapsed - targetSec)}` : `/ 目標 ${formatMmSs(targetSec)}`}
+        </span>
       </span>
     );
   } else if (state === 'done' && tailProgress.settled < tailProgress.total) {
     // 核心輪做完、還有 tail 組（休息顯示在 tail 前的 set 列）
     mainNode = (
-      <span className="text-orange-200/80 text-xs font-bold tabular-nums">
+      <span className="text-sm text-fg-2">
         {rounds.length} 輪完成 · 尾組 {tailProgress.settled}/{tailProgress.total}
       </span>
     );
   } else if (state === 'done') {
     mainNode = (
-      <span className="text-emerald-300/80 text-xs font-bold">
-        ✓ 完成 · {rounds.length} 輪
+      <span className="inline-flex items-center gap-1 text-sm text-fg-2">
+        <Check size={16} aria-hidden="true" />完成 · {rounds.length} 輪
       </span>
     );
   }
@@ -142,40 +185,80 @@ const PairStickyBar = ({
 
   return (
     <div
-      className="sticky z-10 px-5 py-2.5 bg-neutral-950/85 backdrop-blur-sm border-b border-orange-800/40"
-      // 黏在 App sticky header 下方；--app-header-h 由 App 量測 header 高度寫入
+      className="sticky z-30 border-y border-line bg-hall-2 px-3 py-2"
+      // 黏在訓練頁頂部 bar 下方；--app-header-h 由 TrainingView 量測頂部 bar 高度寫入
       style={{ top: 'var(--app-header-h, 0px)' }}
     >
       {showEnterPair && (
-        <div className="text-[10px] text-orange-200/70 italic mb-1.5 tabular-nums">
+        <div className="mb-1.5 text-xs text-fg-2 tabular-nums">
           {enterPairLabel}完成 {formatMmSs(enterPairElapsed)} 前 · 進入 superset
         </div>
       )}
-      <div className="flex items-center justify-between gap-3">
-        <RoundDots rounds={rounds} />
+      <div className="flex min-h-8 items-center justify-between gap-3">
+        <RoundLamps rounds={rounds} />
         <div className="text-right">{mainNode}</div>
       </div>
+      {progress !== null && (
+        <div className="mt-2 h-0.5 rounded-full bg-surface-hi" aria-hidden="true">
+          <div className="h-full rounded-full bg-clock" style={{ width: `${progress}%` }} />
+        </div>
+      )}
     </div>
   );
 };
 
+// 動作選項 sheet 裡的一列
+const SheetAction = ({ icon: Icon, children, ...props }) => (
+  <button
+    type="button"
+    className="flex h-14 w-full items-center gap-3 rounded-xl px-3 text-left text-base text-fg transition-colors hover:bg-surface disabled:cursor-not-allowed disabled:text-fg-3 disabled:hover:bg-transparent"
+    {...props}
+  >
+    <Icon size={20} className="shrink-0 text-fg-2" aria-hidden="true" />
+    {children}
+  </button>
+);
+
 const TrainingView = ({
   logs, setLogs,
   history, setHistory,
-  mode, currentWeek, currentDay, setCurrentDay,
-  showStats, setShowStats,
+  currentWeek, currentDay, setCurrentDay,
   customExerciseNames, setCustomExerciseNames,
   customExercises, setCustomExercises,
   customSets, setCustomSets,
   exerciseOrder, setExerciseOrder,
   exerciseLibrary, exerciseOverrides, setExerciseOverrides,
   weightIncrement,
-  currentTime
+  currentTime,
+  restTarget = DEFAULT_REST_TARGET,
+  onSelectWeek,
+  onOpenSettings,
 }) => {
   const [showAddExercise, setShowAddExercise] = useState(false);
   const [newEx, setNewEx] = useState({ name: '', muscle: 'CHEST', type: 'isolation' });
   const [pickerForExId, setPickerForExId] = useState(null);
   const [pickerSearch, setPickerSearch] = useState('');
+  // 開著的 sheet：{ kind: 'week' | 'volume' } 或 { kind: 'options', exId }
+  const [sheet, setSheet] = useState(null);
+  // 使用者最後聚焦過輸入框的那一組（log key），決定試舉卡在哪一組
+  const [focusedKey, setFocusedKey] = useState(null);
+  // 剛按 ✓ 完成的那一組（log key），它的裁判燈播亮燈動畫
+  const [litKey, setLitKey] = useState(null);
+
+  // 頂部 bar 是唯一的 sticky header，高度（含 safe area）寫進 --app-header-h 給 superset 的 sticky bar 當 top
+  const barRef = useRef(null);
+  useEffect(() => {
+    const el = barRef.current;
+    if (!el) return;
+    const update = () => {
+      document.documentElement.style.setProperty('--app-header-h', `${el.offsetHeight}px`);
+    };
+    update();
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   // ==================== 核心邏輯函數 ====================
 
@@ -183,13 +266,14 @@ const TrainingView = ({
     customExercises, customSets, exerciseOrder, exerciseOverrides, exerciseLibrary,
   });
 
+  // 頂部 bar、週次 sheet 顯示的階段文字與 RIR
   const getWeeklyGuidance = (week) => {
     const phase = getPhase(week);
-    if (phase === 'deload') return { rir: '4+', label: 'Deload', color: 'text-amber-400' };
-    if (week === 4) return { rir: '0-1', label: '肌肥大 · Overreach', color: 'text-rose-500' };
-    if (week === 9) return { rir: '0-1', label: '肌力 · Overreach', color: 'text-rose-500' };
-    if (phase === 'hypertrophy') return { rir: '2-3', label: '肌肥大 · Accumulation', color: 'text-emerald-400' };
-    return { rir: '2-3', label: '肌力 · Accumulation', color: 'text-cyan-400' };
+    if (phase === 'deload') return { rir: '4+', label: '減量週' };
+    if (week === 4) return { rir: '0–1', label: '肌肥大 · 衝刺週' };
+    if (week === 9) return { rir: '0–1', label: '肌力 · 衝刺週' };
+    if (phase === 'hypertrophy') return { rir: '2–3', label: '肌肥大 · 累積期' };
+    return { rir: '2–3', label: '肌力 · 累積期' };
   };
 
   // ==================== 工具函數 ====================
@@ -524,10 +608,10 @@ const TrainingView = ({
   const currentWorkout = WORKOUTS[workoutKey];
   const currentSessionPlan = getSessionPlan(currentWeek, workoutKey);
   const guidance = getWeeklyGuidance(currentWeek);
+  const phase = getPhase(currentWeek);
   const currentOverrideId = pickerForExId
     ? exerciseOverrides[`${workoutKey}-${pickerForExId}`]
     : null;
-  const sessionTheme = SESSION_TYPE_THEME[currentWorkout.type] ?? SESSION_TYPE_THEME.push;
 
   // 將動作清單依 SUPERSET_PAIRS 分組為 [pair, single, ...]
   const groupedPlan = (() => {
@@ -602,9 +686,80 @@ const TrainingView = ({
     return allWeightInputs[lastInPair + 1] ?? null;
   };
 
+  // ==================== 試舉卡與平台看板 ====================
+
+  // 整個 session 照做的順序排好的組：單動作照畫面順序；superset 照輪次 A1 → B1 → A2 …，tail 組接在後面
+  const slotOf = (entry, idx) => ({ key: `w${currentWeek}-d${currentDay}-${entry.exercise.id}-s${idx}`, entry, idx });
+  const sessionOrder = [];
+  groupedPlan.forEach(group => {
+    if (group.type === 'single') {
+      for (let i = 0; i < group.item.sets; i++) sessionOrder.push(slotOf(group.item, i));
+      return;
+    }
+    const [a, b] = group.items;
+    for (let i = 0; i < Math.max(a.sets, b.sets); i++) {
+      if (i < a.sets) sessionOrder.push(slotOf(a, i));
+      if (i < b.sets) sessionOrder.push(slotOf(b, i));
+    }
+  });
+  const isSettledKey = (key) => Boolean(logs[key]?.done || logs[key]?.skipped);
+  const firstPendingSlot = sessionOrder.find(s => !isSettledKey(s.key)) ?? null;
+  // 目前這組 = 最後聚焦過輸入框的那一組（跳過的不算）；沒有就是第一個沒完成也沒跳過的組。畫面上只有一張試舉卡
+  const focusedSlot = focusedKey
+    ? sessionOrder.find(s => s.key === focusedKey && !logs[s.key]?.skipped) ?? null
+    : null;
+  const currentSlot = focusedSlot ?? firstPendingSlot;
+  const currentKey = currentSlot?.key ?? null;
+  // 看板顯示下一組：目前這組還沒做就是它，不然是第一個還沒做的組
+  const boardSlot = currentSlot && !logs[currentSlot.key]?.done ? currentSlot : firstPendingSlot;
+  const finished = sessionOrder.length > 0 && !firstPendingSlot;
+
+  const boardEx = boardSlot?.entry.exercise ?? null;
+  const boardName = boardEx ? (customExerciseNames[boardEx.id] || boardEx.name) : '';
+  const boardHistory = boardEx ? history[boardEx._libraryId ?? boardEx.id] : null;
+  const boardLast = boardHistory && (hasWeight(boardHistory.weight) || hasReps(boardHistory.reps))
+    ? `${hasWeight(boardHistory.weight) ? boardHistory.weight : '—'} × ${hasReps(boardHistory.reps) ? boardHistory.reps : '—'}`
+    : null;
+  const boardPos = boardSlot ? sessionOrder.indexOf(boardSlot) : -1;
+  const prevBoardLog = boardPos > 0 ? logs[sessionOrder[boardPos - 1].key] : null;
+  const prevLamp = prevBoardLog?.done ? 'done' : prevBoardLog?.skipped ? 'skip' : null;
+
+  // 看板的休息倒數跟休息通知同一個來源（getRestContext），只顯示今天的
+  const restContext = getRestContext({
+    logs, currentWeek, currentDay, workoutKey,
+    sessionPlan: currentSessionPlan, globalDelay: restTarget,
+  });
+  const REST_LABELS = {
+    'in-set': '休息',
+    'between-exercises': '動作間休息',
+    'in-pair-between-rounds': '輪間休息',
+    'in-pair-mid-round': '切換',
+  };
+  const boardRest = boardSlot && REST_LABELS[restContext.type] && restContext.anchorTs != null
+    && isSameDay(restContext.anchorTs, currentTime)
+    ? (() => {
+      const target = restContext.delay ?? SWITCH_TARGET_SEC;
+      const elapsed = Math.max(0, Math.floor((currentTime - restContext.anchorTs) / 1000));
+      return { label: REST_LABELS[restContext.type], target, elapsed, over: elapsed > target };
+    })()
+    : null;
+
+  const scrollToSet = (logKey) => {
+    const row = document.querySelector(`[data-weight-input][data-log-key="${logKey}"]`)?.closest('[data-set-row]');
+    if (!row) return;
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    row.scrollIntoView({ block: 'center', behavior: reduceMotion ? 'auto' : 'smooth' });
+  };
+
+  const closeSheet = () => setSheet(null);
+  const optionsEntry = sheet?.kind === 'options'
+    ? currentSessionPlan.find(e => e.exercise.id === sheet.exId) ?? null
+    : null;
+
   // pairOrder：pair 成員才有（見 findNextWeightInput），單動作為 undefined
   const renderExerciseInner = ({ entry, dragHandleProps, hideInterRest, pairRest, prevEndTs, pairOrder }) => {
     const { exercise: ex, sets: setsCount } = entry;
+    const exName = customExerciseNames[ex.id] || ex.name;
 
     const completedCount = [...Array(setsCount)].filter((_, idx) => {
       const logKey = `w${currentWeek}-d${currentDay}-${ex.id}-s${idx}`;
@@ -614,7 +769,6 @@ const TrainingView = ({
       const logKey = `w${currentWeek}-d${currentDay}-${ex.id}-s${idx}`;
       return logs[logKey]?.skipped;
     }).length;
-    const allDone = (completedCount + skippedCount) === setsCount;
 
     // 動作間休息看第一個沒跳過的組；整個動作都跳過就不顯示
     const firstActiveLog = [...Array(setsCount)]
@@ -623,123 +777,74 @@ const TrainingView = ({
     const hasPrevEndTs = !hideInterRest && typeof prevEndTs === 'number' && firstActiveLog !== undefined;
 
     return (
-      <div className={`p-6 transition-all ${allDone ? 'bg-emerald-500/5 opacity-60' : ''}`}>
-        {/* Exercise Header */}
-        <div className="flex items-start gap-2 mb-4">
-          {dragHandleProps ? (
-            <div
-              {...dragHandleProps}
-              className="mt-1 text-neutral-700 hover:text-neutral-400 cursor-grab active:cursor-grabbing flex-shrink-0 touch-none"
-            >
-              <GripVertical size={20} />
-            </div>
-          ) : (
-            <div className="mt-1 w-5 flex-shrink-0" />
-          )}
-          <div className="flex-1 flex justify-between items-start">
-            <div>
-              <div className="flex items-center gap-2">
-                <span className={`w-2 h-2 rounded-full ${ex.isUpper ? 'bg-blue-500' : 'bg-orange-500'}`}></span>
-                <h3 className="text-lg font-bold text-neutral-100">
-                  {customExerciseNames[ex.id] || ex.name}
-                </h3>
-                <button
-                  onClick={() => { setPickerForExId(ex.id); setPickerSearch(''); }}
-                  className="text-neutral-600 hover:text-neutral-400 transition-colors"
-                  title="替換動作"
-                >
-                  <Edit2 size={14} />
-                </button>
-                {ex.isCustom && (
-                  <button
-                    onClick={() => removeCustomExercise(ex.id, customExerciseNames[ex.id] || ex.name)}
-                    className="text-neutral-700 hover:text-rose-500 transition-colors"
-                    title="刪除此動作"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                )}
-              </div>
-              <div className="flex items-center gap-2 mt-2 flex-wrap">
-                <span className="text-[10px] font-black bg-neutral-800 text-neutral-400 px-2 py-1 rounded inline-block uppercase tracking-wider">
-                  {MUSCLE_GROUPS[ex.muscle] ?? '未知'}
-                </span>
-                <span className="text-[10px] font-mono bg-neutral-800 text-neutral-500 px-2 py-1 rounded inline-block">
-                  {getRepRange(ex.type, currentWeek)} 下
-                </span>
-                <span className={`text-[10px] font-bold ${ex.type === 'compound' ? 'text-cyan-500' : 'text-neutral-600'}`}>
-                  {ex.type === 'compound' ? '複合' : '隔離'}
-                </span>
-                {ex.noteRIR && (
-                  <span className="text-[10px] font-black bg-rose-900/40 text-rose-300 border border-rose-700/50 px-2 py-1 rounded uppercase tracking-wider">
-                    ⚠ RIR {ex.noteRIR} · 不可至力竭
-                  </span>
-                )}
-              </div>
-              {ex.noteText && (
-                <p className="text-[11px] text-neutral-500 mt-1.5 italic">
-                  {ex.noteText}
-                </p>
-              )}
-            </div>
-
-            <div className="text-right flex flex-col items-end gap-1">
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() => adjustExerciseSets(ex.id, -1, setsCount)}
-                  className="p-1 text-neutral-600 hover:text-neutral-300 hover:bg-neutral-800 rounded-lg transition-colors"
-                  title="減少一組"
-                >
-                  <Minus size={14} />
-                </button>
-                <div className="text-2xl font-black font-mono text-neutral-700 min-w-[2rem] text-center">
-                  {setsCount}<span className="text-sm ml-0.5">組</span>
-                </div>
-                <button
-                  onClick={() => adjustExerciseSets(ex.id, 1, setsCount)}
-                  className="p-1 text-neutral-600 hover:text-neutral-300 hover:bg-neutral-800 rounded-lg transition-colors"
-                  title="增加一組"
-                >
-                  <Plus size={14} />
-                </button>
-              </div>
-              <div className="text-xs text-neutral-600">
-                {completedCount}/{setsCount} 完成
-                {skippedCount > 0 && (
-                  <span className="ml-1 text-neutral-700">· {skippedCount} 跳過</span>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Inter-Exercise Rest Time */}
+      <section data-exercise data-exercise-id={ex.id} className="py-4">
+        {/* 動作間休息：放在動作標題上方 */}
         {hasPrevEndTs && (() => {
           if (!firstActiveLog.done) {
             const elapsed = Math.floor((currentTime - prevEndTs) / 1000);
             return (
-              <div className="mb-4 p-3 bg-blue-900/20 border border-blue-800 rounded-xl">
-                <div className="text-sm text-blue-400 font-semibold animate-pulse flex items-center gap-2">
-                  動作間休息: {formatTime(elapsed)}
-                </div>
-              </div>
+              <RestLine
+                kind="exercise-live" label="動作間休息" time={formatTime(elapsed)}
+                seconds={elapsed} target={restTarget} className="mb-2"
+              />
             );
           }
           if (firstActiveLog.completedAt) {
             const restSeconds = Math.floor((firstActiveLog.completedAt - prevEndTs) / 1000);
             return restSeconds >= 0 ? (
-              <div className="mb-4 p-3 bg-neutral-800/50 border border-neutral-700 rounded-xl">
-                <div className="text-sm text-neutral-500 flex items-center gap-2">
-                  動作間休息: {formatTime(restSeconds)}
-                </div>
-              </div>
+              <RestLine kind="exercise-done" label="動作間休息" time={formatTime(restSeconds)} className="mb-1" />
             ) : null;
           }
           return null;
         })()}
 
+        {/* Exercise Header */}
+        <div className="flex items-start gap-1">
+          {dragHandleProps && (
+            <div
+              {...dragHandleProps}
+              aria-label={`拖曳排序：${exName}`}
+              className="-ml-3 flex h-11 w-11 shrink-0 cursor-grab touch-none items-center justify-center rounded-lg text-fg-3 hover:text-fg-2 active:cursor-grabbing"
+            >
+              <GripVertical size={18} />
+            </div>
+          )}
+          <div className="min-w-0 flex-1 pt-2">
+            <h3 className="text-xl font-bold leading-tight text-fg">{exName}</h3>
+            <p className="mt-1 text-sm text-fg-2">
+              {MUSCLE_GROUPS[ex.muscle] ?? '未知'} · {ex.type === 'compound' ? '複合' : '隔離'} · {enDash(getRepRange(ex.type, currentWeek))} 下 × {setsCount} 組
+            </p>
+            {ex.noteRIR && (
+              <p className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-line px-2 py-1 text-xs font-medium text-fg">
+                <AlertTriangle size={14} className="text-fg-2" aria-hidden="true" />
+                RIR {enDash(ex.noteRIR)} · 不可至力竭
+              </p>
+            )}
+            {ex.noteText && (
+              <p className="mt-1.5 text-sm text-fg-3">{ex.noteText}</p>
+            )}
+          </div>
+          <div className="flex shrink-0 items-start">
+            <div className="pt-1 text-right">
+              <p className="font-num text-28 font-semibold tabular-nums text-fg">
+                {completedCount}<span className="text-xl text-fg-3">/{setsCount}</span>
+              </p>
+              {skippedCount > 0 && <p className="text-xs text-fg-2">跳過 {skippedCount}</p>}
+            </div>
+            <button
+              type="button"
+              onClick={() => setSheet({ kind: 'options', exId: ex.id })}
+              aria-label="動作選項"
+              aria-haspopup="dialog"
+              className="-mr-2 ml-1 flex h-11 w-11 items-center justify-center rounded-lg text-fg-2 transition-colors hover:bg-surface hover:text-fg"
+            >
+              <MoreHorizontal size={20} />
+            </button>
+          </div>
+        </div>
+
         {/* Sets List */}
-        <div className="space-y-3">
+        <div className="mt-3">
           {[...Array(setsCount)].map((_, idx) => {
             const logKey = `w${currentWeek}-d${currentDay}-${ex.id}-s${idx}`;
             const logData = logs[logKey] || {};
@@ -751,56 +856,72 @@ const TrainingView = ({
             const hasHistory = (historyWeight !== undefined && historyWeight !== '') || (historyReps !== undefined && historyReps !== '');
             // 次數是唯一必填：沒填也沒有上次次數時 ✓ 不能按；重量空白按 ✓ 當 0 kg
             const canComplete = logData.done || Boolean(logData.reps) || hasReps(historyReps);
-            // 點組號帶入上次紀錄：已完成的組不帶，不然會用歷史（可能是後面組的數字）蓋掉這組
+            // 帶入上次紀錄：已完成的組不帶，不然會用歷史（可能是後面組的數字）蓋掉這組
             const canFill = !logData.skipped && !logData.done && hasHistory;
+            // 試舉卡：目前這組整列用卡紙色
+            const isCurrent = logKey === currentKey;
+            const lampState = logData.skipped ? 'skip' : logData.done ? 'done' : 'off';
+
+            const completeClass = logData.done
+              ? `bg-judge-white text-paper-ink ${isCurrent ? 'ring-1 ring-inset ring-paper-ink' : ''}`
+              : !canComplete
+                ? `cursor-not-allowed ${isCurrent ? 'border border-paper-line text-paper-ink-2' : 'bg-hall-2 text-fg-3'}`
+                : isCurrent
+                  ? 'bg-ipf text-white hover:bg-ipf/90'
+                  : 'border border-line text-fg-2 hover:bg-surface hover:text-fg';
 
             return (
               <React.Fragment key={idx}>
-                {/* 手機 390px 一列要放下 組號 / 重量± / 次數 / 跳過 / ✓：sm 以下縮小 gap、padding 與重量框 */}
+                {/* 一列：組號 + 三盞燈 / − 重量 + / 次數 / ✓。360px 寬也放得下，輸入框至少 52px */}
                 <div
                   data-set-row
-                  className={`flex items-center gap-2 p-2 sm:gap-3 sm:p-3 rounded-xl transition-all
-                  ${logData.skipped
-                    ? 'bg-neutral-800/20 border border-neutral-800 opacity-40'
-                    : logData.done
-                      ? 'bg-emerald-500/10 border border-emerald-500/30'
-                      : 'bg-neutral-800/30 border border-neutral-800'}`}
+                  data-current={isCurrent ? '' : undefined}
+                  className={isCurrent
+                    ? 'my-1 rounded-xl bg-paper px-2 py-2 text-paper-ink caret-paper-ink [--focus-ring:theme(colors.ipf.DEFAULT)]'
+                    : 'px-2 py-1'}
                 >
-                  <button
-                    type="button"
-                    onClick={() => canFill && fillFromHistory(logKey, historyKey)}
-                    disabled={!canFill}
-                    title={logData.done ? '已完成' : hasHistory ? '帶入上次重量與次數' : '尚無上次紀錄'}
-                    className={`text-xl font-black w-6 sm:w-8 flex-shrink-0 text-center transition-colors
-                      ${logData.skipped ? 'text-neutral-700 line-through cursor-default'
-                        : canFill ? 'text-neutral-600 hover:text-emerald-400 cursor-pointer'
-                        : 'text-neutral-600 cursor-default'}`}
-                  >
-                    {idx + 1}
-                  </button>
-                  {logData.skipped ? (
-                    <div className="flex-1 text-center text-sm text-neutral-600 font-bold tracking-wider uppercase py-2">
-                      跳過
+                  <div className="flex min-h-12 items-center gap-1">
+                    <div className="flex w-9 shrink-0 flex-col items-start gap-1.5">
+                      <span className={`font-num text-xl font-semibold leading-none tabular-nums ${isCurrent ? 'text-paper-ink' : logData.skipped ? 'text-fg-2' : 'text-fg'}`}>
+                        {idx + 1}
+                      </span>
+                      <Lamps state={lampState} onPaper={isCurrent} light={litKey === logKey} />
                     </div>
-                  ) : (
-                    <>
-                      <div className="flex-1">
-                        <label className="text-[10px] text-neutral-500 block mb-1">重量 (kg)</label>
-                        <div className="flex items-center gap-1">
+                    {logData.skipped ? (
+                      <>
+                        <p className="flex-1 text-sm text-fg-2">已跳過</p>
+                        <button
+                          type="button"
+                          onClick={() => skipSet(logKey)}
+                          title="取消跳過"
+                          className="h-11 shrink-0 rounded-lg border border-line px-4 text-sm font-medium text-fg transition-colors hover:bg-surface"
+                        >
+                          復原
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <div className={`flex h-12 min-w-0 flex-1 items-stretch rounded-lg border ${isCurrent ? 'border-paper-line' : 'border-line'}`}>
                           <button
+                            type="button"
                             onClick={() => adjustWeight(logKey, -1, historyWeight)}
-                            className="p-2 bg-neutral-900 hover:bg-neutral-800 rounded-lg transition-colors"
                             title={`-${weightIncrement}kg`}
+                            aria-label={`第 ${idx + 1} 組重量減 ${weightIncrement} 公斤`}
+                            className={`flex w-11 shrink-0 items-center justify-center rounded-l-lg transition-colors ${isCurrent ? 'text-paper-ink-2 hover:bg-paper-ink/5' : 'text-fg-2 hover:bg-surface hover:text-fg'}`}
                           >
-                            <Minus size={14} />
+                            <Minus size={18} />
                           </button>
                           <input
                             data-weight-input
                             data-log-key={logKey}
                             type="number"
+                            inputMode="decimal"
+                            enterKeyHint="next"
                             step={weightIncrement}
+                            aria-label={`第 ${idx + 1} 組重量（公斤）`}
                             value={logData.weight ?? ''}
                             onChange={(e) => updateLog(logKey, 'weight', e.target.value)}
+                            onFocus={() => setFocusedKey(logKey)}
                             onKeyDown={(e) => {
                               if (e.key === 'Enter') {
                                 e.preventDefault();
@@ -810,25 +931,29 @@ const TrainingView = ({
                               }
                             }}
                             placeholder={hasWeight(historyWeight) ? String(historyWeight) : '—'}
-                            className="w-14 sm:w-20 bg-neutral-900 px-1 sm:px-3 py-2 rounded-lg text-center font-mono text-sm
-                            focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                            className={`w-0 min-w-[52px] flex-1 rounded-none text-center font-num text-xl font-semibold tabular-nums ${isCurrent
+                              ? 'bg-white text-paper-ink ring-[1.5px] ring-inset ring-paper-ink placeholder:font-medium placeholder:text-paper-ink-2'
+                              : 'bg-surface-hi text-fg placeholder:font-medium placeholder:text-fg-3'}`}
                           />
                           <button
+                            type="button"
                             onClick={() => adjustWeight(logKey, 1, historyWeight)}
-                            className="p-2 bg-neutral-900 hover:bg-neutral-800 rounded-lg transition-colors"
                             title={`+${weightIncrement}kg`}
+                            aria-label={`第 ${idx + 1} 組重量加 ${weightIncrement} 公斤`}
+                            className={`flex w-11 shrink-0 items-center justify-center rounded-r-lg transition-colors ${isCurrent ? 'text-paper-ink-2 hover:bg-paper-ink/5' : 'text-fg-2 hover:bg-surface hover:text-fg'}`}
                           >
-                            <Plus size={14} />
+                            <Plus size={18} />
                           </button>
                         </div>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <label className="text-[10px] text-neutral-500 block mb-1">次數</label>
                         <input
                           data-reps-input
                           type="number"
+                          inputMode="numeric"
+                          enterKeyHint="next"
+                          aria-label={`第 ${idx + 1} 組次數`}
                           value={logData.reps || ''}
                           onChange={(e) => updateLog(logKey, 'reps', e.target.value)}
+                          onFocus={() => setFocusedKey(logKey)}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter') {
                               e.preventDefault();
@@ -840,46 +965,68 @@ const TrainingView = ({
                             }
                           }}
                           placeholder={historyReps !== undefined && historyReps !== '' ? String(historyReps) : '—'}
-                          className="w-full min-w-0 bg-neutral-900 px-1 sm:px-3 py-2 rounded-lg text-center font-mono text-sm
-                          focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                          className={`h-12 w-16 shrink-0 rounded-lg text-center font-num text-xl font-semibold tabular-nums ${isCurrent
+                            ? 'bg-white text-paper-ink ring-[1.5px] ring-inset ring-paper-ink placeholder:font-medium placeholder:text-paper-ink-2'
+                            : 'border border-line bg-surface-hi text-fg placeholder:font-medium placeholder:text-fg-3'}`}
                         />
-                      </div>
-                    </>
-                  )}
-                  <button
-                    onClick={() => skipSet(logKey)}
-                    title={logData.skipped ? '取消跳過' : '跳過此組'}
-                    className={`p-1.5 rounded-lg transition-colors flex-shrink-0
-                    ${logData.skipped
-                      ? 'text-neutral-500 hover:text-neutral-300'
-                      : 'text-neutral-700 hover:text-rose-500'}`}
-                  >
-                    <XCircle size={16} />
-                  </button>
-                  {logData.skipped ? (
-                    <div className="w-10 flex-shrink-0" />
-                  ) : (
-                    <button
-                      type="button"
-                      data-complete-btn
-                      onClick={() => completeSet(logKey, historyKey, historyEntry)}
-                      disabled={!canComplete}
-                      title={logData.done ? '取消完成' : canComplete ? '完成此組' : '先輸入次數'}
-                      aria-label={logData.done ? '取消完成' : '完成此組'}
-                      aria-pressed={Boolean(logData.done)}
-                      className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors
-                      ${logData.done
-                        ? 'bg-emerald-500 text-black'
-                        : canComplete
-                          ? 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700 hover:text-emerald-400'
-                          : 'bg-neutral-900 text-neutral-700 cursor-not-allowed'}`}
-                    >
-                      <Check size={18} strokeWidth={3} />
-                    </button>
+                        <button
+                          type="button"
+                          data-complete-btn
+                          onClick={() => {
+                            completeSet(logKey, historyKey, historyEntry);
+                            if (!logData.done) {
+                              setLitKey(logKey);
+                              // 做完目前這組，試舉卡換到下一組
+                              if (focusedKey === logKey) setFocusedKey(null);
+                            }
+                          }}
+                          disabled={!canComplete}
+                          title={logData.done ? '取消完成' : canComplete ? '完成此組' : '先輸入次數'}
+                          aria-label={logData.done ? '取消完成' : '完成此組'}
+                          aria-pressed={Boolean(logData.done)}
+                          className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-lg transition-colors ${completeClass}`}
+                        >
+                          <Check size={22} strokeWidth={3} />
+                        </button>
+                      </>
+                    )}
+                  </div>
+
+                  {/* 試舉卡的次要動作：帶入上次、跳過這組（跟 ✓ 上下分開） */}
+                  {isCurrent && !logData.skipped && (
+                    <div className="mt-1 flex items-center justify-between gap-2">
+                      <button
+                        type="button"
+                        data-fill-history
+                        onClick={() => canFill && fillFromHistory(logKey, historyKey)}
+                        disabled={!canFill}
+                        title={logData.done ? '已完成' : hasHistory ? '帶入上次重量與次數' : '尚無上次紀錄'}
+                        className="h-11 min-w-0 rounded-lg px-2 text-left text-sm text-paper-ink-2 transition-colors enabled:hover:bg-paper-ink/5 disabled:cursor-default"
+                      >
+                        {hasHistory ? (
+                          <>
+                            上次 <span className="font-num text-base font-semibold tabular-nums text-paper-ink">{hasWeight(historyWeight) ? historyWeight : '—'}</span> kg
+                            {' × '}
+                            <span className="font-num text-base font-semibold tabular-nums text-paper-ink">{hasReps(historyReps) ? historyReps : '—'}</span>
+                          </>
+                        ) : '還沒有上次紀錄'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          skipSet(logKey);
+                          if (focusedKey === logKey) setFocusedKey(null);
+                        }}
+                        title="跳過此組"
+                        className="h-11 shrink-0 rounded-lg px-3 text-sm font-medium text-paper-ink-2 transition-colors hover:bg-paper-ink/5"
+                      >
+                        跳過這組
+                      </button>
+                    </div>
                   )}
                 </div>
 
-                {/* Rest Time Display（pair 核心輪由 sticky bar 呈現；tail 組回到單動作 inline 休息） */}
+                {/* 組間休息（pair 核心輪由 sticky bar 呈現；tail 組回到單動作 inline 休息） */}
                 {(() => {
                   // pair 內只顯示「下一組是 tail 組」的休息
                   if (pairRest && idx + 1 < pairRest.coreRoundCount) return null;
@@ -899,183 +1046,204 @@ const TrainingView = ({
                   if (nextLog?.done) {
                     const restTime = calculateRestTime(nextLogKey, restFromTs);
                     return restTime ? (
-                      <div className="text-xs text-neutral-500 mt-1 pl-11">
-                        休息時間: {restTime}
-                      </div>
+                      <RestLine kind="set-done" label="休息" time={restTime} />
                     ) : null;
                   }
                   const cRestTime = getCurrentRestTime(restFromTs);
                   return (
-                    <div className="text-xs text-emerald-400 mt-1 pl-11 font-semibold animate-pulse">
-                      休息中: {cRestTime}
-                    </div>
+                    <RestLine
+                      kind="set-live" label="休息中" time={cRestTime}
+                      seconds={(currentTime - restFromTs) / 1000} target={restTarget}
+                    />
                   );
                 })()}
               </React.Fragment>
             );
           })}
         </div>
-      </div>
+      </section>
     );
   };
 
   return (
-    <main className="max-w-6xl mx-auto px-4 py-8 grid lg:grid-cols-12 gap-8">
+    <div>
+      {/* ==================== 頂部 bar（唯一的 sticky header） ==================== */}
+      <header ref={barRef} className="sticky top-0 z-40 border-b border-line bg-hall pt-[env(safe-area-inset-top)]">
+        <div className="mx-auto flex h-14 max-w-[480px] items-center gap-2 pl-2 pr-1">
+          <button
+            type="button"
+            data-current-week
+            onClick={() => setSheet({ kind: 'week' })}
+            aria-label={`第 ${currentWeek} 週，切換週次`}
+            aria-haspopup="dialog"
+            className="flex h-11 min-w-11 shrink-0 items-center gap-0.5 rounded-lg px-2 text-fg transition-colors hover:bg-surface"
+          >
+            <span className="font-num text-28 font-semibold tabular-nums">W{currentWeek}</span>
+            <ChevronDown size={16} className="text-fg-2" aria-hidden="true" />
+          </button>
+          <div className="min-w-0 leading-tight">
+            <p className="truncate text-sm text-fg">{guidance.label}</p>
+            <p className="text-xs text-fg-2">RIR {guidance.rir}</p>
+          </div>
+          <div className="ml-auto flex shrink-0 flex-col items-end">
+            <span
+              role="timer"
+              aria-label="這次訓練時長"
+              className={`font-num text-28 font-medium leading-none tabular-nums ${overMinutes > 0 ? 'text-clock' : sessionDuration > 0 ? 'text-fg' : 'text-fg-3'}`}
+            >
+              {formatTime(sessionDuration)}
+            </span>
+            {overMinutes > 0 && (
+              <span data-overtime className="mt-1 text-xs leading-none text-clock">超時 {overMinutes} 分</span>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={onOpenSettings}
+            title="設定"
+            aria-label="設定"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-fg-2 transition-colors hover:bg-surface hover:text-fg"
+          >
+            <Settings size={20} />
+          </button>
+        </div>
+      </header>
 
-      {/* ==================== 訓練區域 (左側) ==================== */}
-      <div className="lg:col-span-8 space-y-6">
-
-        {/* Day Selector */}
-        <div className="grid grid-cols-5 gap-1.5">
+      <main className="mx-auto max-w-[480px] px-4 pb-6">
+        {/* ==================== D1–D5 ==================== */}
+        <div role="group" aria-label="訓練日" className="mt-3 grid grid-cols-5 gap-1 rounded-xl bg-hall-2 p-1">
           {[0, 1, 2, 3, 4].map(d => {
             const wKey = getWorkoutForDay(currentWeek, d);
             const workout = WORKOUTS[wKey];
-            const theme = SESSION_TYPE_THEME[workout.type] ?? SESSION_TYPE_THEME.push;
+            const typeLabel = (SESSION_TYPE_THEME[workout.type] ?? SESSION_TYPE_THEME.push).label;
             const isActive = currentDay === d;
             return (
               <button
                 key={d}
+                type="button"
                 onClick={() => setCurrentDay(d)}
-                className={`py-3 px-1.5 rounded-xl text-sm font-black transition-all border flex flex-col items-center gap-0.5
-                ${isActive
-                  ? theme.activeBtn
-                  : 'bg-neutral-900 border-neutral-800 text-neutral-600 hover:border-neutral-600'}`}
+                aria-pressed={isActive}
+                className={`flex h-12 flex-col items-center justify-center rounded-lg transition-colors
+                ${isActive ? 'bg-ipf text-white' : 'text-fg-2 hover:bg-surface'}`}
               >
-                <div className="text-[10px] opacity-60 font-normal">D{d + 1}</div>
-                <div className="text-xl">{wKey}</div>
-                <div className={`text-[9px] font-bold ${isActive ? 'opacity-80' : theme.accentText}`}>{theme.label}</div>
+                <span className={`font-num text-xl font-semibold leading-none tabular-nums ${isActive ? 'text-white' : 'text-fg'}`}>D{d + 1}</span>
+                <span className="mt-1 text-xs leading-none">{wKey} {typeLabel}</span>
               </button>
             );
           })}
         </div>
+        <p className="mt-2 px-1 text-sm text-fg-2">
+          <span className="font-medium text-fg">{currentWorkout.name}</span> · {currentWorkout.subtitle}
+        </p>
 
-        {/* 60 min 超時警示 */}
-        {overMinutes > 0 && (
-          <div className="p-3 rounded-2xl border bg-amber-900/30 border-amber-600 text-amber-300 text-sm font-bold flex items-center gap-2">
-            <span>⏱</span>
-            <span>已超時 {overMinutes} 分鐘 · 考慮跳過 1 組 isolation</span>
-          </div>
-        )}
-
-        {/* Training Info Box */}
-        <div className={`p-4 rounded-2xl border flex items-center justify-between
-          ${currentWeek % 5 === 0 ? 'bg-amber-900/20 border-amber-800' : 'bg-emerald-900/20 border-emerald-800'}`}>
-          <div className="flex items-center gap-3">
-            <div className={`p-2 rounded-lg ${currentWeek % 5 === 0 ? 'bg-amber-500 text-black' : 'bg-emerald-500 text-black'}`}>
-              <Activity size={20} />
+        {/* ==================== 平台看板 ==================== */}
+        <section aria-label="平台看板" className="mt-3 rounded-2xl border border-line bg-surface">
+          {boardSlot ? (
+            <button
+              type="button"
+              onClick={() => scrollToSet(boardSlot.key)}
+              className="block w-full rounded-t-2xl px-4 pb-3 pt-3 text-left"
+            >
+              <span className="flex items-center gap-3">
+                <span className="min-w-0 flex-1 truncate text-xl font-bold text-fg">{boardName}</span>
+                {prevLamp && (
+                  <span className="flex shrink-0 items-center gap-2 text-xs text-fg-2">
+                    上一組 <Lamps state={prevLamp} />
+                  </span>
+                )}
+              </span>
+              <span className="mt-2 flex items-end gap-5">
+                <span className="block shrink-0">
+                  <span className="block text-xs text-fg-2">組</span>
+                  <span className="block font-num text-44 font-semibold tabular-nums text-fg">
+                    {boardSlot.idx + 1}<span className="text-xl text-fg-2">/{boardSlot.entry.sets}</span>
+                  </span>
+                </span>
+                <span className="block min-w-0">
+                  <span className="block text-xs text-fg-2">上次 kg × 次</span>
+                  <span className={`block whitespace-nowrap font-num font-semibold tabular-nums ${boardLast ? 'text-fg' : 'text-fg-3'} ${boardLast && boardLast.length > 7 ? 'text-28' : 'text-44'}`}>
+                    {boardLast ?? '—'}
+                  </span>
+                </span>
+                {boardRest && (
+                  <span className="ml-auto block shrink-0 text-right" role="timer">
+                    <span className="block text-xs text-fg-2">{boardRest.label} / 目標 {formatMmSs(boardRest.target)}</span>
+                    <span className="block font-num text-44 font-semibold tabular-nums text-clock">{formatMmSs(boardRest.elapsed)}</span>
+                  </span>
+                )}
+              </span>
+              {boardRest && (
+                <span className="mt-3 block h-1 rounded-full bg-surface-hi" aria-hidden="true">
+                  <span
+                    className="block h-full rounded-full bg-clock"
+                    style={{ width: `${Math.min(100, (boardRest.elapsed / boardRest.target) * 100)}%` }}
+                  />
+                </span>
+              )}
+              {boardRest?.over && (
+                <span className="mt-2 block text-sm text-clock">超過目標 {formatMmSs(boardRest.elapsed - boardRest.target)}</span>
+              )}
+              {overMinutes > 0 && (
+                <span className="mt-2 block text-sm text-clock">考慮少做 1 組隔離動作</span>
+              )}
+            </button>
+          ) : finished ? (
+            <div className="px-4 py-4">
+              <p className="text-xl font-bold text-fg">{sessionDuration > 0 ? '今天的課表做完了' : '這天的課表做完了'}</p>
+              {sessionDuration > 0 && (
+                <p className="mt-1 text-sm text-fg-2">
+                  總時長 <span className="font-num text-28 font-semibold tabular-nums text-fg">{formatTime(sessionDuration)}</span>
+                </p>
+              )}
             </div>
-            <div>
-              <p className="text-[10px] uppercase font-bold opacity-60">當前階段建議</p>
-              <p className="font-black text-lg tracking-tight">{guidance.label} | {guidance.rir} RIR</p>
-            </div>
-          </div>
-          <div className="text-right">
-            <p className="text-[10px] font-bold opacity-60 uppercase">週次 {currentWeek} · {currentWorkout.name}</p>
-            <p className="text-xs text-neutral-500">{currentWorkout.subtitle}</p>
-          </div>
-        </div>
-
-        {/* Exercise Card */}
-        {/* overflow-clip 只裁圓角、不建立捲動容器；overflow-hidden 會讓 pair sticky bar 黏不住 */}
-        <div className="bg-neutral-900 rounded-3xl border border-neutral-800 shadow-2xl overflow-clip">
-          <div className="px-8 py-6 border-b border-neutral-800 bg-neutral-800/30">
-            <h2 className="text-2xl font-black text-white italic">{currentWorkout.name}</h2>
-            <p className="text-neutral-500 text-sm mt-1">{currentWorkout.subtitle}</p>
-          </div>
-
-          <DragDropContext
-            onDragEnd={handleDragEnd}
-            autoScrollerOptions={{
-              startFromPercentage: 0.15,
-              maxScrollAtPercentage: 0.03,
-              maxPixelScroll: 8,
-              ease: (p) => p * p,
-            }}
+          ) : null}
+          <button
+            type="button"
+            data-open-volume
+            onClick={() => setSheet({ kind: 'volume' })}
+            aria-haspopup="dialog"
+            className={`flex h-12 w-full items-center justify-between px-4 text-sm font-medium text-fg transition-colors hover:bg-surface-hi ${boardSlot || finished ? 'rounded-b-2xl border-t border-line' : 'rounded-2xl'}`}
           >
-            <Droppable droppableId={`exercises-${workoutKey}`}>
-              {(provided) => (
-                <div
-                  className="divide-y divide-neutral-800"
-                  ref={provided.innerRef}
-                  {...provided.droppableProps}
-                >
-                  {groupedPlan.map((group, groupIdx) => {
-                    const { prevEndTs, prevKind } = groupBoundaries[groupIdx];
-                    if (group.type === 'pair') {
-                      const [a, b] = group.items;
-                      const pairCfg = { primary: a.exercise.id, secondary: b.exercise.id, rest: group.rest };
-                      const pairState = getPairRoundState(pairCfg, a.sets, b.sets, currentWeek, currentDay, logs);
-                      const tailProgress = getPairTailProgress(pairCfg, a.sets, b.sets, currentWeek, currentDay, logs);
-                      const pairRest = {
-                        coreRoundCount: pairState.coreRoundCount,
-                        coreDone: pairState.state === 'done',
-                        coreEndTs: pairState.lastCompleteRoundEndTs,
-                      };
-                      const enterPairLabel = prevKind === 'pair' ? '上一配對' : '上一動作';
-                      // 輪次順序 A1 → B1 → A2 → B2 …，組數多的一方 tail 組接在後面
-                      const pairOrder = [];
-                      for (let i = 0; i < Math.max(a.sets, b.sets); i++) {
-                        if (i < a.sets) pairOrder.push(`w${currentWeek}-d${currentDay}-${a.exercise.id}-s${i}`);
-                        if (i < b.sets) pairOrder.push(`w${currentWeek}-d${currentDay}-${b.exercise.id}-s${i}`);
-                      }
-                      return (
-                        <Draggable key={group.id} draggableId={group.id} index={groupIdx}>
-                          {(provided, snapshot) => (
-                            <div
-                              ref={provided.innerRef}
-                              {...provided.draggableProps}
-                              data-pair-group
-                              className={`transition-all ${snapshot.isDragging ? 'bg-neutral-800 shadow-2xl rounded-xl opacity-95' : ''}`}
-                            >
-                              {/* Pair Header */}
-                              <div className="px-6 pt-4 pb-2 bg-orange-900/15 border-y border-orange-800/40 flex items-center justify-between">
-                                <div className="flex items-center gap-2 text-orange-300 font-black text-xs uppercase tracking-widest">
-                                  <span
-                                    {...provided.dragHandleProps}
-                                    className="cursor-grab active:cursor-grabbing text-orange-400/70 touch-none"
-                                  >
-                                    <GripVertical size={16} />
-                                  </span>
-                                  <span>🔗 SUPERSET</span>
-                                </div>
-                                <div className="text-[10px] font-mono text-orange-200/70">
-                                  切換 15s · 組間 {group.rest}s
-                                </div>
-                              </div>
-                              {/* Sticky timer bar（pair 唯一休息呈現載體） */}
-                              <PairStickyBar
-                                pairState={pairState}
-                                pairInfo={pairCfg}
-                                tailProgress={tailProgress}
-                                currentTime={currentTime}
-                                enterPairFromTs={prevEndTs}
-                                enterPairLabel={enterPairLabel}
-                              />
-                              {/* Inner exercises */}
-                              <div className="divide-y divide-orange-900/30">
-                                {group.items.map(entry => (
-                                  <React.Fragment key={entry.exercise.id}>
-                                    {renderExerciseInner({
-                                      entry,
-                                      dragHandleProps: null,
-                                      hideInterRest: true,
-                                      pairRest,
-                                      prevEndTs: null,
-                                      pairOrder,
-                                    })}
-                                  </React.Fragment>
-                                ))}
-                              </div>
-                              {/* TMJ footer */}
-                              <div className="px-6 pb-3 pt-1 bg-orange-900/15 border-b border-orange-800/40">
-                                <p className="text-[11px] text-orange-200/60 italic">
-                                  💨 下顎放鬆 · 鼻吸口呼
-                                </p>
-                              </div>
-                            </div>
-                          )}
-                        </Draggable>
-                      );
+            本週訓練量
+            <ChevronRight size={18} className="text-fg-2" aria-hidden="true" />
+          </button>
+        </section>
+
+        {/* ==================== 動作清單 ==================== */}
+        <DragDropContext
+          onDragEnd={handleDragEnd}
+          autoScrollerOptions={{
+            startFromPercentage: 0.15,
+            maxScrollAtPercentage: 0.03,
+            maxPixelScroll: 8,
+            ease: (p) => p * p,
+          }}
+        >
+          <Droppable droppableId={`exercises-${workoutKey}`}>
+            {(provided) => (
+              <div
+                className="mt-2"
+                ref={provided.innerRef}
+                {...provided.droppableProps}
+              >
+                {groupedPlan.map((group, groupIdx) => {
+                  const { prevEndTs, prevKind } = groupBoundaries[groupIdx];
+                  if (group.type === 'pair') {
+                    const [a, b] = group.items;
+                    const pairCfg = { primary: a.exercise.id, secondary: b.exercise.id, rest: group.rest };
+                    const pairState = getPairRoundState(pairCfg, a.sets, b.sets, currentWeek, currentDay, logs);
+                    const tailProgress = getPairTailProgress(pairCfg, a.sets, b.sets, currentWeek, currentDay, logs);
+                    const pairRest = {
+                      coreRoundCount: pairState.coreRoundCount,
+                      coreDone: pairState.state === 'done',
+                      coreEndTs: pairState.lastCompleteRoundEndTs,
+                    };
+                    const enterPairLabel = prevKind === 'pair' ? '上一配對' : '上一動作';
+                    // 輪次順序 A1 → B1 → A2 → B2 …，組數多的一方 tail 組接在後面
+                    const pairOrder = [];
+                    for (let i = 0; i < Math.max(a.sets, b.sets); i++) {
+                      if (i < a.sets) pairOrder.push(`w${currentWeek}-d${currentDay}-${a.exercise.id}-s${i}`);
+                      if (i < b.sets) pairOrder.push(`w${currentWeek}-d${currentDay}-${b.exercise.id}-s${i}`);
                     }
                     return (
                       <Draggable key={group.id} draggableId={group.id} index={groupIdx}>
@@ -1083,293 +1251,379 @@ const TrainingView = ({
                           <div
                             ref={provided.innerRef}
                             {...provided.draggableProps}
-                            className={`transition-all ${snapshot.isDragging ? 'bg-neutral-800 shadow-2xl rounded-xl opacity-95' : ''}`}
+                            data-pair-group
+                            className={`my-3 rounded-2xl border border-line ${snapshot.isDragging ? 'bg-surface shadow-2xl' : 'bg-hall'}`}
                           >
-                            {renderExerciseInner({
-                              entry: group.item,
-                              dragHandleProps: provided.dragHandleProps,
-                              hideInterRest: false,
-                              pairRest: null,
-                              prevEndTs,
-                            })}
+                            {/* Pair Header */}
+                            <div className="flex h-12 items-center gap-1.5 pr-3">
+                              <span
+                                {...provided.dragHandleProps}
+                                aria-label="拖曳排序：superset"
+                                className="flex h-11 w-11 shrink-0 cursor-grab touch-none items-center justify-center rounded-lg text-fg-3 hover:text-fg-2 active:cursor-grabbing"
+                              >
+                                <GripVertical size={18} />
+                              </span>
+                              <Link size={16} className="shrink-0 text-fg-2" aria-hidden="true" />
+                              <p className="min-w-0 text-sm text-fg-2">
+                                <span className="font-medium text-fg">Superset</span> · 輪間 {group.rest} 秒 · 切換 {SWITCH_TARGET_SEC} 秒
+                              </p>
+                            </div>
+                            {/* Sticky timer bar（pair 唯一休息呈現載體） */}
+                            <PairStickyBar
+                              pairState={pairState}
+                              pairInfo={pairCfg}
+                              tailProgress={tailProgress}
+                              currentTime={currentTime}
+                              enterPairFromTs={prevEndTs}
+                              enterPairLabel={enterPairLabel}
+                            />
+                            {/* Inner exercises */}
+                            <div className="divide-y divide-line px-3">
+                              {group.items.map(entry => (
+                                <React.Fragment key={entry.exercise.id}>
+                                  {renderExerciseInner({
+                                    entry,
+                                    dragHandleProps: null,
+                                    hideInterRest: true,
+                                    pairRest,
+                                    prevEndTs: null,
+                                    pairOrder,
+                                  })}
+                                </React.Fragment>
+                              ))}
+                            </div>
+                            {/* TMJ footer */}
+                            <p className="flex h-10 items-center gap-2 border-t border-line px-4 text-sm text-fg-2">
+                              <Wind size={16} aria-hidden="true" />
+                              下顎放鬆 · 鼻吸口呼
+                            </p>
                           </div>
                         )}
                       </Draggable>
                     );
-                  })}
-                  {provided.placeholder}
-                </div>
-              )}
-            </Droppable>
-          </DragDropContext>
-
-          {/* 新增動作按鈕 */}
-          <div className="px-6 py-4 border-t border-neutral-800">
-            <button
-              onClick={() => setShowAddExercise(true)}
-              className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border border-dashed border-neutral-700 text-neutral-500 hover:border-emerald-600 hover:text-emerald-500 transition-all text-sm font-bold"
-            >
-              <Plus size={16} /> 新增動作
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* ==================== 統計面板 (右側) ==================== */}
-      <div className="lg:col-span-4 space-y-6">
-        <div className="bg-neutral-900 rounded-3xl border border-neutral-800 p-6 sticky top-24 shadow-2xl">
-
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-white font-black text-sm uppercase italic flex items-center gap-2">
-              <BarChart2 size={16} /> 本週訓練量
-            </h3>
-            <button
-              onClick={() => setShowStats(!showStats)}
-              className="text-neutral-500 hover:text-neutral-300 transition-colors"
-            >
-              {showStats ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
-            </button>
-          </div>
-
-          {showStats && (
-            <>
-              <div className="space-y-4 mb-6">
-                {Object.entries(weeklyVolume).map(([muscle, sets]) => {
-                  if (sets === 0) return null;
-                  const target = getWeeklyMuscleVolume(muscle, currentWeek);
-                  const percentage = target > 0 ? Math.min(120, (sets / target) * 100) : 0;
-                  let color = 'bg-neutral-700';
-                  if (percentage >= 100) color = 'bg-emerald-500';
-                  else if (percentage >= 80) color = 'bg-amber-500';
-                  else if (percentage > 0) color = 'bg-blue-500';
-                  const shortfall = target > sets ? target - sets : 0;
-
+                  }
                   return (
-                    <div key={muscle}>
-                      <div className="flex justify-between text-[11px] font-black uppercase mb-1.5 opacity-80">
-                        <span>{MUSCLE_GROUPS[muscle]}</span>
-                        <span className="font-mono">
-                          {sets}<span className="text-neutral-500"> / {target}</span> 組
-                          {shortfall > 0 && (
-                            <span className="ml-1 text-amber-500/70 normal-case font-bold">↓{shortfall}</span>
-                          )}
-                        </span>
-                      </div>
-                      <div className="h-1.5 bg-neutral-800 rounded-full overflow-hidden">
-                        <div className={`h-full ${color} transition-all duration-1000`} style={{ width: `${Math.min(100, percentage)}%` }} />
-                      </div>
+                    <Draggable key={group.id} draggableId={group.id} index={groupIdx}>
+                      {(provided, snapshot) => (
+                        <div
+                          ref={provided.innerRef}
+                          {...provided.draggableProps}
+                          className={`border-b border-line ${snapshot.isDragging ? 'rounded-2xl bg-surface px-3 shadow-2xl' : 'bg-hall'}`}
+                        >
+                          {renderExerciseInner({
+                            entry: group.item,
+                            dragHandleProps: provided.dragHandleProps,
+                            hideInterRest: false,
+                            pairRest: null,
+                            prevEndTs,
+                          })}
+                        </div>
+                      )}
+                    </Draggable>
+                  );
+                })}
+                {provided.placeholder}
+              </div>
+            )}
+          </Droppable>
+        </DragDropContext>
+
+        {/* 新增動作 */}
+        <button
+          type="button"
+          onClick={() => setShowAddExercise(true)}
+          className="mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-line text-sm font-medium text-fg-2 transition-colors hover:bg-surface hover:text-fg"
+        >
+          <Plus size={18} aria-hidden="true" /> 新增動作
+        </button>
+      </main>
+
+      {/* ==================== 週次 sheet ==================== */}
+      {sheet?.kind === 'week' && (
+        <BottomSheet title="週次" onClose={closeSheet}>
+          <div className="p-2">
+            {[...Array(10)].map((_, i) => {
+              const w = i + 1;
+              const g = getWeeklyGuidance(w);
+              const isCurrent = w === currentWeek;
+              return (
+                <button
+                  key={w}
+                  type="button"
+                  aria-current={isCurrent ? 'true' : undefined}
+                  onClick={() => {
+                    closeSheet();
+                    onSelectWeek?.(w);
+                  }}
+                  className={`flex h-12 w-full items-center gap-4 rounded-xl px-3 text-left transition-colors ${isCurrent ? 'bg-ipf text-white' : 'text-fg hover:bg-surface'}`}
+                >
+                  <span className="w-10 font-num text-xl font-semibold tabular-nums">W{w}</span>
+                  <span className="flex-1 text-sm">{g.label}</span>
+                  <span className={`text-sm ${isCurrent ? 'text-white' : 'text-fg-2'}`}>RIR {g.rir}</span>
+                </button>
+              );
+            })}
+          </div>
+        </BottomSheet>
+      )}
+
+      {/* ==================== 本週訓練量 sheet ==================== */}
+      {sheet?.kind === 'volume' && (
+        <BottomSheet title="本週訓練量" onClose={closeSheet} data-volume-sheet>
+          <div className="space-y-5 px-4 py-4">
+            <ul className="space-y-3">
+              {Object.entries(weeklyVolume).map(([muscle, sets]) => {
+                if (sets === 0) return null;
+                const target = getWeeklyMuscleVolume(muscle, currentWeek);
+                const percentage = target > 0 ? Math.min(100, (sets / target) * 100) : 0;
+                const shortfall = target > sets ? target - sets : 0;
+                return (
+                  <li key={muscle}>
+                    <div className="flex items-baseline justify-between text-sm">
+                      <span className="text-fg">{MUSCLE_GROUPS[muscle]}</span>
+                      <span className="text-fg-2"><span className="font-num text-base font-semibold tabular-nums text-fg">{sets}</span> / {target} 組{shortfall > 0 && (
+                        <span className="ml-1.5 font-medium text-fg">↓{shortfall}</span>
+                      )}</span>
+                    </div>
+                    <div className="mt-1.5 h-1 rounded-full bg-surface-hi" aria-hidden="true">
+                      <div className="h-full rounded-full bg-fg-2" style={{ width: `${percentage}%` }} />
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+            <p className="text-xs leading-relaxed text-fg-2">
+              數字是實際 / 規格目標。↓N 是單動作 {MAX_SETS_PER_EXERCISE} 組上限造成的缺額，可以在動作選項的「增加一組」補回。
+            </p>
+
+            <section className="rounded-xl bg-surface p-4">
+              <h4 className="text-sm font-bold text-fg">{PHASE_CONFIG[phase].label}</h4>
+              <p className="mt-1 text-sm leading-relaxed text-fg-2">
+                {phase === 'hypertrophy'
+                  ? `W1–W4 肌肥大期：肌群週容量從 MEV 遞增到 MRV，複合動作 ${enDash(PHASE_CONFIG.hypertrophy.compound)} 下，隔離動作 ${enDash(PHASE_CONFIG.hypertrophy.isolation)} 下。`
+                  : phase === 'strength'
+                    ? `W6–W9 肌力期：總組數固定在 MEV，專注重量遞增。複合動作 ${enDash(PHASE_CONFIG.strength.compound)} 下，隔離動作 ${enDash(PHASE_CONFIG.strength.isolation)} 下。`
+                    : '減量週：所有肌群組數降到 MEV 的 50%，降低疲勞累積，為下一階段做準備。'}
+              </p>
+            </section>
+
+            <section>
+              <h4 className="text-sm font-bold text-fg">本週循環</h4>
+              <div className="mt-2 grid grid-cols-5 gap-1.5 text-center">
+                {[0, 1, 2, 3, 4].map(d => {
+                  const wKey = getWorkoutForDay(currentWeek, d);
+                  const workout = WORKOUTS[wKey];
+                  const typeLabel = (SESSION_TYPE_THEME[workout.type] ?? SESSION_TYPE_THEME.push).label;
+                  return (
+                    <div key={d} className="rounded-lg bg-surface py-2">
+                      <p className="font-num text-sm tabular-nums text-fg-2">D{d + 1}</p>
+                      <p className="font-num text-xl font-semibold text-fg">{wKey}</p>
+                      <p className="text-xs text-fg-2">{typeLabel}</p>
                     </div>
                   );
                 })}
               </div>
-              <p className="text-[10px] text-neutral-600 leading-relaxed mb-4 -mt-2">
-                數字 = 實際 / 規格目標。<span className="text-amber-500/70">↓N</span> 表示因 4 組上限導致缺額、可在動作卡片「+1 組」手動補回。
-              </p>
-
-              <div className="p-4 bg-neutral-800/50 rounded-2xl border border-neutral-700 text-[11px] leading-relaxed text-neutral-400">
-                <p className="text-white font-bold mb-2 flex items-center gap-2 italic">
-                  <TrendingUp size={12}/> {PHASE_CONFIG[getPhase(currentWeek)].label}
-                </p>
-                {getPhase(currentWeek) === 'hypertrophy' ? (
-                  <p>W1-W4 肌肥大期：肌群週容量從 MEV 遞增至 MRV，複合動作 {PHASE_CONFIG.hypertrophy.compound} 下，隔離動作 {PHASE_CONFIG.hypertrophy.isolation} 下。</p>
-                ) : getPhase(currentWeek) === 'strength' ? (
-                  <p>W6-W9 肌力期：總組數固定於 MEV，專注重量遞增。複合動作 {PHASE_CONFIG.strength.compound} 下，隔離動作 {PHASE_CONFIG.strength.isolation} 下。</p>
-                ) : (
-                  <p>減量週：所有肌群組數降至 MEV 的 50%，降低疲勞累積，為下一階段做準備。</p>
-                )}
-              </div>
-
-              <div className="mt-4 p-4 bg-blue-900/20 rounded-2xl border border-blue-800 text-[11px] leading-relaxed text-neutral-400">
-                <p className="text-blue-400 font-bold mb-2 uppercase tracking-wide">
-                  本週循環
-                </p>
-                <div className="grid grid-cols-5 gap-1.5 text-center">
-                  {[0, 1, 2, 3, 4].map(d => {
-                    const wKey = getWorkoutForDay(currentWeek, d);
-                    const workout = WORKOUTS[wKey];
-                    const theme = SESSION_TYPE_THEME[workout.type] ?? SESSION_TYPE_THEME.push;
-                    return (
-                      <div key={d} className="bg-neutral-900/50 rounded-lg py-2">
-                        <div className="text-[9px] text-neutral-600">D{d + 1}</div>
-                        <div className={`text-lg font-black ${theme.accentText}`}>{wKey}</div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </>
-          )}
-        </div>
-      </div>
-
-      {/* ==================== 替換動作 Picker Modal ==================== */}
-      {/* z-[60] 疊在底部 tab 列（z-50）上面；底部留 home indicator 的安全區，按鈕才點得到 */}
-      {pickerForExId && (
-        <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-[60] flex items-end sm:items-center justify-center p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
-          <div className="bg-neutral-900 border border-neutral-800 rounded-[32px] w-full max-w-sm shadow-2xl flex flex-col max-h-[80vh]">
-            <div className="flex justify-between items-center px-6 pt-6 pb-4 border-b border-neutral-800">
-              <h3 className="text-lg font-black text-white">替換動作</h3>
-              <button
-                onClick={() => { setPickerForExId(null); setPickerSearch(''); }}
-                className="text-neutral-600 hover:text-neutral-300 transition-colors"
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            <div className="px-6 py-4 border-b border-neutral-800">
-              <div className="relative">
-                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-600" />
-                <input
-                  type="text"
-                  value={pickerSearch}
-                  onChange={(e) => setPickerSearch(e.target.value)}
-                  placeholder="搜尋動作或肌群"
-                  autoFocus
-                  className="w-full bg-neutral-800 pl-9 pr-3 py-2 rounded-xl text-sm text-neutral-100
-                    focus:outline-none focus:ring-2 focus:ring-emerald-500 border border-neutral-700"
-                />
-              </div>
-            </div>
-
-            <div className="flex-1 overflow-y-auto px-3 py-2">
-              {filteredLibrary.length === 0 ? (
-                <p className="text-center text-xs text-neutral-600 py-6">沒有符合的動作</p>
-              ) : filteredLibrary.map(item => {
-                const isCurrent = currentOverrideId === item.id;
-                return (
-                  <button
-                    key={item.id}
-                    onClick={() => applyLibraryToExercise(pickerForExId, item)}
-                    className={`w-full text-left flex items-center justify-between gap-3 px-3 py-3 rounded-xl mb-1 transition-all border
-                      ${isCurrent
-                        ? 'bg-emerald-900/30 border-emerald-700'
-                        : 'bg-neutral-800/30 border-transparent hover:bg-neutral-800/70'}`}
-                  >
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm font-bold text-neutral-100 truncate">{item.name}</div>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        <span className="text-[10px] font-bold bg-neutral-900 text-neutral-400 px-1.5 py-0.5 rounded">
-                          {MUSCLE_GROUPS[item.muscle] ?? '未知'}
-                        </span>
-                        <span className={`text-[10px] font-bold ${item.type === 'compound' ? 'text-cyan-500' : 'text-neutral-500'}`}>
-                          {item.type === 'compound' ? '複合' : '隔離'}
-                        </span>
-                      </div>
-                    </div>
-                    {isCurrent && <span className="text-[10px] font-black text-emerald-400 uppercase">目前</span>}
-                  </button>
-                );
-              })}
-            </div>
-
-            {currentOverrideId && (
-              <div className="px-6 pb-4 pt-2 border-t border-neutral-800">
-                <button
-                  onClick={() => resetExerciseOverride(pickerForExId)}
-                  className="w-full py-2 rounded-xl bg-neutral-800 text-neutral-400 text-xs font-bold hover:bg-neutral-700 transition-all"
-                >
-                  恢復為原動作
-                </button>
-              </div>
-            )}
+            </section>
           </div>
-        </div>
+        </BottomSheet>
       )}
 
-      {/* ==================== 新增動作 Modal ==================== */}
-      {/* 同替換動作：疊在 tab 列上面、避開 home indicator */}
-      {showAddExercise && (
-        <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-[60] flex items-end sm:items-center justify-center p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
-          <div className="bg-neutral-900 border border-neutral-800 rounded-[32px] w-full max-w-sm shadow-2xl">
-            <div className="flex justify-between items-center px-6 pt-6 pb-4 border-b border-neutral-800">
-              <h3 className="text-lg font-black text-white">新增動作</h3>
-              <button
-                onClick={() => setShowAddExercise(false)}
-                className="text-neutral-600 hover:text-neutral-300 transition-colors"
+      {/* ==================== 動作選項 sheet ==================== */}
+      {optionsEntry && (() => {
+        const ex = optionsEntry.exercise;
+        const exName = customExerciseNames[ex.id] || ex.name;
+        const setsCount = optionsEntry.sets;
+        return (
+          <BottomSheet title={exName} onClose={closeSheet}>
+            <p className="px-4 pt-3 text-sm text-fg-2">
+              這週 <span className="font-num text-base font-semibold tabular-nums text-fg">{setsCount}</span> 組
+            </p>
+            <div className="p-2">
+              <SheetAction
+                icon={Repeat}
+                title="替換動作"
+                onClick={() => {
+                  closeSheet();
+                  setPickerForExId(ex.id);
+                  setPickerSearch('');
+                }}
               >
-                <X size={20} />
+                替換動作
+              </SheetAction>
+              <SheetAction
+                icon={Plus}
+                title="增加一組"
+                disabled={setsCount >= 10}
+                onClick={() => adjustExerciseSets(ex.id, 1, setsCount)}
+              >
+                增加一組
+              </SheetAction>
+              <SheetAction
+                icon={Minus}
+                title="減少一組"
+                disabled={setsCount <= 1}
+                onClick={() => adjustExerciseSets(ex.id, -1, setsCount)}
+              >
+                減少一組
+              </SheetAction>
+              {ex.isCustom && (
+                <SheetAction
+                  icon={Trash2}
+                  title="刪除此動作"
+                  onClick={() => removeCustomExercise(ex.id, exName)}
+                >
+                  刪除此動作
+                </SheetAction>
+              )}
+            </div>
+          </BottomSheet>
+        );
+      })()}
+
+      {/* ==================== 替換動作 sheet ==================== */}
+      {pickerForExId && (
+        <BottomSheet
+          title="替換動作"
+          onClose={() => { setPickerForExId(null); setPickerSearch(''); }}
+          footer={currentOverrideId && (
+            <div className="border-t border-line p-4">
+              <button
+                type="button"
+                onClick={() => resetExerciseOverride(pickerForExId)}
+                className="h-12 w-full rounded-xl border border-line text-sm font-medium text-fg transition-colors hover:bg-surface"
+              >
+                恢復為原動作
               </button>
             </div>
+          )}
+        >
+          <div className="sticky top-0 z-10 border-b border-line bg-hall-2 px-4 py-3">
+            <label className="relative block">
+              <span className="sr-only">搜尋動作或肌群</span>
+              <Search size={18} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-fg-3" aria-hidden="true" />
+              <input
+                data-autofocus
+                type="text"
+                value={pickerSearch}
+                onChange={(e) => setPickerSearch(e.target.value)}
+                placeholder="搜尋動作或肌群"
+                className="h-12 w-full rounded-xl border border-line bg-surface-hi pl-10 pr-3 text-base text-fg placeholder:text-fg-3"
+              />
+            </label>
+          </div>
+          <div className="p-2">
+            {filteredLibrary.length === 0 ? (
+              <p className="py-6 text-center text-sm text-fg-2">沒有符合的動作</p>
+            ) : filteredLibrary.map(item => {
+              const isCurrent = currentOverrideId === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  aria-current={isCurrent ? 'true' : undefined}
+                  onClick={() => applyLibraryToExercise(pickerForExId, item)}
+                  className={`flex min-h-14 w-full items-center justify-between gap-3 rounded-xl px-3 py-2 text-left transition-colors
+                    ${isCurrent ? 'bg-ipf text-white' : 'text-fg hover:bg-surface'}`}
+                >
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-base font-medium">{item.name}</span>
+                    <span className={`mt-0.5 block text-xs ${isCurrent ? 'text-white' : 'text-fg-2'}`}>
+                      {MUSCLE_GROUPS[item.muscle] ?? '未知'} · {item.type === 'compound' ? '複合' : '隔離'}
+                    </span>
+                  </span>
+                  {isCurrent && <span className="shrink-0 text-xs font-medium">目前</span>}
+                </button>
+              );
+            })}
+          </div>
+        </BottomSheet>
+      )}
 
-            <div className="px-6 py-5 space-y-4">
-              {/* 動作名稱 */}
-              <div>
-                <label className="block text-xs font-bold text-neutral-400 mb-2 uppercase tracking-wider">動作名稱</label>
-                <input
-                  type="text"
-                  value={newEx.name}
-                  onChange={(e) => setNewEx(prev => ({ ...prev, name: e.target.value }))}
-                  onKeyDown={(e) => {
-                    // 注音 / 拼音選字時按 Enter 是確認選字，不是送出（Safari 選字時 keyCode 是 229）
-                    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
-                    if (e.key === 'Enter') addCustomExercise();
-                  }}
-                  placeholder="例如：槓鈴深蹲"
-                  autoFocus
-                  className="w-full bg-neutral-800 px-4 py-3 rounded-xl text-sm font-medium text-neutral-100
-                  focus:outline-none focus:ring-2 focus:ring-emerald-500 border border-neutral-700"
-                />
-              </div>
+      {/* ==================== 新增動作 sheet ==================== */}
+      {showAddExercise && (
+        <BottomSheet
+          title="新增動作"
+          onClose={() => setShowAddExercise(false)}
+          footer={(
+            <div className="flex gap-3 border-t border-line p-4">
+              <button
+                type="button"
+                onClick={() => setShowAddExercise(false)}
+                className="h-12 flex-1 rounded-xl border border-line text-sm font-medium text-fg transition-colors hover:bg-surface"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={addCustomExercise}
+                disabled={!newEx.name.trim()}
+                className="h-12 flex-1 rounded-xl bg-ipf text-sm font-medium text-white transition-colors hover:bg-ipf/90 disabled:cursor-not-allowed disabled:bg-surface-hi disabled:text-fg-3"
+              >
+                新增
+              </button>
+            </div>
+          )}
+        >
+          <div className="space-y-5 px-4 py-4">
+            <label className="block">
+              <span className="mb-2 block text-sm font-medium text-fg-2">動作名稱</span>
+              <input
+                data-autofocus
+                type="text"
+                value={newEx.name}
+                onChange={(e) => setNewEx(prev => ({ ...prev, name: e.target.value }))}
+                onKeyDown={(e) => {
+                  // 注音 / 拼音選字時按 Enter 是確認選字，不是送出（Safari 選字時 keyCode 是 229）
+                  if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+                  if (e.key === 'Enter') addCustomExercise();
+                }}
+                placeholder="例如：槓鈴深蹲"
+                className="h-12 w-full rounded-xl border border-line bg-surface-hi px-4 text-base text-fg placeholder:text-fg-3"
+              />
+            </label>
 
-              {/* 肌群 */}
-              <div>
-                <label className="block text-xs font-bold text-neutral-400 mb-2 uppercase tracking-wider">肌群</label>
+            <label className="block">
+              <span className="mb-2 block text-sm font-medium text-fg-2">肌群</span>
+              <span className="relative block">
                 <select
                   value={newEx.muscle}
                   onChange={(e) => setNewEx(prev => ({ ...prev, muscle: e.target.value }))}
-                  className="w-full bg-neutral-800 px-4 py-3 rounded-xl text-sm font-medium text-neutral-100
-                  focus:outline-none focus:ring-2 focus:ring-emerald-500 border border-neutral-700 appearance-none"
+                  className="h-12 w-full appearance-none rounded-xl border border-line bg-surface-hi pl-4 pr-10 text-base text-fg"
                 >
                   {Object.entries(MUSCLE_GROUPS).map(([key, label]) => (
                     <option key={key} value={key}>{label}</option>
                   ))}
                 </select>
-              </div>
+                <ChevronDown size={18} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-fg-2" aria-hidden="true" />
+              </span>
+            </label>
 
-              {/* 動作類型 */}
-              <div>
-                <label className="block text-xs font-bold text-neutral-400 mb-2 uppercase tracking-wider">類型</label>
-                <div className="grid grid-cols-2 gap-2">
-                  {[
-                    { value: 'compound', label: '複合動作' },
-                    { value: 'isolation', label: '隔離動作' },
-                  ].map(({ value, label }) => (
-                    <button
-                      key={value}
-                      onClick={() => setNewEx(prev => ({ ...prev, type: value }))}
-                      className={`py-3 rounded-xl text-sm font-bold transition-all border
-                      ${newEx.type === value
-                        ? 'bg-emerald-600 text-white border-emerald-600'
-                        : 'bg-neutral-800 text-neutral-400 border-neutral-700 hover:border-neutral-500'}`}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
+            <fieldset>
+              <legend className="mb-2 text-sm font-medium text-fg-2">類型</legend>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { value: 'compound', label: '複合動作' },
+                  { value: 'isolation', label: '隔離動作' },
+                ].map(({ value, label }) => (
+                  <button
+                    key={value}
+                    type="button"
+                    aria-pressed={newEx.type === value}
+                    onClick={() => setNewEx(prev => ({ ...prev, type: value }))}
+                    className={`h-12 rounded-xl border text-sm font-medium transition-colors
+                    ${newEx.type === value
+                      ? 'border-ipf bg-ipf text-white'
+                      : 'border-line text-fg-2 hover:bg-surface hover:text-fg'}`}
+                  >
+                    {label}
+                  </button>
+                ))}
               </div>
-            </div>
-
-            <div className="px-6 pb-6 flex gap-3">
-              <button
-                onClick={() => setShowAddExercise(false)}
-                className="flex-1 py-3 rounded-xl bg-neutral-800 text-neutral-400 font-bold text-sm hover:bg-neutral-700 transition-all"
-              >
-                取消
-              </button>
-              <button
-                onClick={addCustomExercise}
-                disabled={!newEx.name.trim()}
-                className="flex-1 py-3 rounded-xl bg-emerald-600 text-white font-bold text-sm hover:bg-emerald-500 transition-all
-                disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                新增
-              </button>
-            </div>
+            </fieldset>
           </div>
-        </div>
+        </BottomSheet>
       )}
-    </main>
+    </div>
   );
 };
 
