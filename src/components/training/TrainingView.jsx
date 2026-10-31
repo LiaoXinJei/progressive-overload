@@ -189,7 +189,9 @@ const TrainingView = ({
 
   // ==================== 工具函數 ====================
 
-  const formatTime = (seconds) => {
+  // 休息 / 經過時間不會是負的。按 ✓ 的時間可能比畫面上的 currentTime 晚（App 每秒才更新），差值會短暫小於 0
+  const formatTime = (rawSeconds) => {
+    const seconds = Math.max(0, Math.floor(rawSeconds));
     const hrs = Math.floor(seconds / 3600);
     const mins = Math.floor((seconds % 3600) / 60);
     const secs = seconds % 60;

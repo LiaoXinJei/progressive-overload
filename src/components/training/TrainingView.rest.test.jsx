@@ -100,3 +100,25 @@ test('重新完成：s1 已完成，s0 取消再按 ✓，s0 下方休息時間�
   click(completeBtn(0));
   assert.deepEqual(leafTexts('休息時間'), ['休息時間: 3:00']);
 });
+
+// ==================== 休息時間不顯示負數 ====================
+
+test('負數：按 ✓ 的時間比畫面時間晚（App 每秒才更新 currentTime），休息中顯示 0:00 不是 -1:-1', () => {
+  vi.spyOn(Date, 'now').mockReturnValue(T0 + 400);
+  renderView({ currentTime: T0 });
+  typeInto(container.querySelector('[data-reps-input]'), '8');
+  click(completeBtn(0));
+  assert.deepEqual(leafTexts('休息中'), ['休息中: 0:00']);
+});
+
+test('負數：前一個動作末組剛按 ✓，下一個動作的動作間休息顯示 0:00', () => {
+  const n = setsOf(1, 'B', 'pullup');
+  const logs = {};
+  for (let i = 0; i < n - 1; i++) logs[`w1-d1-pullup-s${i}`] = done(60, '8', T0 - 5 * MIN);
+  vi.spyOn(Date, 'now').mockReturnValue(T0 + 400);
+  renderView({ logs, currentTime: T0 });
+  const last = card('引體向上').querySelectorAll('[data-set-row]')[n - 1];
+  typeInto(last.querySelector('[data-reps-input]'), '8');
+  click(last.querySelector('[data-complete-btn]'));
+  assert.deepEqual(leafTexts('動作間休息'), ['動作間休息: 0:00']);
+});
