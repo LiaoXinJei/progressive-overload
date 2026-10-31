@@ -288,6 +288,35 @@ test('重新完成：取消再按 ✓，完成時間沿用第一次完成的時�
   assert.equal(state.logs[key('pullup', 0)].completedAt, t0);
 });
 
+test('重新完成：完成後 60 秒內取消當成誤按，之後真的做完再按 ✓ 用當下時間', () => {
+  const t0 = Date.now();
+  vi.spyOn(Date, 'now').mockReturnValue(t0);
+  const state = renderView({ currentTime: t0 });
+  typeInto(row(0).reps, '8');
+  click(row(0).complete);
+  vi.spyOn(Date, 'now').mockReturnValue(t0 + 10 * 1000);
+  click(row(0).complete);
+  assert.equal('firstCompletedAt' in state.logs[key('pullup', 0)], false);
+  vi.spyOn(Date, 'now').mockReturnValue(t0 + 3 * MIN);
+  click(row(0).complete);
+  assert.equal(state.logs[key('pullup', 0)].completedAt, t0 + 3 * MIN);
+});
+
+test('重新完成：隔幾分鐘回頭取消、改次數再按 ✓（事後修正），沿用原本的完成時間', () => {
+  const t0 = Date.now();
+  vi.spyOn(Date, 'now').mockReturnValue(t0);
+  const state = renderView({ currentTime: t0 });
+  typeInto(row(0).reps, '8');
+  click(row(0).complete);
+  vi.spyOn(Date, 'now').mockReturnValue(t0 + 4 * MIN);
+  click(row(0).complete);
+  typeInto(row(0).reps, '9');
+  vi.spyOn(Date, 'now').mockReturnValue(t0 + 5 * MIN);
+  click(row(0).complete);
+  assert.equal(state.logs[key('pullup', 0)].reps, '9');
+  assert.equal(state.logs[key('pullup', 0)].completedAt, t0);
+});
+
 test('重新完成：已完成的組按跳過、取消跳過再按 ✓，也沿用第一次完成的時間', () => {
   const t0 = Date.now();
   vi.spyOn(Date, 'now').mockReturnValue(t0);

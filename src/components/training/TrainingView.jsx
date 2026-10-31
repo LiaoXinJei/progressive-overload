@@ -23,6 +23,9 @@ const LOWER_MUSCLES = new Set(['QUADS', 'HAMS', 'CALVES']);
 const hasWeight = (w) => w !== undefined && w !== null && w !== '';
 const hasReps = (r) => r !== undefined && r !== null && r !== '';
 
+// 完成後這段時間內取消完成，當成誤按 ✓（重新完成用當下時間，不沿用誤按的時間）
+const MISTAP_UNDO_MS = 60 * 1000;
+
 const parseLogKey = (logKey) => {
   const m = logKey.match(/^w(\d+)-d(\d+)-(.+)-s(\d+)$/);
   return m ? { week: Number(m[1]), day: Number(m[2]), exerciseId: m[3], setIdx: Number(m[4]) } : null;
@@ -306,9 +309,13 @@ const TrainingView = ({
   };
 
   // 取消完成（再按 ✓ 或直接跳過）。歷史由 syncHistory 處理：打錯的數字不會留在歷史、被下一組當成上次紀錄。
-  // 完成時間另存在 firstCompletedAt，重新完成時用回去，休息計時、訓練時長才不會被推到現在
+  // 完成超過 MISTAP_UNDO_MS 才取消是事後修正數字：完成時間另存在 firstCompletedAt，重新完成時用回去，
+  // 休息計時、訓練時長才不會被推到現在。完成後馬上取消是誤按，不保留，之後真的做完用當下時間
   const uncomplete = (log) => {
-    const next = { ...log, done: false, completedAt: undefined, firstCompletedAt: log.firstCompletedAt ?? log.completedAt };
+    const next = { ...log, done: false, completedAt: undefined };
+    const isMistap = log.completedAt == null || Date.now() - log.completedAt < MISTAP_UNDO_MS;
+    if (isMistap) delete next.firstCompletedAt;
+    else next.firstCompletedAt = log.completedAt;
     delete next.historyBefore;
     delete next.historyKey;
     return next;
