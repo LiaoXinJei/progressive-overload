@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
-  RotateCcw, Activity, AlertTriangle, TrendingUp, ShieldCheck,
-  Timer, Settings, Bell, BellOff, ChevronUp
+  RotateCcw, AlertTriangle, TrendingUp, ShieldCheck, Settings, Bell, X,
 } from 'lucide-react';
 import { useRestNotification, requestNotificationPermission } from './hooks/useRestNotification';
 import TrainingView from './components/training/TrainingView';
@@ -373,8 +372,9 @@ const WeightIncrementInput = ({ value, onChange }) => {
         if (legal) onChange(parsed);
       }}
       onBlur={() => setDraft(null)}
-      className="flex-1 bg-neutral-800 px-4 py-3 rounded-xl text-center font-mono text-lg
-      focus:outline-none focus:ring-2 focus:ring-emerald-500 border border-neutral-700"
+      inputMode="decimal"
+      aria-label="重量增減步長（公斤）"
+      className="h-12 min-w-0 flex-1 rounded-xl border border-line bg-surface-hi px-4 text-center font-num text-xl font-semibold tabular-nums text-fg"
     />
   );
 };
@@ -386,6 +386,7 @@ const RPFocusPro = () => {
   const [mode, setMode] = useState('maintenance');
   const [currentWeek, setCurrentWeek] = useState(1);
   const [currentDay, setCurrentDay] = useState(0);
+  // 舊統計面板的開關。本週訓練量改成 sheet 之後畫面不再用，存檔結構不動所以照樣讀寫
   const [showStats, setShowStats] = useState(true);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [activeTab, setActiveTab] = useState('training');
@@ -410,51 +411,21 @@ const RPFocusPro = () => {
   const [nutritionProfile, setNutritionProfile] = useState(null);
   const [nutritionLogs, setNutritionLogs] = useState({});
 
-  // 回頂部按鈕
-  const [showScrollTop, setShowScrollTop] = useState(false);
-
+  // 設定 modal 按 Esc 關閉
   useEffect(() => {
-    const onScroll = () => setShowScrollTop(window.scrollY > 300);
-    window.addEventListener('scroll', onScroll, { passive: true });
-    return () => window.removeEventListener('scroll', onScroll);
-  }, []);
-
-  const scrollToTop = useCallback(() => {
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  }, []);
-
-  // header 是 sticky，高度隨螢幕寬度與分頁改變；寫進 --app-header-h 給 pair sticky bar 當 top
-  const headerRef = useRef(null);
-  useEffect(() => {
-    const el = headerRef.current;
-    if (!el) return;
-    const update = () => {
-      document.documentElement.style.setProperty('--app-header-h', `${el.offsetHeight}px`);
-    };
-    update();
-    if (typeof ResizeObserver === 'undefined') return;
-    const ro = new ResizeObserver(update);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
+    if (!showSettings) return;
+    const onKeyDown = (e) => { if (e.key === 'Escape') setShowSettings(false); };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [showSettings]);
 
   // ==================== 計時器邏輯 ====================
 
+  // 訓練時長由 TrainingView 頂部 bar 顯示（sessionDuration），這裡只負責每秒更新現在時間
   useEffect(() => {
     const interval = setInterval(() => setCurrentTime(Date.now()), 1000);
     return () => clearInterval(interval);
   }, []);
-
-  // 取得今日訓練的開始（最早）與結束（最晚）完成時間戳
-  const workoutTimes = useMemo(() => {
-    const prefix = `w${currentWeek}-d${currentDay}-`;
-    const timestamps = Object.entries(logs)
-      .filter(([key]) => key.startsWith(prefix))
-      .map(([, log]) => log?.completedAt)
-      .filter(Boolean);
-    if (timestamps.length === 0) return null;
-    return { start: Math.min(...timestamps), end: Math.max(...timestamps) };
-  }, [logs, currentWeek, currentDay]);
 
   // restContext 依最近一筆 done log + sessionPlan + SUPERSET_PAIRS 推得。
   // 綁最近一筆 done log 所在的週 / 天，不綁畫面：休息中切去看別天 / 別週，背景通知照樣排程。
@@ -480,15 +451,14 @@ const RPFocusPro = () => {
 
   useRestNotification({ restContext });
 
-  const formatTime = (seconds) => {
-    const hrs = Math.floor(seconds / 3600);
-    const mins = Math.floor((seconds % 3600) / 60);
-    const secs = seconds % 60;
-    if (hrs > 0) {
-      return `${hrs}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-    }
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  // 週次 sheet（在 TrainingView）選週：點目前這週不動；換週才回到 D1
+  const selectWeek = (w) => {
+    if (w === currentWeek) return;
+    setCurrentWeek(w);
+    setCurrentDay(0);
   };
+
+  const openSettings = () => setShowSettings(true);
 
   // ==================== 資料持久化 ====================
 
@@ -617,108 +587,22 @@ const RPFocusPro = () => {
 
   // ==================== 渲染 ====================
 
+  // 設定 modal 裡的小標題與分段按鈕
+  const settingLabel = 'mb-3 flex items-center gap-2 text-sm font-bold text-fg';
+  const chip = (active) => `h-11 min-w-11 rounded-lg px-3 text-sm font-medium transition-colors
+    ${active ? 'bg-ipf text-white' : 'bg-surface-hi text-fg-2 hover:text-fg'}`;
+
   return (
-    <div className="min-h-screen bg-neutral-950 text-neutral-200 font-sans pb-20">
-
-      {/* ==================== Header ==================== */}
-      <header ref={headerRef} className="bg-neutral-900 border-b border-neutral-800 sticky top-0 z-50 shadow-2xl">
-        <div className="max-w-6xl mx-auto px-4 py-4">
-          <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-
-            {/* Logo */}
-            <h1 className="text-xl font-black italic tracking-tighter text-white flex items-center gap-2">
-              <Activity className="text-emerald-500" /> RP FOCUS PRO
-            </h1>
-
-            {/* Mode Switcher - only show on training tab */}
-            {activeTab === 'training' && (
-              <div className="flex bg-neutral-800 p-1 rounded-full border border-neutral-700 w-full md:w-auto">
-                <button
-                  onClick={() => setMode('maintenance')}
-                  className={`flex-1 md:flex-none px-6 py-2 rounded-full text-xs font-bold transition-all flex items-center justify-center gap-2
-                  ${mode === 'maintenance' ? 'bg-blue-600 text-white shadow-lg' : 'text-neutral-500 hover:text-neutral-300'}`}
-                >
-                  <ShieldCheck size={14} /> 維持模式
-                </button>
-                <button
-                  onClick={() => setMode('bulking')}
-                  className={`flex-1 md:flex-none px-6 py-2 rounded-full text-xs font-bold transition-all flex items-center justify-center gap-2
-                  ${mode === 'bulking' ? 'bg-orange-600 text-white shadow-lg' : 'text-neutral-500 hover:text-neutral-300'}`}
-                >
-                  <TrendingUp size={14} /> 增重模式
-                </button>
-              </div>
-            )}
-
-            {/* Timer & Controls */}
-            <div className="flex items-center gap-3">
-              {activeTab === 'training' && workoutTimes && (
-                <div className="flex items-center gap-2 bg-neutral-800 px-4 py-2 rounded-full border border-neutral-700">
-                  <Timer size={16} className="text-emerald-500" />
-                  <span className="font-mono text-sm min-w-[60px] text-center">
-                    {formatTime(Math.floor((workoutTimes.end - workoutTimes.start) / 1000))}
-                  </span>
-                </div>
-              )}
-
-              <button
-                onClick={() => setShowSettings(true)}
-                className="text-neutral-600 hover:text-neutral-300 transition-colors"
-                title="設定"
-              >
-                <Settings size={18} />
-              </button>
-
-              <button
-                onClick={() => setShowResetConfirm(true)}
-                className="text-neutral-600 hover:text-red-500 transition-colors"
-                title="重設所有資料"
-              >
-                <RotateCcw size={18} />
-              </button>
-            </div>
-          </div>
-
-          {/* Week Tabs - only show on training tab */}
-          {activeTab === 'training' && (
-            <div className="flex space-x-2 overflow-x-auto py-4 no-scrollbar">
-              {[...Array(10)].map((_, i) => {
-                const w = i + 1;
-                const isCurrent = currentWeek === w;
-                const isDeload = w === 5 || w === 10;
-                return (
-                  <button
-                    key={w}
-                    onClick={() => {
-                      // 點目前這週不動；換週才回到 D1
-                      if (w === currentWeek) return;
-                      setCurrentWeek(w);
-                      setCurrentDay(0);
-                    }}
-                    className={`flex-shrink-0 w-12 h-10 rounded-lg text-xs font-bold transition-all border
-                    ${isCurrent
-                      ? 'bg-white text-black border-white scale-110 shadow-lg'
-                      : isDeload
-                      ? 'bg-amber-900 text-amber-400 border-amber-700 hover:border-amber-500'
-                      : 'bg-neutral-800 text-neutral-500 border-neutral-700 hover:border-neutral-500'}`}
-                  >
-                    W{w}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      </header>
+    // 底部留 tab 列（56px）+ home indicator 的空間，最後一個元素不會被蓋住
+    <div className="min-h-screen bg-hall pb-[calc(5rem+env(safe-area-inset-bottom))] font-sans text-fg">
 
       {/* ==================== Main Content ==================== */}
+      {/* 訓練頁的頂部 bar 由 TrainingView 自己畫（週次、階段、訓練時長、設定） */}
       {activeTab === 'training' ? (
         <TrainingView
           logs={logs} setLogs={setLogs}
           history={history} setHistory={setHistory}
-          mode={mode}
           currentWeek={currentWeek} currentDay={currentDay} setCurrentDay={setCurrentDay}
-          showStats={showStats} setShowStats={setShowStats}
           customExerciseNames={customExerciseNames} setCustomExerciseNames={setCustomExerciseNames}
           customExercises={customExercises} setCustomExercises={setCustomExercises}
           customSets={customSets} setCustomSets={setCustomSets}
@@ -727,14 +611,33 @@ const RPFocusPro = () => {
           exerciseOverrides={exerciseOverrides} setExerciseOverrides={setExerciseOverrides}
           weightIncrement={weightIncrement}
           currentTime={currentTime}
+          restTarget={restNotificationDelay}
+          onSelectWeek={selectWeek}
+          onOpenSettings={openSettings}
         />
       ) : (
-        <NutritionView
-          nutritionProfile={nutritionProfile}
-          setNutritionProfile={setNutritionProfile}
-          nutritionLogs={nutritionLogs}
-          setNutritionLogs={setNutritionLogs}
-        />
+        <>
+          <header className="sticky top-0 z-40 border-b border-line bg-hall pt-[env(safe-area-inset-top)]">
+            <div className="mx-auto flex h-14 max-w-[480px] items-center justify-between pl-4 pr-1">
+              <h1 className="text-xl font-bold text-fg">營養</h1>
+              <button
+                type="button"
+                onClick={openSettings}
+                title="設定"
+                aria-label="設定"
+                className="flex h-11 w-11 items-center justify-center rounded-lg text-fg-2 transition-colors hover:bg-surface hover:text-fg"
+              >
+                <Settings size={20} />
+              </button>
+            </div>
+          </header>
+          <NutritionView
+            nutritionProfile={nutritionProfile}
+            setNutritionProfile={setNutritionProfile}
+            nutritionLogs={nutritionLogs}
+            setNutritionLogs={setNutritionLogs}
+          />
+        </>
       )}
 
       {/* ==================== Tab Navigation ==================== */}
@@ -743,22 +646,29 @@ const RPFocusPro = () => {
       {/* ==================== Reset Modal ==================== */}
       {/* z-[60]：疊在同樣 z-50、DOM 在前面的底部 TabNavigation 上面 */}
       {showResetConfirm && (
-        <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-[60] flex items-center justify-center p-6">
-          <div className="bg-neutral-900 border border-neutral-800 p-8 rounded-[40px] max-w-sm w-full shadow-2xl text-center">
-            <h3 className="text-2xl font-black text-white mb-4 italic uppercase">重設所有資料？</h3>
-            <p className="text-neutral-500 mb-8 text-sm font-medium">
-              這將清除所有訓練記錄、營養資料和進度。此操作無法復原。
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-hall/80 p-6">
+          <div
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="reset-title"
+            className="w-full max-w-sm rounded-2xl border border-line bg-hall-2 p-6 text-fg shadow-2xl"
+          >
+            <h3 id="reset-title" className="text-xl font-bold">重設所有資料？</h3>
+            <p className="mt-2 text-sm leading-relaxed text-fg-2">
+              會清掉所有訓練紀錄、營養資料和進度，清掉就救不回來。Gemini API Key 會保留。
             </p>
-            <div className="flex gap-4">
+            <div className="mt-6 flex gap-3">
               <button
+                type="button"
                 onClick={() => setShowResetConfirm(false)}
-                className="flex-1 py-4 rounded-2xl bg-neutral-800 text-white font-black uppercase tracking-widest text-xs hover:bg-neutral-700 transition-all"
+                className="h-12 flex-1 rounded-xl border border-line text-sm font-medium text-fg transition-colors hover:bg-surface"
               >
                 取消
               </button>
               <button
+                type="button"
                 onClick={resetData}
-                className="flex-1 py-4 rounded-2xl bg-red-600 text-white font-black uppercase tracking-widest text-xs hover:bg-red-500 transition-all shadow-lg shadow-red-900/50"
+                className="h-12 flex-1 rounded-xl bg-fg text-sm font-bold text-hall transition-colors hover:bg-fg-2"
               >
                 確定重設
               </button>
@@ -767,50 +677,46 @@ const RPFocusPro = () => {
         </div>
       )}
 
-      {/* ==================== Scroll To Top Button ==================== */}
-      {/* 營養頁不顯示：會壓住右下角的「+」新增餐點和最後一餐的刪除鈕 */}
-      {showScrollTop && activeTab === 'training' && (
-        <button
-          onClick={scrollToTop}
-          className="fixed bottom-24 right-4 z-50 w-12 h-12 rounded-full bg-emerald-600 text-white shadow-lg shadow-emerald-900/50 flex items-center justify-center hover:bg-emerald-500 active:scale-95 transition-all"
-          aria-label="回到頂部"
-        >
-          <ChevronUp size={22} />
-        </button>
-      )}
-
       {/* ==================== Settings Modal ==================== */}
       {showSettings && (
-        <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-[60] flex items-center justify-center p-6">
-          <div className="bg-neutral-900 border border-neutral-800 p-8 rounded-[40px] max-w-md w-full shadow-2xl overflow-y-auto max-h-[85vh]">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-2xl font-black text-white italic uppercase flex items-center gap-2">
-                <Settings size={24} className="text-emerald-500" /> 設定
+        <div
+          className="fixed inset-0 z-[60] flex items-end justify-center bg-hall/80 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:items-center"
+          onClick={(e) => { if (e.target === e.currentTarget) setShowSettings(false); }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="settings-title"
+            className="max-h-[85vh] w-full max-w-md overflow-y-auto overscroll-contain rounded-2xl border border-line bg-hall-2 p-5 text-fg shadow-2xl"
+          >
+            <div className="mb-4 flex items-center justify-between">
+              <h3 id="settings-title" className="flex items-center gap-2 text-xl font-bold">
+                <Settings size={20} className="text-fg-2" aria-hidden="true" /> 設定
               </h3>
               <button
+                type="button"
                 onClick={() => setShowSettings(false)}
-                className="text-neutral-600 hover:text-neutral-300 transition-colors text-2xl"
+                aria-label="關閉"
+                className="-mr-2 flex h-11 w-11 items-center justify-center rounded-lg text-fg-2 transition-colors hover:bg-surface hover:text-fg"
               >
-                &times;
+                <X size={20} />
               </button>
             </div>
 
             {/* Settings Tabs */}
-            <div className="flex bg-neutral-800 p-1 rounded-full border border-neutral-700 mb-6">
-              <button
-                onClick={() => setSettingsTab('general')}
-                className={`flex-1 py-2 rounded-full text-xs font-bold transition-all
-                ${settingsTab === 'general' ? 'bg-emerald-600 text-white shadow-lg' : 'text-neutral-500 hover:text-neutral-300'}`}
-              >
-                一般
-              </button>
-              <button
-                onClick={() => setSettingsTab('library')}
-                className={`flex-1 py-2 rounded-full text-xs font-bold transition-all
-                ${settingsTab === 'library' ? 'bg-emerald-600 text-white shadow-lg' : 'text-neutral-500 hover:text-neutral-300'}`}
-              >
-                動作庫
-              </button>
+            <div role="group" aria-label="設定分類" className="mb-6 grid grid-cols-2 gap-1 rounded-xl bg-hall p-1">
+              {[['general', '一般'], ['library', '動作庫']].map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setSettingsTab(key)}
+                  aria-pressed={settingsTab === key}
+                  className={`h-11 rounded-lg text-sm font-medium transition-colors
+                  ${settingsTab === key ? 'bg-ipf text-white' : 'text-fg-2 hover:text-fg'}`}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
 
             {settingsTab === 'library' ? (
@@ -821,126 +727,140 @@ const RPFocusPro = () => {
                 setExerciseOverrides={setExerciseOverrides}
               />
             ) : (
-            <>
+            <div className="space-y-8">
             {/* Weight Increment Setting */}
-            <div className="mb-6">
-              <label className="block text-sm font-bold text-neutral-300 mb-3">
-                重量增減步長
-              </label>
+            <section>
+              <h4 className={settingLabel}>重量增減步長</h4>
               <div className="flex items-center gap-3">
                 <WeightIncrementInput value={weightIncrement} onChange={setWeightIncrement} />
-                <span className="text-neutral-500 text-sm">kg</span>
+                <span className="text-sm text-fg-2">kg</span>
               </div>
-              <p className="text-neutral-500 text-xs mt-3 leading-relaxed">
-                點擊 +/- 按鈕時的重量變化量。常用值：<br />
-                <span className="inline-flex gap-2 mt-2 flex-wrap">
-                  {[1, 1.25, 2, 2.5, 5].map(val => (
-                    <button
-                      key={val}
-                      onClick={() => setWeightIncrement(val)}
-                      className={`px-3 py-1 rounded-lg text-xs font-bold transition-all
-                      ${weightIncrement === val
-                        ? 'bg-emerald-600 text-white'
-                        : 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700'}`}
-                    >
-                      {val}kg
-                    </button>
-                  ))}
-                </span>
-              </p>
-            </div>
+              <p className="mt-3 text-sm text-fg-2">按 − / + 時重量變多少。常用值：</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {[1, 1.25, 2, 2.5, 5].map(val => (
+                  <button
+                    key={val}
+                    type="button"
+                    onClick={() => setWeightIncrement(val)}
+                    aria-pressed={weightIncrement === val}
+                    className={chip(weightIncrement === val)}
+                  >
+                    {val}kg
+                  </button>
+                ))}
+              </div>
+            </section>
 
             {/* Rest Notification Setting */}
-            <div className="mb-6">
-              <label className="block text-sm font-bold text-neutral-300 mb-3 flex items-center gap-2">
-                <Bell size={14} className="text-emerald-500" /> 休息計時推播通知
-              </label>
-              <p className="text-neutral-500 text-xs mb-3 leading-relaxed">
-                離開 App 後，超過設定時間即發送通知提醒做下一組。<br/>
-                <span className="text-neutral-600">
-                  Superset 配對的輪間休息採配對自身設定（75 / 90 秒）、不受此處影響。
-                </span>
+            <section>
+              <h4 className={settingLabel}>
+                <Bell size={16} className="text-fg-2" aria-hidden="true" /> 休息計時推播通知
+              </h4>
+              <p className="mb-3 text-sm leading-relaxed text-fg-2">
+                離開 App 後，休息超過設定時間就發通知提醒做下一組。這也是訓練頁組間休息的目標時間。
+                Superset 的輪間休息照配對自己的設定（75 / 90 秒），不受這裡影響。
               </p>
 
               {/* Permission button */}
               {notifPermission !== 'granted' ? (
                 <button
+                  type="button"
                   onClick={async () => {
                     const p = await requestNotificationPermission();
                     setNotifPermission(p);
                   }}
                   disabled={notifPermission === 'denied' || notifPermission === 'unsupported'}
-                  className={`w-full py-3 rounded-xl text-xs font-bold uppercase tracking-widest mb-3 transition-all
-                  ${notifPermission === 'denied' || notifPermission === 'unsupported'
-                    ? 'bg-neutral-800 text-neutral-600 cursor-not-allowed'
-                    : 'bg-emerald-600 text-white hover:bg-emerald-500'}`}
+                  className="mb-3 h-12 w-full rounded-xl bg-ipf text-sm font-medium text-white transition-colors hover:bg-ipf/90 disabled:cursor-not-allowed disabled:bg-surface-hi disabled:text-fg-2"
                 >
-                  {notifPermission === 'denied' ? '通知已被封鎖（請至系統設定解除）'
-                    : notifPermission === 'unsupported' ? '此裝置不支援推播通知'
+                  {notifPermission === 'denied' ? '通知已被封鎖（請到系統設定解除）'
+                    : notifPermission === 'unsupported' ? '這台裝置不支援推播通知'
                     : '啟用推播通知'}
                 </button>
               ) : (
-                <div className="flex items-center gap-2 text-xs text-emerald-400 mb-3 bg-emerald-900/30 px-4 py-2 rounded-xl border border-emerald-800">
-                  <Bell size={12} /> 推播通知已啟用
-                </div>
+                <p className="mb-3 flex items-center gap-2 rounded-xl border border-line px-4 py-3 text-sm text-fg">
+                  <Bell size={14} className="text-ipf-bright" aria-hidden="true" /> 推播通知已啟用
+                </p>
               )}
 
               {/* Custom time input */}
-              <div className="flex items-center gap-2 mb-3">
+              <div className="mb-3 flex items-center gap-2">
                 <input
                   type="number"
+                  inputMode="numeric"
                   min="0"
                   max="59"
+                  aria-label="休息目標（分）"
                   value={Math.floor(restNotificationDelay / 60)}
                   onChange={(e) => {
                     const mins = Math.max(0, Math.min(59, parseInt(e.target.value) || 0));
                     setRestNotificationDelay(mins * 60 + (restNotificationDelay % 60));
                   }}
-                  className="w-16 bg-neutral-800 px-3 py-3 rounded-xl text-center font-mono text-lg
-                  focus:outline-none focus:ring-2 focus:ring-emerald-500 border border-neutral-700"
+                  className="h-12 w-16 rounded-xl border border-line bg-surface-hi text-center font-num text-xl font-semibold tabular-nums text-fg"
                 />
-                <span className="text-neutral-500 font-bold text-lg">:</span>
+                <span className="font-num text-xl font-semibold text-fg-2">:</span>
                 <input
                   type="number"
+                  inputMode="numeric"
                   min="0"
                   max="59"
+                  aria-label="休息目標（秒）"
                   value={String(restNotificationDelay % 60).padStart(2, '0')}
                   onChange={(e) => {
                     const secs = Math.max(0, Math.min(59, parseInt(e.target.value) || 0));
                     setRestNotificationDelay(Math.floor(restNotificationDelay / 60) * 60 + secs);
                   }}
-                  className="w-16 bg-neutral-800 px-3 py-3 rounded-xl text-center font-mono text-lg
-                  focus:outline-none focus:ring-2 focus:ring-emerald-500 border border-neutral-700"
+                  className="h-12 w-16 rounded-xl border border-line bg-surface-hi text-center font-num text-xl font-semibold tabular-nums text-fg"
                 />
-                <span className="text-neutral-500 text-sm">min : sec</span>
+                <span className="text-sm text-fg-2">分 : 秒</span>
               </div>
 
               {/* Quick presets */}
-              <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex flex-wrap items-center gap-2">
                 {[60, 90, 120, 150, 180].map(val => {
                   const label = `${Math.floor(val / 60)}:${String(val % 60).padStart(2, '0')}`;
                   return (
                     <button
                       key={val}
+                      type="button"
                       onClick={() => setRestNotificationDelay(val)}
-                      className={`px-3 py-1 rounded-lg text-xs font-bold transition-all
-                      ${restNotificationDelay === val
-                        ? 'bg-emerald-600 text-white'
-                        : 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700'}`}
+                      aria-pressed={restNotificationDelay === val}
+                      className={`${chip(restNotificationDelay === val)} font-num text-base tabular-nums`}
                     >
                       {label}
                     </button>
                   );
                 })}
               </div>
-            </div>
+            </section>
+
+            {/* 維持 / 增重：目前只存著，不影響課表 */}
+            <section>
+              <h4 className={settingLabel}>模式</h4>
+              <div role="group" aria-label="模式" className="grid grid-cols-2 gap-1 rounded-xl bg-hall p-1">
+                {[
+                  { value: 'maintenance', label: '維持模式', icon: ShieldCheck },
+                  { value: 'bulking', label: '增重模式', icon: TrendingUp },
+                ].map(({ value, label, icon: Icon }) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setMode(value)}
+                    aria-pressed={mode === value}
+                    className={`flex h-11 items-center justify-center gap-2 rounded-lg text-sm font-medium transition-colors
+                    ${mode === value ? 'bg-ipf text-white' : 'text-fg-2 hover:text-fg'}`}
+                  >
+                    <Icon size={16} aria-hidden="true" /> {label}
+                  </button>
+                ))}
+              </div>
+              <p className="mt-2 text-xs text-fg-2">目前只記錄選擇，不會改變課表。</p>
+            </section>
 
             {/* Gemini API Key Setting */}
-            <div className="mb-6">
-              <label className="block text-sm font-bold text-neutral-300 mb-3">
-                Gemini API Key
-              </label>
+            <section>
+              <label htmlFor="gemini-key" className={settingLabel}>Gemini API Key</label>
               <input
+                id="gemini-key"
                 type="password"
                 value={nutritionProfile?.geminiApiKey || ''}
                 onChange={(e) => setNutritionProfile(prev => ({
@@ -948,20 +868,32 @@ const RPFocusPro = () => {
                   geminiApiKey: e.target.value
                 }))}
                 placeholder="輸入 Google Gemini API Key"
-                className="w-full bg-neutral-800 px-4 py-3 rounded-xl font-mono text-sm
-                focus:outline-none focus:ring-2 focus:ring-emerald-500 border border-neutral-700"
+                className="h-12 w-full rounded-xl border border-line bg-surface-hi px-4 text-base text-fg placeholder:text-fg-3"
               />
-              <p className="text-neutral-500 text-xs mt-2">
-                用於 AI 食物照片分析功能。可從 Google AI Studio 取得。
+              <p className="mt-2 text-xs text-fg-2">
+                AI 食物照片分析用，可以到 Google AI Studio 申請。
               </p>
-            </div>
+            </section>
 
-            </>
+            {/* 重設資料 */}
+            <section>
+              <h4 className={settingLabel}>資料</h4>
+              <button
+                type="button"
+                onClick={() => { setShowSettings(false); setShowResetConfirm(true); }}
+                title="重設所有資料"
+                className="flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-line text-sm font-medium text-fg transition-colors hover:bg-surface"
+              >
+                <RotateCcw size={16} aria-hidden="true" /> 重設所有資料
+              </button>
+            </section>
+            </div>
             )}
 
             <button
+              type="button"
               onClick={() => setShowSettings(false)}
-              className="w-full py-4 rounded-2xl bg-emerald-600 text-white font-black uppercase tracking-widest text-xs hover:bg-emerald-500 transition-all shadow-lg shadow-emerald-900/50 mt-4"
+              className="mt-8 h-12 w-full rounded-xl bg-ipf text-sm font-bold text-white transition-colors hover:bg-ipf/90"
             >
               完成
             </button>
@@ -973,13 +905,14 @@ const RPFocusPro = () => {
       {storageNotice && (
         <div
           role="alert"
-          className="fixed top-4 inset-x-4 z-[70] mx-auto max-w-md bg-amber-950 border border-amber-700 rounded-2xl shadow-2xl p-4 flex items-start gap-3"
+          className="fixed inset-x-4 top-[max(1rem,env(safe-area-inset-top))] z-[70] mx-auto flex max-w-md items-start gap-3 rounded-2xl border border-line bg-surface-hi p-4 shadow-2xl"
         >
-          <AlertTriangle size={18} className="text-amber-400 shrink-0 mt-0.5" />
-          <p className="flex-1 min-w-0 text-sm text-amber-100 leading-relaxed break-words">{storageNotice}</p>
+          <AlertTriangle size={18} className="mt-0.5 shrink-0 text-fg" aria-hidden="true" />
+          <p className="min-w-0 flex-1 break-words text-sm leading-relaxed text-fg">{storageNotice}</p>
           <button
+            type="button"
             onClick={() => setStorageNotice(null)}
-            className="shrink-0 text-xs font-bold text-amber-300 hover:text-amber-100 transition-colors"
+            className="-my-2 h-11 shrink-0 rounded-lg px-3 text-sm font-bold text-ipf-bright transition-colors hover:bg-surface"
           >
             知道了
           </button>
