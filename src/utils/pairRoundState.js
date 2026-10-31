@@ -196,6 +196,27 @@ export const getPairTailProgress = (pair, aSets, bSets, currentWeek, currentDay,
 };
 
 /**
+ * 最近一筆 done log（completedAt 最晚）所在的週 / 天。休息通知綁這一天，不綁畫面上正在看的那天，
+ * 休息中切去看別天 / 別週，通知照樣排程。沒有任何 done log → null。
+ *
+ * @returns {{ week: number, day: number } | null}
+ */
+export const getLatestDoneSession = (logs) => {
+  let latest = null;
+  let latestTs = 0;
+  for (const [key, log] of Object.entries(logs)) {
+    if (!log?.done) continue;
+    const ts = log.completedAt ?? 0;
+    if (ts <= latestTs) continue;
+    const parsed = parseLogKey(key);
+    if (!parsed) continue;
+    latest = { week: parsed.week, day: parsed.day };
+    latestTs = ts;
+  }
+  return latest;
+};
+
+/**
  * 通知排程 context。依「當日最近一筆 done log」推得。
  *
  * type:

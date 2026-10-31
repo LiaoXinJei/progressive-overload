@@ -6,6 +6,7 @@ import {
   getPairForExerciseId,
   isPairTailSet,
   getRestContext,
+  getLatestDoneSession,
 } from './pairRoundState.js';
 
 const W = 1;
@@ -66,6 +67,23 @@ test('isPairTailSet: B 多一組、B_3 為 tail', () => {
 test('isPairTailSet: 動作 id 不屬於 pair', () => {
   const pair = { primary: 'A', secondary: 'B', rest: 75 };
   assert.equal(isPairTailSet(pair, 3, 4, 'X', 5), false);
+});
+
+// ==================== getLatestDoneSession ====================
+
+test('getLatestDoneSession: 回傳完成時間最晚那筆 done log 的週 / 天', () => {
+  const logs = {
+    'w1-d1-pullup-s0': done(3000),
+    'w2-d0-bp_flat-s0': done(1000),
+    'w3-d4-rdl_db-s0': { skipped: true },
+    'w1-d2-db_press_seated-s0': { weight: 20, reps: '8' }, // 沒完成
+  };
+  assert.deepEqual(getLatestDoneSession(logs), { week: 1, day: 1 });
+});
+
+test('getLatestDoneSession: 沒有任何 done log → null', () => {
+  assert.equal(getLatestDoneSession({ 'w1-d1-pullup-s0': { skipped: true } }), null);
+  assert.equal(getLatestDoneSession({}), null);
 });
 
 // ==================== getRestContext: idle ====================
