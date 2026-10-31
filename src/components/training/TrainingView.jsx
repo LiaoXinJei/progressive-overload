@@ -17,7 +17,7 @@ import {
   customSetsKey, withoutCustomSets,
 } from '../../utils/sessionPlan';
 
-const LOWER_MUSCLES = new Set(['QUADS', 'HAMS']);
+const LOWER_MUSCLES = new Set(['QUADS', 'HAMS', 'CALVES']);
 
 // 重量 0 是有效值（自體重），只有空白才算沒填
 const hasWeight = (w) => w !== undefined && w !== null && w !== '';
@@ -1291,7 +1291,11 @@ const TrainingView = ({
                   type="text"
                   value={newEx.name}
                   onChange={(e) => setNewEx(prev => ({ ...prev, name: e.target.value }))}
-                  onKeyDown={(e) => { if (e.key === 'Enter') addCustomExercise(); }}
+                  onKeyDown={(e) => {
+                    // 注音 / 拼音選字時按 Enter 是確認選字，不是送出（Safari 選字時 keyCode 是 229）
+                    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+                    if (e.key === 'Enter') addCustomExercise();
+                  }}
                   placeholder="例如：槓鈴深蹲"
                   autoFocus
                   className="w-full bg-neutral-800 px-4 py-3 rounded-xl text-sm font-medium text-neutral-100

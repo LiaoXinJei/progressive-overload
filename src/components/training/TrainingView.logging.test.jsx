@@ -476,6 +476,46 @@ test('刪除自訂動作：確認後刪掉，也清掉這個動作的替換設�
   assert.deepEqual(state.exerciseOverrides, { 'B-db_row': 'lib_pulldown_wide' });
 });
 
+// ==================== 新增自訂動作 ====================
+
+const openAddExercise = () => {
+  click([...container.querySelectorAll('button')].find(b => b.textContent.trim() === '新增動作'));
+  return container.querySelector('input[placeholder="例如：槓鈴深蹲"]');
+};
+const keydownEnter = (el, init = {}, keyCode) => act(() => {
+  const ev = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, ...init });
+  if (keyCode !== undefined) Object.defineProperty(ev, 'keyCode', { value: keyCode });
+  el.dispatchEvent(ev);
+});
+
+test('新增動作：名稱欄注音選字中按 Enter 不送出，選完字再按才新增', () => {
+  const state = renderView();
+  const input = openAddExercise();
+  typeInto(input, '坐姿ㄊㄧˊ');
+  keydownEnter(input, { isComposing: true });
+  assert.deepEqual(state.customExercises, {});
+  keydownEnter(input, {}, 229); // Safari 選字時 isComposing 可能是 false，keyCode 是 229
+  assert.deepEqual(state.customExercises, {});
+  typeInto(input, '坐姿提踵');
+  keydownEnter(input);
+  assert.equal(state.customExercises.B?.length, 1);
+  assert.equal(state.customExercises.B[0].name, '坐姿提踵');
+});
+
+test('新增動作：小腿動作算下肢，圓點不會變成上肢藍色', () => {
+  const state = renderView();
+  const input = openAddExercise();
+  typeInto(input, '單腿提踵');
+  const select = container.querySelector('.fixed select');
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(select, 'CALVES');
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  click([...container.querySelectorAll('.fixed button')].find(b => b.textContent === '新增'));
+  assert.equal(state.customExercises.B?.[0]?.muscle, 'CALVES');
+  assert.equal(state.customExercises.B[0].isUpper, false);
+});
+
 // ==================== 次數欄 Enter 跳到下一組 ====================
 
 const pressEnter = (el) => act(() => {
