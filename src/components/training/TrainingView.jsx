@@ -392,7 +392,8 @@ const TrainingView = ({
       delete updated[overrideKey];
       return updated;
     });
-    setCustomSets(prev => withoutCustomSets(prev, workoutKey, exerciseId));
+    // 有紀錄的週保留組數，做過的組才不會被藏起來；沒紀錄的週回到週期演算法的預設
+    setCustomSets(prev => withoutCustomSets(prev, workoutKey, exerciseId, logs));
     setPickerForExId(null);
     setPickerSearch('');
   };

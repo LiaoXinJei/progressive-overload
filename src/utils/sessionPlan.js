@@ -54,10 +54,21 @@ export const splitByWeights = (total, keys, weights) => {
 // 組數覆寫（±1）分週存：只影響那一週
 export const customSetsKey = (week, workoutKey, exerciseId) => `w${week}-${workoutKey}-${exerciseId}`;
 
-// 拿掉某個動作在每一週的組數覆寫
-export const withoutCustomSets = (customSets, workoutKey, exerciseId) => Object.fromEntries(
-  Object.entries(customSets).filter(([key]) => key.replace(/^w\d+-/, '') !== `${workoutKey}-${exerciseId}`)
-);
+// 拿掉某個動作在每一週的組數覆寫。有傳 logs 時，那個動作有 log 的週保留（同 v5→v6 遷移），
+// 不然按過 +1 做完的第 4、5 組會被藏起來；沒傳就全部拿掉
+export const withoutCustomSets = (customSets, workoutKey, exerciseId, logs = {}) => {
+  const loggedWeeks = new Set();
+  Object.keys(logs).forEach(logKey => {
+    const match = logKey.match(/^w(\d+)-d(\d+)-(.+)-s\d+$/);
+    if (!match || match[3] !== exerciseId) return;
+    if (getWorkoutForDay(Number(match[1]), Number(match[2])) === workoutKey) loggedWeeks.add(Number(match[1]));
+  });
+  return Object.fromEntries(Object.entries(customSets).filter(([key]) => {
+    if (key.replace(/^w\d+-/, '') !== `${workoutKey}-${exerciseId}`) return true;
+    const week = key.match(/^w(\d+)-/)?.[1];
+    return week !== undefined && loggedWeeks.has(Number(week));
+  }));
+};
 
 export const getRepRange = (exerciseType, week) => {
   const phase = getPhase(week);
