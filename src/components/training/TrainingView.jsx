@@ -9,7 +9,9 @@ import {
   WORKOUTS, MUSCLE_GROUPS, PHASE_CONFIG,
   SUPERSET_PAIRS, SESSION_TYPE_THEME,
 } from '../../constants/workouts';
-import { getPairRoundState, getPairEndTimestamp, getPairTailProgress } from '../../utils/pairRoundState';
+import {
+  getPairRoundState, getPairEndTimestamp, getPairTailProgress, getExercisesEndTimestamp,
+} from '../../utils/pairRoundState';
 import {
   buildSessionPlan, getWorkoutForDay, getPhase, getRepRange, getWeeklyMuscleVolume,
   customSetsKey, withoutCustomSets,
@@ -548,13 +550,15 @@ const TrainingView = ({
   // 計算每個 group 的「前一 group end timestamp + kind」
   // 用於 single：inter-exercise rest 起算點
   // 用於 pair：sticky bar 上方 enter-pair 提示
+  // 前一 group 每組都完成或跳過才算結束，取完成組最晚的時間；最後一組跳過也照算
   const groupBoundaries = groupedPlan.map((_, idx) => {
     if (idx === 0) return { prevEndTs: null, prevKind: null };
     const prev = groupedPlan[idx - 1];
     if (prev.type === 'single') {
-      const ex = prev.item.exercise;
-      const lastKey = `w${currentWeek}-d${currentDay}-${ex.id}-s${prev.item.sets - 1}`;
-      return { prevEndTs: logs[lastKey]?.completedAt ?? null, prevKind: 'single' };
+      const ts = getExercisesEndTimestamp(
+        [{ exerciseId: prev.item.exercise.id, sets: prev.item.sets }], currentWeek, currentDay, logs,
+      );
+      return { prevEndTs: ts, prevKind: 'single' };
     }
     const [a, b] = prev.items;
     const pairCfg = { primary: a.exercise.id, secondary: b.exercise.id, rest: prev.rest };
@@ -841,18 +845,22 @@ const TrainingView = ({
 
                 {/* Rest Time Display（pair 核心輪由 sticky bar 呈現；tail 組回到單動作 inline 休息） */}
                 {(() => {
-                  if (logData.skipped) return null;
                   // pair 內只顯示「下一組是 tail 組」的休息
                   if (pairRest && idx + 1 < pairRest.coreRoundCount) return null;
-                  // 最後一個核心組 → 第一個 tail 組：核心輪做完才開始算，從輪結束（兩邊較晚者）起算
+                  // 最後一個核心組 → 第一個 tail 組：核心輪做完才開始算，從輪結束（兩邊較晚者）起算。
+                  // 起算點看整輪，這組自己跳過也照樣顯示
                   const isCoreToTail = pairRest != null && idx < pairRest.coreRoundCount;
-                  if (isCoreToTail && !pairRest.coreDone) return null;
+                  if (isCoreToTail ? !pairRest.coreDone : !logData.done) return null;
                   const restFromTs = isCoreToTail ? pairRest.coreEndTs : logData.completedAt;
-                  const isLastSet = idx === setsCount - 1;
-                  const nextLogKey = `w${currentWeek}-d${currentDay}-${ex.id}-s${idx + 1}`;
+                  if (restFromTs == null) return null;
+                  // 下一組跳過就往後找第一個沒跳過的組
+                  let nextIdx = idx + 1;
+                  while (nextIdx < setsCount && logs[`w${currentWeek}-d${currentDay}-${ex.id}-s${nextIdx}`]?.skipped) nextIdx++;
+                  if (nextIdx >= setsCount) return null;
+                  const nextLogKey = `w${currentWeek}-d${currentDay}-${ex.id}-s${nextIdx}`;
                   const nextLog = logs[nextLogKey];
 
-                  if (logData.done && !isLastSet && nextLog?.done && !nextLog?.skipped) {
+                  if (nextLog?.done) {
                     const restTime = calculateRestTime(nextLogKey, restFromTs);
                     return restTime ? (
                       <div className="text-xs text-neutral-500 mt-1 pl-11">
@@ -860,15 +868,12 @@ const TrainingView = ({
                       </div>
                     ) : null;
                   }
-                  if (logData.done && !isLastSet && !nextLog?.done && !nextLog?.skipped) {
-                    const cRestTime = getCurrentRestTime(restFromTs);
-                    return (
-                      <div className="text-xs text-emerald-400 mt-1 pl-11 font-semibold animate-pulse">
-                        休息中: {cRestTime}
-                      </div>
-                    );
-                  }
-                  return null;
+                  const cRestTime = getCurrentRestTime(restFromTs);
+                  return (
+                    <div className="text-xs text-emerald-400 mt-1 pl-11 font-semibold animate-pulse">
+                      休息中: {cRestTime}
+                    </div>
+                  );
                 })()}
               </React.Fragment>
             );

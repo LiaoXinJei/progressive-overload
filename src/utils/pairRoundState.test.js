@@ -169,6 +169,55 @@ test('getPairEndTimestamp：未開始 → null', () => {
   assert.equal(ts, null);
 });
 
+test('getPairEndTimestamp：核心輪還有一輪沒做完 → null（配對還沒結束）', () => {
+  const logs = {
+    [k('A', 0)]: done(1000),
+    [k('B', 0)]: done(1100),
+    [k('A', 1)]: done(2000),
+  };
+  assert.equal(getPairEndTimestamp(pair, 2, 2, W, D, logs), null);
+});
+
+test('getPairEndTimestamp：核心輪做完、tail 組還沒做 → null', () => {
+  const logs = {
+    [k('A', 0)]: done(1000),
+    [k('B', 0)]: done(1100),
+    [k('A', 1)]: done(2000),
+    [k('B', 1)]: done(2100),
+  };
+  assert.equal(getPairEndTimestamp(pair, 2, 3, W, D, logs), null);
+});
+
+test('getPairEndTimestamp：tail 組做完 → 取 tail 組完成時間', () => {
+  const logs = {
+    [k('A', 0)]: done(1000),
+    [k('B', 0)]: done(1100),
+    [k('A', 1)]: done(2000),
+    [k('B', 1)]: done(2100),
+    [k('B', 2)]: done(3000),
+  };
+  assert.equal(getPairEndTimestamp(pair, 2, 3, W, D, logs), 3000);
+});
+
+test('getPairEndTimestamp：tail 組跳過 → 取核心輪最晚的完成時間', () => {
+  const logs = {
+    [k('A', 0)]: done(1000),
+    [k('B', 0)]: done(1100),
+    [k('A', 1)]: done(2000),
+    [k('B', 1)]: done(2100),
+    [k('B', 2)]: skipped(),
+  };
+  assert.equal(getPairEndTimestamp(pair, 2, 3, W, D, logs), 2100);
+});
+
+test('getPairEndTimestamp：每組都跳過 → null', () => {
+  const logs = {
+    [k('A', 0)]: skipped(),
+    [k('B', 0)]: skipped(),
+  };
+  assert.equal(getPairEndTimestamp(pair, 1, 1, W, D, logs), null);
+});
+
 test('done state: lastCompleteRoundEndTs 跳過全 skipped 末輪', () => {
   const logs = {
     [k('A', 0)]: done(1000),

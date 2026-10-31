@@ -95,6 +95,25 @@ test('restContext: 單動作下一組未 settled → in-set、global delay', () 
   assert.match(ctx.notifyKey, /in-set/);
 });
 
+test('restContext: 中間組跳過、後面還有沒做的組 → in-set，不是 between-exercises', () => {
+  const logs = { [k('bp_flat', 0)]: done(1000), [k('bp_flat', 1)]: skipped() };
+  const ctx = getRestContext({
+    logs, currentWeek: W, currentDay: D, workoutKey,
+    sessionPlan: planA, globalDelay: 90,
+  });
+  assert.equal(ctx.type, 'in-set');
+  assert.equal(ctx.anchorTs, 1000);
+});
+
+test('restContext（不變）: 後面的組都跳過了 → between-exercises', () => {
+  const logs = { [k('bp_flat', 0)]: done(1000), [k('bp_flat', 1)]: skipped(), [k('bp_flat', 2)]: skipped() };
+  const ctx = getRestContext({
+    logs, currentWeek: W, currentDay: D, workoutKey,
+    sessionPlan: planA, globalDelay: 90,
+  });
+  assert.equal(ctx.type, 'between-exercises');
+});
+
 // ==================== getRestContext: in-pair-mid-round ====================
 
 test('restContext: pair 內僅 primary done → in-pair-mid-round、不排程', () => {
