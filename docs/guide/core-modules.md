@@ -34,6 +34,8 @@
 - `type: 'compound' | 'isolation'` — 決定該階段的建議次數範圍
 - `isUpper` — UI 圓點顏色（上肢藍 / 下肢橙）
 - 不再有 `baseSets` — 組數完全由 `VOLUME_CONFIG` + 分配演算法決定
+- `noteRIR` — RIR 限制徽章（例如 `lying_leg_curl_d` 的 `'2-3'`，保護隔天 LEGS 日），寫在 `WORKOUTS` 的格子上，替換動作也留著
+- `noteText` — 動作底下的灰字提示，**不寫在 `WORKOUTS`**，統一放 `EXERCISE_NOTES`（id → 備註）。`buildSessionPlan` 照實際顯示的動作 id 查：替換成動作庫的動作就顯示那個動作的備註。不存進 localStorage，改備註不用 migration
 
 ### 容量分配演算法
 
@@ -167,7 +169,7 @@
 
 - **儲存**：`localStorage`
 - **Key**：`rp_focus_pro_data`
-- **`schemaVersion`**：`6`
-- **入口**：`src/App.jsx` 的兩個 `useEffect`（載入 + 寫回）
-- **遷移**：v2 → v3 把 `history[id]` 從 `number` 升級為 `{ weight, reps }` 物件；v3 → v4 腿部訓練計劃 v3 FINAL（動作移除 / 改名、進度重置）；v4 → v5 動作庫與替換設定對齊 v3 FINAL；v5 → v6 組數覆寫改成分週（有 log 的週轉成分週 key，其他清掉），並拿掉 C 日替換成 `lib_skullcrusher` 的設定（避免跟內建那格重複）
+- **`schemaVersion`**：`7`
+- **入口**：`src/App.jsx` 的 `useEffect`（載入、寫回、聽 `storage` 事件），遷移邏輯在 `migrateSavedData()`。寫回前跟 storage 現值比對、一樣就不寫；讀檔失敗把原始字串另存 `rp_focus_pro_data_corrupt_<timestamp>` 再照空資料啟動；`setItem` 失敗提示一次
+- **遷移**：v2 → v3 把 `history[id]` 從 `number` 升級為 `{ weight, reps }` 物件；v3 → v4 腿部訓練計劃 v3 FINAL（動作移除 / 改名、進度重置）；v4 → v5 動作庫與替換設定對齊 v3 FINAL；v5 → v6 組數覆寫改成分週（有 log 的週轉成分週 key，其他清掉），並拿掉 C 日替換成 `lib_skullcrusher` 的設定（避免跟內建那格重複）；v6 → v7 動作庫改名與 type 修正（名稱還是歷代預設名才換），並用分週組數覆寫補回 v6 換預設組數後被藏起來、但有 log 的組
 - **規則**：任何結構變更**必須加遷移邏輯**，不可破壞舊使用者資料

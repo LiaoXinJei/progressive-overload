@@ -88,7 +88,7 @@ progressive-overload/
    constants/nutrition.js  utils/geminiApi.js
 ```
 
-每次任一 state 變化，`App.jsx` 的 `useEffect`（依賴整批 state）會把完整狀態序列化寫回 `localStorage`，key = `rp_focus_pro_data`，`schemaVersion: 6`。讀檔成功（`isHydrated`）前不寫回。
+每次任一 state 變化，`App.jsx` 的 `useEffect`（依賴整批 state）會把完整狀態序列化寫回 `localStorage`，key = `rp_focus_pro_data`，`schemaVersion: 7`；跟 storage 現值一樣就不寫。讀檔成功（`isHydrated`）前不寫回。同時開兩個視窗時聽 `storage` 事件，別的視窗寫入就重新載入。
 
 ---
 
