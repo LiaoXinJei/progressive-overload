@@ -262,6 +262,33 @@ test('BUG-03：完成時間記在按 ✓ 的時候，不是打字的時候；之
   assert.equal(state.logs[key('pullup', 0)].completedAt, t0 + 40 * 1000);
 });
 
+test('重新完成：取消再按 ✓，完成時間沿用第一次完成的時間', () => {
+  const t0 = Date.now();
+  vi.spyOn(Date, 'now').mockReturnValue(t0);
+  const state = renderView({ currentTime: t0 });
+  typeInto(row(0).reps, '8');
+  click(row(0).complete);
+  vi.spyOn(Date, 'now').mockReturnValue(t0 + 5 * MIN);
+  click(row(0).complete);
+  assert.equal(state.logs[key('pullup', 0)].completedAt, undefined);
+  click(row(0).complete);
+  assert.equal(state.logs[key('pullup', 0)].done, true);
+  assert.equal(state.logs[key('pullup', 0)].completedAt, t0);
+});
+
+test('重新完成：已完成的組按跳過、取消跳過再按 ✓，也沿用第一次完成的時間', () => {
+  const t0 = Date.now();
+  vi.spyOn(Date, 'now').mockReturnValue(t0);
+  const state = renderView({ currentTime: t0 });
+  typeInto(row(0).reps, '8');
+  click(row(0).complete);
+  vi.spyOn(Date, 'now').mockReturnValue(t0 + 5 * MIN);
+  click(container.querySelector('[data-set-row] button[title="跳過此組"]'));
+  click(container.querySelector('[data-set-row] button[title="取消跳過"]'));
+  click(row(0).complete);
+  assert.equal(state.logs[key('pullup', 0)].completedAt, t0);
+});
+
 // ==================== BUG-11：完成後再改，歷史沒跟著改 ====================
 
 test('BUG-11：完成後改重量（輸入框），歷史重量跟著更新', () => {

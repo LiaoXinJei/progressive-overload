@@ -301,9 +301,10 @@ const TrainingView = ({
     });
   };
 
-  // 取消完成（再按 ✓ 或直接跳過）。歷史由 syncHistory 處理：打錯的數字不會留在歷史、被下一組當成上次紀錄
+  // 取消完成（再按 ✓ 或直接跳過）。歷史由 syncHistory 處理：打錯的數字不會留在歷史、被下一組當成上次紀錄。
+  // 完成時間另存在 firstCompletedAt，重新完成時用回去，休息計時、訓練時長才不會被推到現在
   const uncomplete = (log) => {
-    const next = { ...log, done: false, completedAt: undefined };
+    const next = { ...log, done: false, completedAt: undefined, firstCompletedAt: log.firstCompletedAt ?? log.completedAt };
     delete next.historyBefore;
     delete next.historyKey;
     return next;
@@ -341,10 +342,12 @@ const TrainingView = ({
         if (!reps) return prev;
         const weight = hasWeight(current.weight) ? current.weight
           : hasWeight(historyEntry.weight) ? historyEntry.weight : 0;
+        // 取消過再重新完成，沿用第一次完成的時間
         next = {
-          ...current, weight, reps, done: true, completedAt: Date.now(),
+          ...current, weight, reps, done: true, completedAt: current.firstCompletedAt ?? Date.now(),
           historyKey, historyBefore: historyBeforeFor(prev, logKey, historyKey),
         };
+        delete next.firstCompletedAt;
       }
       const nextLogs = { ...prev, [logKey]: next };
       syncHistory(prev, nextLogs, logKey);
