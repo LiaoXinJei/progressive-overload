@@ -223,6 +223,7 @@ refactor: 抽出 VolumeConfig 為獨立模組
 | 移除 / 改 id | `App.jsx` 的 v3→v4 migration block（`REMOVED_IDS` / `RENAMED_IDS`）+ 動作庫同步（v4→v5 的 `REMOVED_LIBRARY_IDS` / `ADDED_LIBRARY_IDS` 寫法）+ bump `schemaVersion` |
 | 只改顯示名稱（id 不變） | 改 `workouts.js` 的 `name`；替換過的格子和動作庫讀存檔，要照 v6→v7 的 `V7_OLD_LIBRARY_NAMES` 寫法列出歷代舊名再 bump `schemaVersion`。測試常用 `h3` 文字完全比對動作名，改名後 `grep -rn 舊名 src` 一起改 |
 | 訓練核心 UI | `src/components/training/TrainingView.jsx` |
+| 健身房模式（像素場景） | `src/components/training/gym/`；新動作要在 `stations.js` 的 `FAMILY_BY_ID` 對應動作族（測試會擋），姿勢預覽用 `.impeccable/tools/gym-shots.cjs` |
 | 營養追蹤 | `src/components/nutrition/NutritionView.jsx` |
 | 動作庫管理 | `src/components/settings/ExerciseLibraryManager.jsx` |
 | 休息通知 | `src/hooks/useRestNotification.js` + `src/sw.js` |

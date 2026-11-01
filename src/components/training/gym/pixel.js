@@ -130,13 +130,15 @@ export const stamp = (dst, layer, outline, ox = 0, oy = 0) => {
   }
 };
 
-// 從大張緩衝區（整個健身房背景）切一段貼到畫面緩衝區
+// 從大張緩衝區（整個健身房背景）切一段貼到畫面緩衝區；sx 可以是負的或超出右邊，超出的地方透明
 export const blit = (dst, src, sx, sy = 0) => {
-  const w = Math.min(dst.w, src.w - sx);
-  if (w <= 0) { clear(dst); return; }
+  const dx = Math.max(0, -sx);
+  const from = Math.max(0, sx);
+  const w = Math.min(dst.w - dx, src.w - from);
   for (let y = 0; y < dst.h; y++) {
-    const row = (y + sy) * src.w + sx;
-    dst.px.set(src.px.subarray(row, row + w), y * dst.w);
-    if (w < dst.w) dst.px.fill(0, y * dst.w + w, (y + 1) * dst.w);
+    dst.px.fill(0, y * dst.w, (y + 1) * dst.w);
+    if (w <= 0) continue;
+    const row = (y + sy) * src.w + from;
+    dst.px.set(src.px.subarray(row, row + w), y * dst.w + dx);
   }
 };

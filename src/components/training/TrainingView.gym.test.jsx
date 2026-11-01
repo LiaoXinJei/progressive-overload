@@ -128,7 +128,7 @@ test('點中間開始這組：浮卡移到這組、按鈕改念完成；1 秒內
   assert.deepEqual([log.weight, log.reps], [80, '8']);
   assert.equal(action().getAttribute('aria-label'), '開始 平板槓鈴臥推 第 2 組');
   assert.ok(rows()[1].hasAttribute('data-current'), '浮卡換到下一組');
-  assert.ok(restPill(), '開始休息');
+  assert.match(hint(), /^休息中 /, '開始休息');
 });
 
 test('沒填次數也沒有上次紀錄：再點一下不完成，焦點跳到次數欄並提示先填次數', () => {
@@ -145,14 +145,53 @@ test('沒填次數也沒有上次紀錄：再點一下不完成，焦點跳到�
   assert.equal(state.logs[key('bp_flat', 0)].weight, 0);
 });
 
-test('做組中休息膠囊收起來，做完這組再出現', () => {
+test('健身房模式不顯示休息膠囊：休息狀態在面板提示上，開始做下一組時換成做完再點一下', () => {
   renderView({ logs: { [key('bp_flat', 0)]: done(80, '8', T0 - 30000) }, history: BENCH });
-  assert.ok(restPill());
-  click(action());
   assert.equal(restPill(), null);
+  assert.equal(hint(), '休息中 0:30 / 1:30');
+  click(action());
+  assert.equal(hint(), '做完再點一下');
   now += 2000;
   click(action());
-  assert.ok(restPill());
+  assert.equal(restPill(), null);
+  assert.match(hint(), /^休息中 /);
+});
+
+const panel = () => container.querySelector('[data-gym-panel]');
+
+test('面板：顯示選中那站的目前這組，在面板輸入次數、按 ✓ 就完成，換到下一組', () => {
+  const state = renderView();
+  assert.match(panel().querySelector('h2').textContent, /^第 1 組/);
+  const check = panel().querySelector('[data-gym-complete]');
+  assert.equal(check.disabled, true, '沒次數也沒上次紀錄不能按');
+  typeInto(panel().querySelector('[data-gym-reps]'), '10');
+  typeInto(panel().querySelector('[data-gym-weight]'), '70');
+  assert.deepEqual([state.logs[key('bp_flat', 0)].weight, state.logs[key('bp_flat', 0)].reps], ['70', '10']);
+  click(panel().querySelector('[data-gym-complete]'));
+  assert.equal(state.logs[key('bp_flat', 0)].done, true);
+  assert.match(panel().querySelector('h2').textContent, /^第 2 組/);
+});
+
+test('面板：重量 − / + 用上次紀錄當起點', () => {
+  const state = renderView({ history: BENCH });
+  click(panel().querySelector('button[aria-label="第 1 組重量加 2 公斤"]'));
+  assert.equal(state.logs[key('bp_flat', 0)].weight, 82);
+});
+
+test('面板：這站做完了顯示下一台，點了換過去', () => {
+  renderView({
+    logs: {
+      [key('bp_flat', 0)]: done(80, '8', T0 - 9 * 60000),
+      [key('bp_flat', 1)]: done(80, '8', T0 - 6 * 60000),
+      [key('bp_flat', 2)]: done(80, '8', T0 - 3 * 60000),
+    },
+    history: BENCH,
+  });
+  click(container.querySelector('button[aria-label^="上一台"]'));
+  assert.deepEqual(shownExercises(), ['bp_flat']);
+  assert.match(panel().textContent, /平板槓鈴臥推 做完了/);
+  click([...panel().querySelectorAll('button')].find(b => b.textContent.startsWith('下一台')));
+  assert.deepEqual(shownExercises(), ['bp_incline_db']);
 });
 
 test('做完一個動作的最後一組，自動換到下一個動作', () => {

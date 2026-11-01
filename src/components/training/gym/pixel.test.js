@@ -48,3 +48,11 @@ test('blit：從長圖切一段，超出來源的部分透明', () => {
   assert.equal(getPx(dst, 1, 0), RED);
   assert.equal(getPx(dst, 2, 0), 0);
 });
+
+test('blit：起點在左邊外面時往右對齊，左邊超出的部分透明', () => {
+  const src = createBuffer(4, 1);
+  rect(src, 0, 0, 4, 1, RED);
+  const dst = createBuffer(3, 1);
+  blit(dst, src, -1);
+  assert.deepEqual([getPx(dst, 0, 0), getPx(dst, 1, 0), getPx(dst, 2, 0)], [0, RED, RED]);
+});

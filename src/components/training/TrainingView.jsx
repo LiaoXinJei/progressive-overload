@@ -29,6 +29,12 @@ import { stationOf } from './gym/stations';
 const LOWER_MUSCLES = new Set(['QUADS', 'HAMS', 'CALVES']);
 // 健身房模式：點器材開始後這段時間內的第二下不算完成（防連點）
 const GYM_DOUBLE_TAP_MS = 1000;
+// 健身房模式的面板收起時露出多高（把手 + 目前這組），場景鋪滿面板上面的整個畫面
+const GYM_PEEK = 128;
+const GYM_SPACER_H = `calc(100dvh - var(--app-header-h, 56px) - 49px - env(safe-area-inset-bottom) - ${GYM_PEEK}px)`;
+// 場景往下延伸到面板圓角後面，圓角兩側透出來的是場景不是黑底
+const GYM_SCENE_H = `calc(100dvh - 49px - env(safe-area-inset-bottom) - ${GYM_PEEK - 28}px)`;
+const GYM_HINT_TONE = { rest: 'text-rest', done: 'text-done', accent: 'text-accent-text', default: 'text-label-2' };
 
 // 重量 0 是有效值（自體重），只有空白才算沒填
 const hasWeight = (w) => w !== undefined && w !== null && w !== '';
@@ -1029,6 +1035,12 @@ const TrainingView = ({
   const gymGroupNowRef = useRef(gymGroupIdx);
   gymGroupNowRef.current = gymGroupIdx;
   const pickGymExercise = (exId) => setGymPick({ exId, stamp: gymStamp });
+  const gymLastDoneAt = gymMode ? Math.max(0, ...sessionOrder.map(s => logs[s.key]?.completedAt ?? 0)) : 0;
+  // 全螢幕場景 + 蓋在上面的面板（排序模式時收起來，只留清單）
+  const gymSheet = gymMode && !reorderMode && gymStations.length > 0;
+  const gymSpacerRef = useRef(null);
+  // 面板收著（場景還看得到）：自動捲動不要把面板拉上來蓋住場景
+  const gymSheetCollapsed = () => gymSheet && window.scrollY < (gymSpacerRef.current?.offsetHeight ?? 0) - 40;
 
   // 每站的 HUD：組數、提示、中間按鈕念的字
   const gymStationView = gymStations.map(st => {
@@ -1039,7 +1051,7 @@ const TrainingView = ({
     let actionLabel;
     if (liftSlot) {
       const needReps = gymNeedReps === lifting;
-      hint = needReps ? '先填次數再點完成' : `做完再點一下 · 第 ${liftSlot.idx + 1} 組`;
+      hint = needReps ? '先填次數再點完成' : '做完再點一下';
       hintTone = needReps ? 'rest' : 'accent';
       actionLabel = `完成 ${st.name} 第 ${liftSlot.idx + 1} 組`;
     } else if (finished) {
@@ -1055,7 +1067,7 @@ const TrainingView = ({
         hint = restPill.overText ? `該做下一組了 · 超過 ${restPill.overText}` : `${restPill.label} ${restPill.elapsedText} / ${restPill.targetText}`;
         hintTone = 'rest';
       } else {
-        hint = `點器材開始第 ${next.idx + 1} 組`;
+        hint = '點器材開始';
       }
       actionLabel = `開始 ${st.name} 第 ${next.idx + 1} 組`;
     }
@@ -1160,7 +1172,7 @@ const TrainingView = ({
   currentKeyRef.current = currentKey;
   const revealCurrent = ({ auto = false } = {}) => {
     const key = currentKeyRef.current;
-    if (!key) return;
+    if (!key || gymSheetCollapsed()) return;
     const row = rowOf(key);
     const rect = row?.getBoundingClientRect();
     if (!rect?.height) return; // jsdom 沒有版面；排序模式沒有組列
@@ -1730,6 +1742,115 @@ const TrainingView = ({
     );
   };
 
+  // 健身房模式面板最上面：選中那站的目前這組（正在做的那組，不然是第一個待做組）
+  const renderGymPanel = () => {
+    const st = gymStations[gymIndex];
+    const view = gymStationView[gymIndex];
+    if (!st || !view) return null;
+    const slot = (lifting && st.slots.find(s => s.key === lifting)) || st.firstPending;
+    const hintEl = (
+      <p id="gym-hint" className={`min-w-0 truncate text-footnote font-semibold ${GYM_HINT_TONE[view.hintTone] ?? GYM_HINT_TONE.default}`}>
+        {view.hint}
+      </p>
+    );
+    if (!slot) {
+      const order = [...gymStations.slice(gymIndex + 1), ...gymStations.slice(0, gymIndex)];
+      const nextSt = order.find(x => x.firstPending);
+      return (
+        <section data-gym-panel aria-label="目前這組" className="flex min-h-[98px] flex-col justify-center gap-2 rounded-[20px] bg-card px-4 py-3">
+          <div className="flex items-baseline justify-between gap-3">
+            <h2 className="text-body font-semibold text-label">{finished ? '今天的課表做完了' : `${view.name} 做完了`}</h2>
+            {finished && sessionDuration > 0 && (
+              <p className="shrink-0 text-footnote text-label-2">總時長 <span className="font-num font-semibold tabular-nums text-label">{formatTime(sessionDuration)}</span></p>
+            )}
+          </div>
+          {nextSt && (
+            <button
+              type="button"
+              onClick={() => pickGymExercise(nextSt.id)}
+              className="flex h-11 items-center justify-between gap-2 rounded-xl bg-elevated px-3.5 text-left transition-colors duration-150 active:bg-fill"
+            >
+              <span className="min-w-0 truncate text-subhead text-label">下一台：{nextSt.name}</span>
+              <ChevronRight size={18} className="shrink-0 text-label-2" aria-hidden="true" />
+            </button>
+          )}
+        </section>
+      );
+    }
+    const ex = slot.entry.exercise;
+    const historyKey = ex._libraryId ?? ex.id;
+    const historyEntry = history[historyKey] || {};
+    const logData = logs[slot.key] || {};
+    const canComplete = Boolean(logData.reps) || hasReps(historyEntry.reps);
+    const weightValue = logData.weight ?? '';
+    const repsValue = logData.reps || '';
+    const setNo = slot.idx + 1;
+    return (
+      <section data-gym-panel aria-label="目前這組" className="rounded-[20px] bg-card px-2.5 pb-2.5 pt-3">
+        <div className="flex items-baseline justify-between gap-3 px-1.5">
+          <h2 className="shrink-0 text-body font-semibold text-label">
+            第 <span className="font-num tabular-nums">{setNo}</span> 組
+            <span className="ml-1.5 text-footnote font-normal text-label-2">{enDash(getRepRange(ex.type, currentWeek))} 下</span>
+          </h2>
+          {hintEl}
+        </div>
+        <div className="set-grid mt-2.5 items-center">
+          <span className="text-center font-num text-title3 font-semibold tabular-nums text-accent-text" aria-hidden="true">{setNo}</span>
+          <div className="flex h-11 min-w-0 items-center rounded-xl bg-fill">
+            <button
+              type="button"
+              onClick={() => adjustWeight(slot.key, -1, historyEntry.weight)}
+              aria-label={`第 ${setNo} 組重量減 ${weightIncrement} 公斤`}
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-l-xl text-label transition-colors duration-150 active:bg-white/[0.08]"
+            >
+              <Minus size={18} aria-hidden="true" />
+            </button>
+            <input
+              data-gym-weight
+              type="number"
+              inputMode="decimal"
+              step={weightIncrement}
+              aria-label={`第 ${setNo} 組重量（公斤）`}
+              value={weightValue}
+              onChange={(e) => updateLog(slot.key, 'weight', e.target.value)}
+              placeholder={hasWeight(historyEntry.weight) ? String(historyEntry.weight) : 'kg'}
+              className="h-11 w-0 min-w-0 flex-1 rounded-none bg-transparent text-center font-num text-title3 font-semibold tabular-nums text-label"
+            />
+            <button
+              type="button"
+              onClick={() => adjustWeight(slot.key, 1, historyEntry.weight)}
+              aria-label={`第 ${setNo} 組重量加 ${weightIncrement} 公斤`}
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-r-xl text-label transition-colors duration-150 active:bg-white/[0.08]"
+            >
+              <Plus size={18} aria-hidden="true" />
+            </button>
+          </div>
+          <input
+            data-gym-reps
+            type="number"
+            inputMode="numeric"
+            aria-label={`第 ${setNo} 組次數`}
+            value={repsValue}
+            onChange={(e) => updateLog(slot.key, 'reps', e.target.value)}
+            placeholder={hasReps(historyEntry.reps) ? String(historyEntry.reps) : '次'}
+            className="h-11 w-full min-w-0 rounded-xl bg-fill text-center font-num text-title3 font-semibold tabular-nums text-label"
+          />
+          <button
+            type="button"
+            data-gym-complete
+            onClick={() => completeSlot(slot.key, historyKey, historyEntry, logData)}
+            disabled={!canComplete}
+            title={canComplete ? '完成此組' : '先輸入次數'}
+            aria-label={`完成第 ${setNo} 組`}
+            className="flex h-11 w-11 items-center justify-center rounded-full bg-accent/20 text-accent-text transition-colors duration-200 disabled:bg-transparent disabled:text-label-3 disabled:ring-[1.5px] disabled:ring-inset disabled:ring-fill"
+          >
+            <Check size={22} strokeWidth={2.5} aria-hidden="true" />
+          </button>
+        </div>
+      </section>
+    );
+  };
+
   return (
     <div>
       {/* ==================== 頂部 bar（唯一的 sticky header） ==================== */}
@@ -1800,8 +1921,45 @@ const TrainingView = ({
         </div>
       </header>
 
-      {/* 底部 padding：休息膠囊出現時多留它的高度，最後一個動作不會被蓋住 */}
-      <main ref={mainRef} className={`relative mx-auto max-w-[480px] px-4 ${restPill ? 'pb-[60px]' : 'pb-2'}`}>
+      {/* ==================== 健身房模式：全螢幕場景 ==================== */}
+      {gymSheet && (
+        <>
+          <GymScene
+            stations={gymStationView}
+            index={gymIndex}
+            style={{ height: GYM_SCENE_H }}
+            onSelect={(i) => {
+              setGymNeedReps(null);
+              pickGymExercise(gymStations[i].id);
+            }}
+            onTap={onGymTap}
+            character={{
+              liftIndex: lifting ? gymStations.findIndex(st => st.slots.some(s => s.key === lifting)) : -1,
+              rest: restPill && !lifting ? { over: Boolean(restPill.overText) } : null,
+              finished,
+              // 最近一組完成的時間：人物頭上冒愛心
+              doneAt: gymLastDoneAt,
+            }}
+          />
+          {/* 面板上面空出來的地方：點擊穿過去給場景，往上滑就是把面板拉上來 */}
+          <div ref={gymSpacerRef} aria-hidden="true" className="pointer-events-none" style={{ height: GYM_SPACER_H }} />
+        </>
+      )}
+
+      {/* 底部 padding：休息膠囊出現時多留它的高度，最後一個動作不會被蓋住。
+          健身房模式整個 main 是蓋在場景上的面板（圓角、把手、目前這組在最上面） */}
+      <main
+        ref={mainRef}
+        className={`relative mx-auto max-w-[480px] px-4 ${restPill && !gymSheet ? 'pb-[60px]' : 'pb-2'} ${gymSheet ? 'z-[1] min-h-[100dvh] rounded-t-[28px] bg-canvas shadow-[0_-12px_32px_rgba(0,0,0,0.45)]' : ''}`}
+      >
+        {gymSheet && (
+          <>
+            <div className="flex h-5 items-center justify-center" aria-hidden="true">
+              <span className="h-[5px] w-9 rounded-full bg-grabber" />
+            </div>
+            {renderGymPanel()}
+          </>
+        )}
         {/* 目前這組的浮卡：位置由 syncHighlight 寫進 style（z-0 在卡片底色之上、組列 z-[1] 之下） */}
         <div
           ref={highlightRef}
@@ -1905,23 +2063,6 @@ const TrainingView = ({
           </button>
         </section>
 
-        {/* ==================== 健身房模式 ==================== */}
-        {gymMode && gymStationView.length > 0 && (
-          <GymScene
-            stations={gymStationView}
-            index={gymIndex}
-            onSelect={(i) => {
-              setGymNeedReps(null);
-              pickGymExercise(gymStations[i].id);
-            }}
-            onTap={onGymTap}
-            character={{
-              liftIndex: lifting ? gymStations.findIndex(st => st.slots.some(s => s.key === lifting)) : -1,
-              rest: restPill && !lifting ? { over: Boolean(restPill.overText) } : null,
-              finished,
-            }}
-          />
-        )}
         </div>
         )}
 
@@ -2091,8 +2232,8 @@ const TrainingView = ({
 
       {/* ==================== 休息膠囊 ==================== */}
       <Presence exitMs={PILL_EXIT_MS}>
-        {/* 健身房模式做組中不顯示（人物正在做下一組）；底部留白和膠囊出現的紀錄照舊用 restPill */}
-        {restPill && !lifting && (
+        {/* 健身房模式不顯示：休息狀態在場景（人物喝水）和面板的提示上；膠囊出現的紀錄照舊用 restPill */}
+        {restPill && !gymSheet && (
           <RestPill
             label={restPill.label}
             elapsedText={restPill.elapsedText}

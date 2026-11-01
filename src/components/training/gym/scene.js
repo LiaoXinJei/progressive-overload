@@ -75,7 +75,8 @@ const drawRoom = (buf, floorY) => {
 // 每站背後一扇窗：傍晚天空、星星、城市剪影
 const drawWindow = (buf, cx, pageW, floorY, top) => {
   const half = Math.min(24, Math.floor(pageW / 2) - 9);
-  const y0 = Math.max(4, top + 4);
+  // 全螢幕時上方牆面很高：窗戶往上拉，佔掉大半面牆
+  const y0 = top >= 24 ? Math.round(top * 0.55) : Math.max(4, top + 4);
   const y1 = floorY - 14;
   if (y1 - y0 < 12) return;
   rect(buf, cx - half - 2, y0 - 2, half * 2 + 4, y1 - y0 + 4, BG.frame);
@@ -119,7 +120,7 @@ const drawPlant = (buf, x, floorY) => {
 
 // 天花板一串彩色小燈
 const drawStringLights = (buf, top) => {
-  const y0 = Math.max(1, Math.floor(top * 0.35));
+  const y0 = Math.max(1, Math.floor(top * 0.4));
   for (let x = 0; x < buf.w; x++) {
     const sag = Math.sin((x / 30) * Math.PI) ** 2 * 3;
     setPx(buf, x, y0 + sag, BG.wire);
@@ -171,7 +172,7 @@ export const buildWorld = (stations, pageW, top = 0) => {
   stations.forEach((st, i) => {
     if (i > 0) drawPlant(buf, Math.round(i * pageW), floorY);
   });
-  stations.forEach((st, i) => drawLamp(buf, stationCenter(i, pageW), floorY, Math.max(0, top - 6)));
+  stations.forEach((st, i) => drawLamp(buf, stationCenter(i, pageW), floorY, top >= 24 ? Math.round(top * 0.55) - 7 : Math.max(0, top - 6)));
   const stage = band(buf, top);
   stations.forEach((st, i) => {
     const cx = stationCenter(i, pageW);
@@ -196,8 +197,9 @@ const poseFor = (character, family, time) => {
 };
 
 // 畫一格：camX 是鏡頭左緣的世界座標（可以有小數，整數部分在這裡切，小數由 CSS 位移補）
-export const renderFrame = (view, world, { camX, character, time }) => {
-  const camXi = Math.floor(camX);
+// pad：左邊多畫幾欄（畫面寬度不是像素整數倍時，置中後兩側不留黑邊）
+export const renderFrame = (view, world, { camX, character, time, pad = 0 }) => {
+  const camXi = Math.floor(camX) - pad;
   blit(view, world.buf, camXi);
   const stage = band(view, world.top ?? 0);
   const { stations, pageW } = world;
@@ -224,7 +226,67 @@ export const renderFrame = (view, world, { camX, character, time }) => {
     hooks = { front: (buf) => stampEquip(buf, L => bottle(L, hx + 0.5 + tip * 1.2, hy - 1.2 + tip * 0.6, -tip * 2.1)) };
   }
   drawFigure(stage, s, undefined, hooks);
+  drawEffects(stage, s, pose, character, time);
   return view;
+};
+
+// ==================== 小動畫 ====================
+
+const FX = {
+  outline: rgb('#2B1B2E'),
+  sweat: rgb('#9FE3FF'),
+  heart: rgb('#FF6F91'),
+  heartLight: rgb('#FFB3C4'),
+  star: rgb('#FFE27A'),
+};
+const HEART = ['.XX.XX.', 'XXXXXXX', 'XXXXXXX', '.XXXXX.', '..XXX..', '...X...'];
+const pixelArt = (buf, rows, x0, y0, color, light) => {
+  rows.forEach((row, dy) => [...row].forEach((ch, dx) => {
+    if (ch !== 'X') return;
+    // 外框：上下左右空的地方描邊
+    for (const [ox, oy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
+      if (rows[dy + oy]?.[dx + ox] !== 'X') setPx(buf, x0 + dx + ox, y0 + dy + oy, FX.outline);
+    }
+  }));
+  rows.forEach((row, dy) => [...row].forEach((ch, dx) => {
+    if (ch === 'X') setPx(buf, x0 + dx, y0 + dy, dy === 1 && dx === 1 && light ? light : color);
+  }));
+};
+
+// 做組時頭邊滴汗；剛完成一組頭上冒愛心；做完全部身邊閃星星
+const drawEffects = (buf, s, pose, character, time) => {
+  if (character.reduced) return;
+  const [hx, hy] = s.head;
+  const r = 5.2;
+  if (character.mode === 'lift') {
+    const p = (time % 1.3) / 1.3;
+    if (p < 0.75) {
+      const side = s.view === 'front' ? 1 : -1;
+      const x = hx + side * (r + 1) * (s.view === 'front' ? 1 : s.f ?? 1);
+      const y = hy - 2 + p * 6;
+      setPx(buf, x, y, FX.sweat);
+      setPx(buf, x, y + 1, FX.sweat);
+      setPx(buf, x - 0.6, y + 1, FX.sweat);
+    }
+  }
+  if (character.heart != null && character.heart >= 0 && character.heart < 1) {
+    const t = character.heart;
+    pixelArt(buf, HEART, Math.round(hx - 3), Math.round(hy - r - 9 - t * 6), FX.heart, FX.heartLight);
+  }
+  if (character.mode === 'cheer') {
+    for (let i = 0; i < 4; i++) {
+      const a = time * 2 + (i * Math.PI) / 2;
+      const twinkle = Math.sin(time * 6 + i * 1.7) > 0.2;
+      if (!twinkle) continue;
+      const x = hx + Math.cos(a) * 11;
+      const y = hy + Math.sin(a) * 6 - 2;
+      setPx(buf, x, y, FX.star);
+      setPx(buf, x + 1, y, FX.star);
+      setPx(buf, x - 1, y, FX.star);
+      setPx(buf, x, y + 1, FX.star);
+      setPx(buf, x, y - 1, FX.star);
+    }
+  }
 };
 
 export const createView = (w, h = SCENE_H) => createBuffer(w, h);
