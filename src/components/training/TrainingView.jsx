@@ -61,6 +61,24 @@ const enDash = (range) => String(range).replace('-', '–');
 // 休息膠囊只顯示這段時間內開始的休息（不綁日曆日，跨午夜照樣顯示）
 const REST_PILL_WINDOW_MS = 3 * 60 * 60 * 1000;
 
+// 整個 App 共用的使用者輸入紀錄（訓練頁卸載時也照記，例如在營養頁捲完馬上切回訓練頁）：
+// lastActivityAt：最近一次捲動 / 拖動 / 輸入框聚焦的時間，使用者正在捲或輸入時不自動捲動；
+// lastInputModality：最後一次輸入是鍵盤還是指標，決定程式移焦時要不要讓焦點框出現
+const userInput = { lastActivityAt: 0, modality: 'pointer', tracking: false };
+const trackUserInput = () => {
+  if (userInput.tracking || typeof document === 'undefined') return;
+  userInput.tracking = true;
+  const mark = () => { userInput.lastActivityAt = Date.now(); };
+  document.addEventListener('wheel', mark, { capture: true, passive: true });
+  document.addEventListener('touchmove', mark, { capture: true, passive: true });
+  document.addEventListener('pointermove', (e) => { if (e.buttons) mark(); }, { capture: true, passive: true });
+  document.addEventListener('focusin', (e) => { if (e.target?.matches?.('input, textarea, select')) mark(); }, true);
+  document.addEventListener('pointerdown', () => { userInput.modality = 'pointer'; }, true);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Tab' || e.key === 'Enter' || e.key === ' ' || e.key.startsWith('Arrow')) userInput.modality = 'keyboard';
+  }, true);
+};
+
 // SSR（superset 結構測試用 renderToStaticMarkup）沒有 layout effect
 const useIsomorphicLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect;
 
@@ -317,6 +335,15 @@ const TrainingView = ({
   // 大標題捲到頂部 bar 底下：scrolled = 開始被蓋住（bar 變材質），collapsed = 完全看不到（bar 中間淡入小標題）
   const [scrolled, setScrolled] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
+  // 頂部 bar 中間的小標題放不下（例如 320 寬又超時、計時膠囊變兩行）就不顯示，不要截成「PU…」
+  const smallTitleRef = useRef(null);
+  const [smallTitleFits, setSmallTitleFits] = useState(true);
+  useIsomorphicLayoutEffect(() => {
+    const el = smallTitleRef.current;
+    if (!el || (!el.clientWidth && !el.scrollWidth)) return; // jsdom 沒有版面
+    const fits = el.scrollWidth <= el.clientWidth + 1;
+    if (fits !== smallTitleFits) setSmallTitleFits(fits);
+  });
   // 按 ✓、Enter 跳格後，新的目前這組如果在畫面外（或被休息膠囊蓋住）就捲進來
   const revealNextRef = useRef(false);
   // 打開動作選項的那顆「⋯」：選項 sheet、從它開的替換動作 sheet 關掉後焦點回到這裡
@@ -341,9 +368,8 @@ const TrainingView = ({
   const pressFocusKeyRef = useRef(null);
   // 焦點在按著的時候離開了已完成的組：放開（click 跑完）之後再把它從目前這組拿掉
   const blurPendingKeyRef = useRef(null);
-  // 最近一次捲動 / 拖動 / 輸入框聚焦的時間：使用者正在捲或輸入時，不自動捲動（進頁、換天、膠囊出現）
-  const lastUserScrollRef = useRef(0);
   useEffect(() => {
+    trackUserInput();
     let timer = null;
     const rowKeyOf = (el) => el?.closest?.('[data-set-row]')?.querySelector('[data-weight-input]')?.dataset.logKey ?? null;
     const release = () => {
@@ -360,27 +386,16 @@ const TrainingView = ({
     // click 在 pointerup 之後才派發（iOS 還隔一個 task），等 click 跑完；沒有 click（捲動）就等 400ms
     const up = () => { clearTimeout(timer); timer = setTimeout(release, 400); };
     const click = () => { setTimeout(release, 0); };
-    const markActivity = () => { lastUserScrollRef.current = Date.now(); };
-    const moveWhilePressed = (e) => { if (e.buttons) markActivity(); };
-    const focusIn = (e) => { if (e.target?.matches?.('input, textarea, select')) markActivity(); };
     document.addEventListener('pointerdown', down, true);
     document.addEventListener('pointerup', up, true);
     document.addEventListener('pointercancel', up, true);
     document.addEventListener('click', click, true);
-    document.addEventListener('pointermove', moveWhilePressed, { capture: true, passive: true });
-    document.addEventListener('touchmove', markActivity, { capture: true, passive: true });
-    document.addEventListener('wheel', markActivity, { capture: true, passive: true });
-    document.addEventListener('focusin', focusIn, true);
     return () => {
       clearTimeout(timer);
       document.removeEventListener('pointerdown', down, true);
       document.removeEventListener('pointerup', up, true);
       document.removeEventListener('pointercancel', up, true);
       document.removeEventListener('click', click, true);
-      document.removeEventListener('pointermove', moveWhilePressed, { capture: true });
-      document.removeEventListener('touchmove', markActivity, { capture: true });
-      document.removeEventListener('wheel', markActivity, { capture: true });
-      document.removeEventListener('focusin', focusIn, true);
     };
   }, []);
 
@@ -981,7 +996,7 @@ const TrainingView = ({
   };
 
   // 把目前這組捲到看得到的地方：不被頂部 bar（superset 再多讓出狀態條）、休息膠囊、tab 列蓋住。
-  // auto（進頁、換天換週、膠囊第一次出現）只在目前這組跟膠囊重疊時才捲，而且使用者 1 秒內在捲動 / 輸入就不動；
+  // auto（進頁、換天換週、膠囊第一次出現）只在目前這組底緣低於膠囊頂端時才捲，而且使用者 1 秒內在捲動 / 輸入就不動；
   // 使用者動作（按 ✓、跳過、Enter 跳格）之後只要被蓋住就捲。
   // 讀 ref 拿最新的目前這組（從 requestAnimationFrame 呼叫時，closure 可能是舊的）
   const currentKeyRef = useRef(currentKey);
@@ -993,10 +1008,10 @@ const TrainingView = ({
     const rect = row?.getBoundingClientRect();
     if (!rect?.height) return; // jsdom 沒有版面；排序模式沒有組列
     const band = pillBand();
+    // auto：目前這組底緣低於膠囊頂端就捲（被膠囊蓋住、在膠囊或 tab 列底下、整個在畫面外都算）
     if (auto) {
-      if (Date.now() - lastUserScrollRef.current < 1000) return;
-      const overlapsPill = rect.top < band.bottom && rect.bottom > band.top;
-      if (!overlapsPill) return;
+      if (Date.now() - userInput.lastActivityAt < 1000) return;
+      if (rect.bottom <= band.top) return;
     }
     const top = (barRef.current?.offsetHeight ?? 0) + (row.closest('[data-pair-group]') ? 72 : 12);
     const bottom = band.top - 12;
@@ -1084,35 +1099,92 @@ const TrainingView = ({
   const keepInputFocus = (e) => e.preventDefault();
 
   // ==================== 排序模式 ====================
-  // 進來時記住捲動位置和從哪個動作進來、捲到頂、焦點到「完成」；離開時捲回原位、焦點回到那個動作的「⋯」。
+  // 進來時記住捲動位置和從哪個動作進來、捲到頂、焦點到「完成」（指標進入時不顯示焦點框）。
+  // 離開時：順序沒變捲回原位、焦點回到那個動作的「⋯」；有動過順序就把被移動的動作捲進畫面、焦點給它的「⋯」；
+  // 換週回到頂部；從休息膠囊離開就捲到目前這組。
   // 浮卡在排序模式沒有組列可以跟，自然藏起來；休息膠囊照常顯示但不自動捲
   const reorderExitedRef = useRef(false);
+  const reorderListRef = useRef(null);
+  // 正在拖、剛用 Esc 取消拖曳：這時的 Esc 是 dnd 的，不離開排序模式
+  const draggingRef = useRef(false);
+  const dragCancelledAtRef = useRef(0);
+  // 這次排序模式裡最後被移動的動作（draggable id）
+  const movedGroupRef = useRef(null);
   const enterReorder = (exId) => {
     reorderReturnRef.current = { scrollY: window.scrollY, exId };
+    movedGroupRef.current = null;
     setFocusedKey(null);
     closeSheet();
     setReorderMode(true);
   };
-  const exitReorder = () => {
+  // then：'top'（換週）、{ scrollToKey }（點休息膠囊）；沒給就照順序有沒有變決定
+  const exitReorder = (then = null) => {
+    if (reorderReturnRef.current) reorderReturnRef.current.then = then;
     reorderExitedRef.current = true;
     setReorderMode(false);
+  };
+  const onReorderDragStart = () => {
+    draggingRef.current = true;
+  };
+  const onReorderDragEnd = (result) => {
+    draggingRef.current = false;
+    if (result.reason === 'CANCEL') dragCancelledAtRef.current = Date.now();
+    if (result.destination && result.destination.index !== result.source.index) movedGroupRef.current = result.draggableId;
+    handleDragEnd(result);
+  };
+  // 排序模式的 Esc：拖曳中、或這一下 Esc 剛取消了拖曳，交給 dnd；有 sheet 開著時是關 sheet
+  const onReorderEscape = (e) => {
+    if (e.key !== 'Escape' || e.defaultPrevented) return;
+    if (draggingRef.current || Date.now() - dragCancelledAtRef.current < 300) return;
+    if (document.querySelector('[role="dialog"]')) return;
+    exitReorder();
+  };
+  // 動作（或配對）的 draggable id → 它第一個動作的 id
+  const exerciseIdOfGroup = (groupId) => {
+    const group = groupedPlan.find(g => g.id === groupId);
+    if (!group) return null;
+    return group.type === 'pair' ? group.items[0].exercise.id : group.item.exercise.id;
   };
   useEffect(() => {
     if (reorderMode) {
       if (canAnimate()) window.scrollTo({ top: 0 });
-      reorderDoneRef.current?.focus({ preventScroll: true });
-      // Esc 離開（有 sheet 開著時 Esc 是關 sheet）
-      const onKeyDown = (e) => {
-        if (e.key === 'Escape' && !document.querySelector('[role="dialog"]')) exitReorder();
-      };
+      // 鍵盤進來才把焦點框顯示在「完成」；觸控 / 滑鼠進來焦點放在清單上（不畫框），之後按 Tab 一樣從這裡開始
+      if (userInput.modality === 'keyboard') {
+        reorderDoneRef.current?.focus({ preventScroll: true });
+      } else {
+        reorderListRef.current?.focus({ preventScroll: true });
+      }
+      const onKeyDown = (e) => onReorderEscape(e);
       document.addEventListener('keydown', onKeyDown);
       return () => document.removeEventListener('keydown', onKeyDown);
     }
     const ret = reorderReturnRef.current;
     if (!ret) return undefined;
     reorderReturnRef.current = null;
-    if (canAnimate()) window.scrollTo({ top: ret.scrollY });
-    document.querySelector(`[data-exercise-id="${ret.exId}"] button[aria-label="動作選項"]`)?.focus({ preventScroll: true });
+    const optionsBtn = (exId) => document.querySelector(`[data-exercise-id="${exId}"] button[aria-label="動作選項"]`);
+    const instant = (y) => { if (canAnimate()) window.scrollTo({ top: y }); };
+    if (ret.then === 'top') {
+      instant(0);
+      (optionsBtn(ret.exId) ?? document.querySelector('[data-current-week]'))?.focus({ preventScroll: true });
+    } else if (ret.then?.scrollToKey) {
+      instant(ret.scrollY);
+      scrollToSet(ret.then.scrollToKey);
+    } else if (movedGroupRef.current) {
+      // 有動過順序：舊的捲動位置已經對不上，改把被移動的動作捲到畫面中間
+      const exId = exerciseIdOfGroup(movedGroupRef.current) ?? ret.exId;
+      const section = document.querySelector(`[data-exercise-id="${exId}"]`);
+      const r = section?.getBoundingClientRect();
+      if (r?.height && canAnimate()) {
+        const barH = barRef.current?.offsetHeight ?? 0;
+        const target = window.scrollY + r.top - barH - 12;
+        window.scrollTo({ top: Math.max(0, target) });
+      }
+      optionsBtn(exId)?.focus({ preventScroll: true });
+    } else {
+      instant(ret.scrollY);
+      optionsBtn(ret.exId)?.focus({ preventScroll: true });
+    }
+    movedGroupRef.current = null;
     return undefined;
   }, [reorderMode]);
 
@@ -1512,8 +1584,9 @@ const TrainingView = ({
             <ChevronDown size={16} className="text-label-3" aria-hidden="true" />
           </button>
           <p
+            ref={smallTitleRef}
             aria-hidden="true"
-            className={`min-w-0 flex-1 truncate text-center text-body font-semibold text-label transition-opacity duration-200 ${collapsed ? 'opacity-100' : 'opacity-0'}`}
+            className={`min-w-0 flex-1 truncate text-center text-body font-semibold text-label transition-opacity duration-200 ${collapsed && smallTitleFits ? 'opacity-100' : 'opacity-0'}`}
           >
             {currentWorkout.name}
           </p>
@@ -1671,7 +1744,8 @@ const TrainingView = ({
           <div className="mode-fade">
             <p className="mt-3 px-1 text-footnote text-label-2">按住右側把手拖曳，調整這天的動作順序。</p>
             <DragDropContext
-              onDragEnd={handleDragEnd}
+              onDragStart={onReorderDragStart}
+              onDragEnd={onReorderDragEnd}
               dragHandleUsageInstructions="按空白鍵拿起動作，用上下方向鍵移動，再按空白鍵放下，按 Esc 取消。"
               autoScrollerOptions={{
                 startFromPercentage: 0.15,
@@ -1682,7 +1756,14 @@ const TrainingView = ({
             >
               <Droppable droppableId={`exercises-${workoutKey}`}>
                 {(provided) => (
-                  <div ref={provided.innerRef} {...provided.droppableProps} data-reorder-list>
+                  <div
+                    ref={(el) => { provided.innerRef(el); reorderListRef.current = el; }}
+                    {...provided.droppableProps}
+                    data-reorder-list
+                    tabIndex={-1}
+                    aria-label="動作順序"
+                    className="focus:outline-none"
+                  >
                     {groupedPlan.map((group, groupIdx) => {
                       const names = group.type === 'pair'
                         ? group.items.map(it => customExerciseNames[it.exercise.id] || it.exercise.name)
@@ -1829,7 +1910,7 @@ const TrainingView = ({
             pct={restPill.pct}
             nextName={restPill.nextName}
             nextSetNo={restPill.nextSetNo}
-            onClick={() => scrollToSet(restPill.key)}
+            onClick={() => (reorderMode ? exitReorder({ scrollToKey: restPill.key }) : scrollToSet(restPill.key))}
           />
         )}
       </Presence>
@@ -1852,6 +1933,8 @@ const TrainingView = ({
                       aria-current={isCurrent ? 'true' : undefined}
                       onClick={() => {
                         closeSheet();
+                        // 排序模式中換到別週：先離開排序模式，回到頂部
+                        if (reorderMode && w !== currentWeek) exitReorder('top');
                         onSelectWeek?.(w);
                       }}
                       className="flex min-h-[52px] w-full items-center gap-3 px-4 text-left transition-colors duration-150 active:bg-fill"
