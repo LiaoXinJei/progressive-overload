@@ -30,3 +30,4 @@ dist-ssr
 .impeccable/review/
 .impeccable/build/
 .impeccable/config.local.json
+.impeccable/tools/
