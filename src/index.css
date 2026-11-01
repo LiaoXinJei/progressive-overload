@@ -22,6 +22,14 @@ body {
   overscroll-behavior-y: none;
 }
 
+html {
+  /* 鍵盤跳格、scrollIntoView 時避開頂部 bar 與底部的 tab 列 + 休息膠囊（49 + 8 + 60 + 16） */
+  scroll-padding-top: var(--app-header-h, 0px);
+  scroll-padding-bottom: calc(133px + env(safe-area-inset-bottom));
+  /* sheet 開著時鎖捲動（overflow: hidden）不要因為捲軸消失讓版面左右跳 */
+  scrollbar-gutter: stable;
+}
+
 body {
   color: theme('colors.label.DEFAULT');
   font-family: theme('fontFamily.sans');
@@ -116,6 +124,12 @@ input[type='number'] {
 
 .hairline-t {
   box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.12);
+}
+
+/* sheet 最高 90% 視窗高；支援 dvh 的瀏覽器扣掉網址列 */
+.sheet-max-h {
+  max-height: 90vh;
+  max-height: 90dvh;
 }
 
 /* ==================== 組列格線 ==================== */

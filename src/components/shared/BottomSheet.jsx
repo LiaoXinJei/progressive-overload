@@ -7,40 +7,104 @@ const EXIT_MS = 350;
 // 往下拖超過這個距離、或放開時還在快速下滑，就關閉
 const DISMISS_DISTANCE = 100;
 const DISMISS_VELOCITY = 0.5; // px / ms
+// 放開前停住超過這麼久，速度當 0（甩一下再停住放開不算快速下滑）
+const VELOCITY_STALE_MS = 80;
 
 // sheet 關閉時先播完退場再卸載：<SheetPresence>{open && <BottomSheet … />}</SheetPresence>
 export const SheetPresence = ({ children }) => <Presence exitMs={EXIT_MS}>{children}</Presence>;
 
+// ==================== 背景捲動鎖 ====================
+// 疊著好幾層（sheet 退場時新的 sheet 已經開了、確認框）用計數，全部關掉才還原。
+// html overflow: hidden 不會動到捲動位置；iOS 15 以前不吃這招的手勢捲動由遮罩的 touch-action: none 擋
+let scrollLockCount = 0;
+let savedOverflow = '';
+
+export const useScrollLock = () => {
+  useEffect(() => {
+    const root = document.documentElement;
+    if (scrollLockCount === 0) {
+      savedOverflow = root.style.overflow;
+      root.style.overflow = 'hidden';
+    }
+    scrollLockCount += 1;
+    return () => {
+      scrollLockCount -= 1;
+      if (scrollLockCount === 0) root.style.overflow = savedOverflow;
+    };
+  }, []);
+};
+
+// ==================== 焦點 ====================
+
+const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+// Tab / Shift+Tab 在 container 裡循環
+export const trapTab = (e, container) => {
+  if (e.key !== 'Tab' || !container) return;
+  const all = [...container.querySelectorAll(FOCUSABLE)];
+  // 看得到的才算；jsdom 沒有版面，全部都算
+  const visible = all.filter(el => el.getClientRects().length > 0);
+  const items = visible.length > 0 ? visible : all;
+  if (items.length === 0) {
+    e.preventDefault();
+    container.focus();
+    return;
+  }
+  const first = items[0];
+  const last = items[items.length - 1];
+  const active = document.activeElement;
+  if (!container.contains(active)) {
+    e.preventDefault();
+    (e.shiftKey ? last : first).focus();
+  } else if (e.shiftKey && (active === first || active === container)) {
+    e.preventDefault();
+    last.focus();
+  } else if (!e.shiftKey && active === last) {
+    e.preventDefault();
+    first.focus();
+  }
+};
+
+// 關閉後把焦點還回去：returnFocusRef 指的元素優先（例如從「⋯」一路開到替換動作，關掉回到那個「⋯」），
+// 不然還給開啟前的元素。焦點已經到別的對話框裡（例如另一個 sheet、確認框）就不搶
+export const restoreFocus = (container, returnFocusRef, previous) => {
+  const active = document.activeElement;
+  const focusLeft = !active || active === document.body || container?.contains(active);
+  if (!focusLeft) return;
+  const target = [returnFocusRef?.current, previous].find(el => el?.isConnected && typeof el.focus === 'function');
+  target?.focus({ preventScroll: true });
+};
+
 // iOS 式底部 sheet。z-[60] 疊在底部 tab 列（z-50）上面，底部留 home indicator 的安全區。
 // 從下往上滑入；頂端（把手與標題列）往下拖跟手，超過 100px 或快速下滑就關閉。
-// 遮罩點了關閉、Esc 關閉；開啟時焦點移進來（有 data-autofocus 的元素優先），卸載時還給開啟前的元素。
-// doneLabel：右上角用文字按鈕（例如「完成」）取代關閉圖示
-const BottomSheet = ({ title, onClose, children, footer, doneLabel, exiting = false, ...rest }) => {
+// 遮罩點了關閉、Esc 關閉；開啟時焦點移進來（有 data-autofocus 的元素優先），Tab 在 sheet 裡循環，
+// 開著時背景不能捲。doneLabel：右上角用文字按鈕（例如「完成」）取代關閉圖示
+const BottomSheet = ({ title, onClose, children, footer, doneLabel, returnFocusRef, exiting = false, ...rest }) => {
   const panelRef = useRef(null);
   const titleId = useId();
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+  const returnFocusRefRef = useRef(returnFocusRef);
+  returnFocusRefRef.current = returnFocusRef;
   const [dragY, setDragY] = useState(0);
   const [dragging, setDragging] = useState(false);
   const dragRef = useRef(null);
+
+  useScrollLock();
 
   useEffect(() => {
     const previous = document.activeElement;
     const panel = panelRef.current;
     const target = panel?.querySelector('[data-autofocus]') ?? panel;
     target?.focus({ preventScroll: true });
-    return () => {
-      // 退場時另一個 sheet 已經開了（例如動作選項 → 替換動作），焦點在新 sheet 裡就不搶回來
-      const active = document.activeElement;
-      const focusLeft = !active || active === document.body || panel?.contains(active);
-      if (focusLeft && previous?.isConnected && typeof previous.focus === 'function') previous.focus({ preventScroll: true });
-    };
+    return () => restoreFocus(panel, returnFocusRefRef.current, previous);
   }, []);
 
   useEffect(() => {
     if (exiting) return undefined;
     const onKeyDown = (e) => {
       if (e.key === 'Escape') onCloseRef.current();
+      else trapTab(e, panelRef.current);
     };
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
@@ -72,7 +136,8 @@ const BottomSheet = ({ title, onClose, children, footer, doneLabel, exiting = fa
     dragRef.current = null;
     setDragging(false);
     const dy = e.clientY - d.startY;
-    if (e.type === 'pointerup' && (dy > DISMISS_DISTANCE || (dy > 12 && d.velocity > DISMISS_VELOCITY))) {
+    const velocity = e.timeStamp - d.lastT > VELOCITY_STALE_MS ? 0 : d.velocity;
+    if (e.type === 'pointerup' && (dy > DISMISS_DISTANCE || (dy > 12 && velocity > DISMISS_VELOCITY))) {
       // 留著 dragY：退場從放手的位置接著滑出去
       onCloseRef.current();
       return;
@@ -94,7 +159,7 @@ const BottomSheet = ({ title, onClose, children, footer, doneLabel, exiting = fa
   return (
     <>
       <div
-        className={`fixed inset-0 z-[60] bg-black/50 ${exiting ? 'pointer-events-none' : 'sheet-backdrop-in'}`}
+        className={`fixed inset-0 z-[60] touch-none bg-black/50 ${exiting ? 'pointer-events-none' : 'sheet-backdrop-in'}`}
         style={{ opacity: backdropOpacity, transition: dragging ? 'none' : 'opacity 300ms ease-out' }}
         onClick={exiting ? undefined : onClose}
         aria-hidden="true"
@@ -105,7 +170,7 @@ const BottomSheet = ({ title, onClose, children, footer, doneLabel, exiting = fa
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className={`fixed inset-x-0 bottom-0 z-[60] mx-auto flex max-h-[90vh] w-full max-w-[480px] flex-col rounded-t-[28px] bg-card pb-[env(safe-area-inset-bottom)] text-label shadow-[0_-10px_40px_rgba(0,0,0,0.5)] focus:outline-none ${exiting ? 'pointer-events-none' : 'sheet-in'}`}
+        className={`sheet-max-h fixed inset-x-0 bottom-0 z-[60] mx-auto flex w-full max-w-[480px] flex-col rounded-t-[28px] bg-card pb-[env(safe-area-inset-bottom)] text-label shadow-[0_-10px_40px_rgba(0,0,0,0.5)] focus:outline-none ${exiting ? 'pointer-events-none' : 'sheet-in'}`}
         style={{
           transform: `translateY(${offset})`,
           opacity: exiting && reduceMotion ? 0 : 1,

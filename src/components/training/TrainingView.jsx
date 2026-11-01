@@ -1,6 +1,6 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useLayoutEffect, useReducer } from 'react';
 import {
-  AlertTriangle, Check, ChevronDown, ChevronRight, Link, Minus, MoreHorizontal, Plus,
+  AlertTriangle, BellRing, Check, ChevronDown, ChevronRight, GripVertical, Link, Minus, MoreHorizontal, Plus,
   Repeat, Search, Settings2, Timer, Trash2, Undo2, Wind,
 } from 'lucide-react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
@@ -58,7 +58,14 @@ const formatMmSs = (seconds) => {
 // 次數區間、RIR 顯示用 en dash（8–12、2–3）
 const enDash = (range) => String(range).replace('-', '–');
 
-const isSameDay = (a, b) => new Date(a).toDateString() === new Date(b).toDateString();
+// 休息膠囊只顯示這段時間內開始的休息（不綁日曆日，跨午夜照樣顯示）
+const REST_PILL_WINDOW_MS = 3 * 60 * 60 * 1000;
+
+// SSR（superset 結構測試用 renderToStaticMarkup）沒有 layout effect
+const useIsomorphicLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect;
+
+// 浮卡從舊的目前這組滑到新的目前這組（FLIP 的位移曲線與長度）
+const HIGHLIGHT_MOVE = 'transform 300ms cubic-bezier(0.32, 0.72, 0, 1), height 300ms cubic-bezier(0.32, 0.72, 0, 1), width 300ms cubic-bezier(0.32, 0.72, 0, 1)';
 
 // 階段的短名稱與顏色（週次膠囊、RIR 徽章、週次 sheet、本週訓練量）
 const PHASE_STYLE = {
@@ -67,22 +74,24 @@ const PHASE_STYLE = {
   deload: { short: '減量', text: 'text-phase-deload', dot: 'bg-phase-deload', chip: 'bg-phase-deload/[0.16] text-phase-deload' },
 };
 
-// session 類型（推 / 拉 / 腿）的文字、圓點與動作進度條顏色
+// session 類型（推 / 拉 / 腿）的文字與圓點（只用在 D1–D5、本週循環）
 const sessionThemeOf = (type) => SESSION_TYPE_THEME[type] ?? SESSION_TYPE_THEME.push;
 
 // 休息膠囊、目前這組的退場長度
 const PILL_EXIT_MS = 260;
 
 // 休息顯示：組與組之間一行置中的字，兩側各一條 hairline。還在休息用琥珀色，已結束用第三層色。
+// 超過目標（overText）時線變實、後面加「· 超過 1:00」（紅色只給跳過，這裡維持琥珀）。
 // data-rest / data-rest-label 給測試找，label 文字是「休息中 1:24」「休息 1:52」「動作間休息 2:00」
-const RestLine = ({ kind, label, time, className = '' }) => {
+const RestLine = ({ kind, label, time, overText = null, className = '' }) => {
   const live = kind.endsWith('live');
-  const line = `h-[0.5px] min-w-4 flex-1 ${live ? 'bg-rest/40' : 'bg-separator'}`;
+  const line = `h-[0.5px] min-w-4 flex-1 ${live ? (overText ? 'bg-rest' : 'bg-rest/40') : 'bg-separator'}`;
   return (
-    <div data-rest={kind} role={live ? 'timer' : undefined} className={`flex h-7 items-center gap-2.5 px-2 ${className}`}>
+    <div data-rest={kind} data-over={overText ? '' : undefined} role={live ? 'timer' : undefined} className={`flex h-7 items-center gap-2.5 px-2 ${className}`}>
       <span className={line} aria-hidden="true" />
-      <span data-rest-label className={`whitespace-nowrap text-footnote ${live ? 'font-semibold text-rest' : 'text-label-3'}`}>
-        {label} <span className="font-num tabular-nums">{time}</span>
+      <span className={`whitespace-nowrap text-footnote ${live ? 'font-semibold text-rest' : 'text-label-3'}`}>
+        <span data-rest-label>{label} <span className="font-num tabular-nums">{time}</span></span>
+        {overText && <span className="font-num tabular-nums"> · 超過 {overText}</span>}
       </span>
       <span className={line} aria-hidden="true" />
     </div>
@@ -208,30 +217,42 @@ const SheetAction = ({ icon: Icon, destructive = false, children, ...props }) =>
   </button>
 );
 
-// 休息膠囊：休息中時浮在 tab bar 上方，點了把目前這組捲到畫面中間
-const RestPill = ({ label, elapsed, target, nextText, onClick, exiting = false }) => {
-  const pct = target > 0 ? Math.min(100, (elapsed / target) * 100) : 0;
+// 休息膠囊：休息中時浮在 tab bar 上方，點了把目前這組捲到畫面中間。
+// 時間格式跟休息線同一個（formatTime，超過一小時是 1:06:00）。
+// 超過目標（overText）：標籤改「該做下一組了」、大字顯示超出多少、進度條滿格、膠囊加淡琥珀底、圖示換成鈴
+const RestPill = ({ label, elapsedText, targetText, overText = null, pct, nextName, onClick, exiting = false }) => {
+  const over = Boolean(overText);
+  const bigText = over ? `+${overText}` : elapsedText;
+  // 超過目標時標籤已經寫「該做下一組了」，第二行只放哪個動作第幾組，窄螢幕比較放得下
+  const nextText = over ? nextName : `下一組：${nextName}`;
   return (
     <button
       type="button"
+      data-rest-pill
+      data-over={over ? '' : undefined}
       onClick={exiting ? undefined : onClick}
-      aria-label={`${label} ${formatMmSs(elapsed)}，目標 ${formatMmSs(target)}。${nextText}。捲到這組`}
-      className={`material-elevated fixed inset-x-3 bottom-[calc(57px+env(safe-area-inset-bottom))] z-[45] mx-auto flex h-[60px] max-w-[456px] items-center gap-3 overflow-hidden rounded-[30px] border-[0.5px] border-white/[0.12] pl-2.5 pr-[18px] text-left shadow-[0_12px_32px_rgba(0,0,0,0.5)]
+      aria-label={over
+        ? `該做下一組了，已休息 ${elapsedText}，超過目標 ${overText}。${nextText}。捲到這組`
+        : `${label} ${elapsedText}，目標 ${targetText}。${nextText}。捲到這組`}
+      className={`material-elevated fixed inset-x-3 bottom-[calc(57px+env(safe-area-inset-bottom))] z-[45] mx-auto flex h-[60px] max-w-[456px] items-center gap-3 overflow-hidden rounded-[30px] border-[0.5px] pl-2.5 pr-[18px] text-left shadow-[0_12px_32px_rgba(0,0,0,0.5)] transition-colors duration-300
+        ${over ? 'border-rest/40' : 'border-white/[0.12]'}
         ${exiting ? 'pill-out pointer-events-none' : 'pill-in'}`}
     >
-      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-rest/20 text-rest" aria-hidden="true">
-        <Timer size={20} />
+      {/* 超過目標的淡琥珀底 */}
+      <span className={`absolute inset-0 bg-rest/[0.14] transition-opacity duration-300 ${over ? 'opacity-100' : 'opacity-0'}`} aria-hidden="true" />
+      <span className={`relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-rest ${over ? 'bg-rest/30' : 'bg-rest/20'}`} aria-hidden="true">
+        {over ? <BellRing size={20} /> : <Timer size={20} />}
       </span>
-      <span className="min-w-0 flex-1" aria-hidden="true">
-        <span className="block text-subhead font-semibold text-label">{label}</span>
+      <span className="relative min-w-0 flex-1" aria-hidden="true">
+        <span className="block truncate text-subhead font-semibold text-label">{over ? '該做下一組了' : label}</span>
         <span className="block truncate text-footnote text-label-2">{nextText}</span>
       </span>
-      <span className="shrink-0 whitespace-nowrap" aria-hidden="true">
-        <span className="font-num text-[24px] font-semibold leading-7 tabular-nums text-rest">{formatMmSs(elapsed)}</span>
-        <span className="ml-1 font-num text-footnote tabular-nums text-label-2">/ {formatMmSs(target)}</span>
+      <span className="relative shrink-0 whitespace-nowrap" aria-hidden="true">
+        <span className={`font-num font-semibold tabular-nums text-rest ${bigText.length > 5 ? 'text-title3' : 'text-[24px] leading-7'}`}>{bigText}</span>
+        <span className="ml-1 font-num text-footnote tabular-nums text-label-2">{over ? `已休 ${elapsedText}` : `/ ${targetText}`}</span>
       </span>
       <span className="absolute inset-x-0 bottom-0 h-[3px] bg-rest/20" aria-hidden="true">
-        <span className="block h-full bg-rest transition-[width] duration-1000 ease-linear" style={{ width: `${pct}%` }} />
+        <span className="block h-full bg-rest transition-[width] duration-1000 ease-linear" style={{ width: `${over ? 100 : pct}%` }} />
       </span>
     </button>
   );
@@ -266,8 +287,53 @@ const TrainingView = ({
   // 大標題捲到頂部 bar 底下：scrolled = 開始被蓋住（bar 變材質），collapsed = 完全看不到（bar 中間淡入小標題）
   const [scrolled, setScrolled] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
-  // 按 ✓ 後，新的目前這組如果在畫面外就捲進來
+  // 按 ✓、Enter 跳格後，新的目前這組如果在畫面外（或被休息膠囊蓋住）就捲進來
   const revealNextRef = useRef(false);
+  // 打開動作選項的那顆「⋯」：選項 sheet、從它開的替換動作 sheet 關掉後焦點回到這裡
+  const optionsTriggerRef = useRef(null);
+  // 浮卡（目前這組的浮起層）：絕對定位在 main 裡，換組時從舊列滑到新列
+  const mainRef = useRef(null);
+  const highlightRef = useRef(null);
+  const highlightPosRef = useRef(null);
+
+  // 手指 / 滑鼠還按著時，已完成的浮卡先不收（收了列會變矮，按到一半的按鈕會跑掉、點不到）。
+  // 放開、click 跑完之後再重新判斷一次
+  const pointerDownRef = useRef(false);
+  const focusCheckPendingRef = useRef(false);
+  const [, recheckFocus] = useReducer(n => n + 1, 0);
+  useEffect(() => {
+    let timer = null;
+    const release = () => {
+      clearTimeout(timer);
+      timer = null;
+      if (!pointerDownRef.current) return;
+      pointerDownRef.current = false;
+      if (focusCheckPendingRef.current) {
+        focusCheckPendingRef.current = false;
+        recheckFocus();
+      }
+    };
+    const down = () => { pointerDownRef.current = true; };
+    // click 在 pointerup 之後才派發（iOS 還隔一個 task），等 click 跑完；沒有 click（捲動）就等 400ms
+    const up = () => { timer = setTimeout(release, 400); };
+    const click = () => { setTimeout(release, 0); };
+    document.addEventListener('pointerdown', down, true);
+    document.addEventListener('pointerup', up, true);
+    document.addEventListener('pointercancel', up, true);
+    document.addEventListener('click', click, true);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener('pointerdown', down, true);
+      document.removeEventListener('pointerup', up, true);
+      document.removeEventListener('pointercancel', up, true);
+      document.removeEventListener('click', click, true);
+    };
+  }, []);
+
+  // 換天、換週：剛按 ✓ 的彈一下不要在換回來時重播
+  useEffect(() => {
+    setLitKey(null);
+  }, [currentDay, currentWeek]);
 
   // 頂部 bar 是唯一的 sticky header，高度（含 safe area）寫進 --app-header-h 給 superset 的 sticky bar 當 top
   const barRef = useRef(null);
@@ -741,9 +807,17 @@ const TrainingView = ({
   });
   const isSettledKey = (key) => Boolean(logs[key]?.done || logs[key]?.skipped);
   const firstPendingSlot = sessionOrder.find(s => !isSettledKey(s.key)) ?? null;
-  // 目前這組 = 最後聚焦過輸入框的那一組（跳過的不算）；沒有就是第一個沒完成也沒跳過的組。畫面上只有一張浮卡
+  // 目前這組 = 最後聚焦過輸入框的那一組（跳過的不算）；沒有就是第一個沒完成也沒跳過的組。畫面上只有一張浮卡。
+  // 已完成的組只有在使用者正在改它（焦點還在那一列裡）時才算，不然回到自動選的那一組，
+  // 免得浮卡卡在做完的組上、按「跳過」把做完的組改成跳過
+  const focusInRow = (key) => {
+    if (typeof document === 'undefined') return false;
+    const row = document.activeElement?.closest?.('[data-set-row]');
+    return row?.querySelector('[data-weight-input]')?.dataset.logKey === key;
+  };
   const focusedSlot = focusedKey
-    ? sessionOrder.find(s => s.key === focusedKey && !logs[s.key]?.skipped) ?? null
+    ? sessionOrder.find(s => s.key === focusedKey && !logs[s.key]?.skipped
+      && (!logs[s.key]?.done || focusInRow(s.key) || pointerDownRef.current)) ?? null
     : null;
   const currentSlot = focusedSlot ?? firstPendingSlot;
   const currentKey = currentSlot?.key ?? null;
@@ -781,7 +855,8 @@ const TrainingView = ({
     .map(([muscle]) => `${MUSCLE_GROUPS[muscle] ?? muscle} ${weeklyDone[muscle] ?? 0}/${getWeeklyMuscleVolume(muscle, currentWeek)}`)
     .join(' · ');
 
-  // 休息膠囊跟休息通知同一個來源（getRestContext，目標是 restNotificationDelay），只顯示今天的
+  // 休息膠囊跟休息通知同一個來源（getRestContext，目標是 restNotificationDelay）。
+  // 只顯示 3 小時內開始的休息（不綁日曆日：半夜練跨過午夜照樣顯示；通知那邊只排還沒到時間的，不會矛盾）
   const restContext = getRestContext({
     logs, currentWeek, currentDay, workoutKey,
     sessionPlan: currentSessionPlan, globalDelay: restTarget,
@@ -793,18 +868,24 @@ const TrainingView = ({
     'in-pair-mid-round': '切換中',
   };
   const restPill = nextSlot && REST_LABELS[restContext.type] && restContext.anchorTs != null
-    && isSameDay(restContext.anchorTs, currentTime)
+    && currentTime - restContext.anchorTs < REST_PILL_WINDOW_MS
     ? (() => {
       const nextEx = nextSlot.entry.exercise;
+      const target = restContext.delay ?? SWITCH_TARGET_SEC;
+      const elapsed = Math.max(0, Math.floor((currentTime - restContext.anchorTs) / 1000));
       return {
         key: nextSlot.key,
         label: REST_LABELS[restContext.type],
-        target: restContext.delay ?? SWITCH_TARGET_SEC,
-        elapsed: Math.max(0, Math.floor((currentTime - restContext.anchorTs) / 1000)),
-        nextText: `下一組：${customExerciseNames[nextEx.id] || nextEx.name} 第 ${nextSlot.idx + 1} 組`,
+        elapsedText: formatTime(elapsed),
+        targetText: formatTime(target),
+        overText: elapsed > target ? formatTime(elapsed - target) : null,
+        pct: target > 0 ? Math.min(100, (elapsed / target) * 100) : 0,
+        nextName: `${customExerciseNames[nextEx.id] || nextEx.name} 第 ${nextSlot.idx + 1} 組`,
       };
     })()
     : null;
+  // 組間 / 動作間休息線超過目標時顯示超過多少
+  const overTextOf = (seconds) => (seconds > restTarget ? formatTime(seconds - restTarget) : null);
 
   const rowOf = (logKey) => document.querySelector(`[data-weight-input][data-log-key="${logKey}"]`)?.closest('[data-set-row]');
 
@@ -814,21 +895,88 @@ const TrainingView = ({
     row.scrollIntoView({ block: 'center', behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
   };
 
-  // 按 ✓ 之後，新的目前這組在畫面外（被頂部 bar、休息膠囊或 tab 列蓋住）就平滑捲進來
-  useEffect(() => {
-    if (!revealNextRef.current) return;
-    revealNextRef.current = false;
-    if (!currentKey) return;
-    const row = rowOf(currentKey);
+  // 把目前這組捲到看得到的地方：不被頂部 bar（superset 再多讓出狀態條）、休息膠囊、tab 列蓋住。
+  // 讀 ref 拿最新的目前這組（從 requestAnimationFrame 呼叫時，closure 可能是舊的）
+  const currentKeyRef = useRef(currentKey);
+  currentKeyRef.current = currentKey;
+  const revealCurrent = () => {
+    const key = currentKeyRef.current;
+    if (!key) return;
+    const row = rowOf(key);
     const rect = row?.getBoundingClientRect();
     if (!rect?.height) return; // jsdom 沒有版面
     const top = (barRef.current?.offsetHeight ?? 0) + (row.closest('[data-pair-group]') ? 72 : 12);
     const navTop = document.querySelector('nav[aria-label="主選單"]')?.getBoundingClientRect().top ?? window.innerHeight;
-    const bottom = navTop - 84;
+    // 休息膠囊：tab 列上方 8px、高 60px
+    const bottom = (document.querySelector('[data-rest-pill]') ? navTop - 68 : navTop) - 12;
     const behavior = prefersReducedMotion() ? 'auto' : 'smooth';
     if (rect.bottom > bottom) window.scrollBy({ top: rect.bottom - bottom, behavior });
     else if (rect.top < top) window.scrollBy({ top: rect.top - top, behavior });
+  };
+
+  // 按 ✓、次數欄按 Enter 跳格之後，新的目前這組在畫面外就平滑捲進來
+  useEffect(() => {
+    if (!revealNextRef.current) return;
+    revealNextRef.current = false;
+    revealCurrent();
   }, [currentKey, logs]);
+
+  // 休息膠囊第一次出現、進訓練頁、換天 / 換週時膠囊已經在：目前這組可能剛好被膠囊蓋住，捲一次
+  const pillShown = Boolean(restPill);
+  const pillRevealedForRef = useRef(null);
+  useEffect(() => {
+    if (!pillShown) {
+      pillRevealedForRef.current = null;
+      return undefined;
+    }
+    const view = `${currentWeek}-${currentDay}`;
+    if (pillRevealedForRef.current === view) return undefined;
+    // 等版面（膠囊、浮卡）就位再量
+    const id = requestAnimationFrame(() => {
+      pillRevealedForRef.current = view;
+      revealCurrent();
+    });
+    return () => cancelAnimationFrame(id);
+  }, [pillShown, currentWeek, currentDay]);
+
+  // 浮卡（目前這組的浮起層）跟著目前這組：換組時從舊列滑到新列（FLIP：位置量出來，只動 transform），
+  // 減少動態效果時直接換位置再淡入。同一組因為版面變動移位時不播動畫
+  const syncHighlight = () => {
+    const hl = highlightRef.current;
+    const main = mainRef.current;
+    if (!hl || !main) return;
+    const key = currentKeyRef.current;
+    const row = key ? main.querySelector(`[data-weight-input][data-log-key="${key}"]`)?.closest('[data-set-row]') : null;
+    if (!row) {
+      hl.style.opacity = '0';
+      highlightPosRef.current = null;
+      return;
+    }
+    const m = main.getBoundingClientRect();
+    const r = row.getBoundingClientRect();
+    if (!r.height) return; // jsdom 沒有版面
+    const pos = { key, x: r.left - m.left, y: r.top - m.top, w: r.width, h: r.height };
+    const prev = highlightPosRef.current;
+    if (prev && prev.key === pos.key && prev.x === pos.x && prev.y === pos.y && prev.w === pos.w && prev.h === pos.h) return;
+    const moving = Boolean(prev) && prev.key !== pos.key;
+    const reduce = prefersReducedMotion();
+    hl.style.transition = moving && !reduce ? HIGHLIGHT_MOVE : 'none';
+    hl.style.transform = `translate(${pos.x}px, ${pos.y}px)`;
+    hl.style.width = `${pos.w}px`;
+    hl.style.height = `${pos.h}px`;
+    hl.style.opacity = '1';
+    if (moving && reduce) hl.animate?.([{ opacity: 0 }, { opacity: 1 }], { duration: 200, easing: 'ease-out' });
+    highlightPosRef.current = pos;
+  };
+  useIsomorphicLayoutEffect(syncHighlight);
+  // 版面變動但沒有重新 render（字型載入、視窗大小）也要跟上
+  useEffect(() => {
+    const main = mainRef.current;
+    if (!main || typeof ResizeObserver === 'undefined') return undefined;
+    const ro = new ResizeObserver(() => syncHighlight());
+    ro.observe(main);
+    return () => ro.disconnect();
+  }, []);
 
   const closeSheet = () => setSheet(null);
   const optionsEntry = sheet?.kind === 'options'
@@ -837,7 +985,16 @@ const TrainingView = ({
 
   const phaseStyle = PHASE_STYLE[phase] ?? PHASE_STYLE.hypertrophy;
   const rirChip = `${guidance.label.includes('衝刺') ? '衝刺週 · ' : ''}RIR ${guidance.rir}`;
-  const sessionBar = sessionThemeOf(currentWorkout.type).bar;
+  // superset 成員：選項 sheet 的拖曳說明要講拖整組
+  const pairMemberIds = new Set(groupedPlan.filter(g => g.type === 'pair').flatMap(g => g.items.map(it => it.exercise.id)));
+
+  // 已完成的組當浮卡時，去按別組的 ✓ / 跳過：浮卡回到自動選的組
+  const dropDoneFocus = (exceptKey) => {
+    setFocusedKey(k => (k && k !== exceptKey && logs[k]?.done ? null : k));
+  };
+  // 目前這組裡的按鈕（stepper、帶入、跳過）按下時不搶走輸入框的焦點：
+  // 改已完成的組時焦點一離開那一列它就不再是目前這組，按鈕會在 click 之前消失（iOS 點按鈕不會給按鈕焦點）
+  const keepInputFocus = (e) => e.preventDefault();
 
   // inPair：superset 卡片裡的動作，不自己畫卡片底色
   // pairOrder：pair 成員才有（見 findNextWeightInput），單動作為 undefined
@@ -862,8 +1019,6 @@ const TrainingView = ({
       .find(log => !log.skipped);
     const hasPrevEndTs = !hideInterRest && typeof prevEndTs === 'number' && firstActiveLog !== undefined;
 
-    // 整個標題區當拖曳把手（dnd 會略過裡面的按鈕）。拿掉 dnd 給的 role="button"，標題才保留 heading 語意
-    const handleProps = dragHandleProps ? { ...dragHandleProps, role: undefined } : {};
 
     return (
       <section data-exercise data-exercise-id={ex.id}>
@@ -871,7 +1026,7 @@ const TrainingView = ({
         {hasPrevEndTs && (() => {
           if (!firstActiveLog.done) {
             const elapsed = Math.floor((currentTime - prevEndTs) / 1000);
-            return <RestLine kind="exercise-live" label="動作間休息" time={formatTime(elapsed)} className="mb-2" />;
+            return <RestLine kind="exercise-live" label="動作間休息" time={formatTime(elapsed)} overText={overTextOf(elapsed)} className="mb-2" />;
           }
           if (firstActiveLog.completedAt) {
             const restSeconds = Math.floor((firstActiveLog.completedAt - prevEndTs) / 1000);
@@ -887,11 +1042,17 @@ const TrainingView = ({
             ? 'px-2.5 pb-3 pt-4'
             : `rounded-[20px] px-2.5 pb-3 pt-4 transition-[background-color,box-shadow] duration-200 ${isDragging ? 'bg-elevated shadow-[0_20px_44px_rgba(0,0,0,0.6)]' : 'bg-card'}`}
         >
-          {/* 動作標題（拖曳把手） */}
-          <div
-            {...handleProps}
-            className={`flex items-start gap-1 rounded-xl px-1.5 ${dragHandleProps ? 'cursor-grab active:cursor-grabbing' : ''}`}
-          >
+          {/* 動作標題。拖曳只從左側把手（44×44）開始，手指停在標題上捲動不會誤拖 */}
+          <div className="flex select-none items-start gap-1 px-1.5">
+            {dragHandleProps && (
+              <div
+                {...dragHandleProps}
+                aria-label={`拖曳排序：${exName}`}
+                className="-mb-2 -ml-3.5 -mt-2 flex h-11 w-11 shrink-0 cursor-grab touch-none items-center justify-center rounded-full text-label-3 active:cursor-grabbing"
+              >
+                <GripVertical size={18} aria-hidden="true" />
+              </div>
+            )}
             <div className="min-w-0 flex-1 pt-0.5">
               <h3 className="text-title3 font-semibold text-label">{exName}</h3>
               <p className="mt-0.5 text-footnote text-label-2">
@@ -914,7 +1075,10 @@ const TrainingView = ({
               </p>
               <button
                 type="button"
-                onClick={() => setSheet({ kind: 'options', exId: ex.id })}
+                onClick={(e) => {
+                  optionsTriggerRef.current = e.currentTarget;
+                  setSheet({ kind: 'options', exId: ex.id });
+                }}
                 aria-label="動作選項"
                 aria-haspopup="dialog"
                 className="flex h-11 w-11 items-center justify-center rounded-full text-label-2 transition-colors duration-150 active:bg-elevated"
@@ -924,10 +1088,11 @@ const TrainingView = ({
             </div>
           </div>
 
-          {/* 動作進度條（session 色） */}
+          {/* 動作進度條：跟今天進度同一個完成綠（推拉腿色只留在 D1–D5） */}
           <div className="mx-1.5 mt-2.5 h-1 overflow-hidden rounded-full bg-fill" aria-hidden="true">
             <div
-              className={`h-full rounded-full ${sessionBar} transition-[width] duration-[400ms] ease-out`}
+              data-exercise-progress
+              className="h-full rounded-full bg-done transition-[width] duration-[400ms] ease-out"
               style={{ width: `${setsCount > 0 ? (completedCount / setsCount) * 100 : 0}%` }}
             />
           </div>
@@ -967,11 +1132,12 @@ const TrainingView = ({
               const numSize = (v) => (String(v).length > 4 ? 'text-body' : 'text-title3');
               const fieldBg = isCurrent ? 'bg-fill' : 'bg-elevated';
 
+              // 目前這組的浮起底色、陰影、藍框在 main 裡那一層浮卡上（換組時滑過去），列本身透明
               const rowTone = isCurrent
-                ? 'rounded-2xl bg-elevated py-2 shadow-[0_10px_24px_rgba(0,0,0,0.45),0_1px_2px_rgba(0,0,0,0.3)] outline-accent'
+                ? 'rounded-2xl py-2'
                 : isDone
-                  ? 'rounded-[14px] bg-done/[0.08] outline-transparent'
-                  : 'rounded-[14px] outline-transparent';
+                  ? 'rounded-[14px] bg-done/[0.08]'
+                  : 'rounded-[14px]';
               const numTone = isCurrent ? 'text-accent-text' : logData.skipped ? 'text-label-2' : isDone ? 'text-done' : 'text-label-3';
               const completeClass = isDone
                 ? 'bg-done text-black'
@@ -985,7 +1151,14 @@ const TrainingView = ({
                   <div
                     data-set-row
                     data-current={isCurrent ? '' : undefined}
-                    className={`px-2 outline outline-[1.5px] [outline-offset:-1.5px] transition-[background-color,box-shadow,outline-color] duration-200 ${rowTone}`}
+                    // 已完成的組：焦點離開這一列就不再是目前這組（改完數字點別的地方，浮卡回到下一組）。
+                    // 還按著的話等放開再收，不然列變矮、按到一半的按鈕會跑掉
+                    onBlur={isDone && isCurrent ? (e) => {
+                      if (e.currentTarget.contains(e.relatedTarget)) return;
+                      if (pointerDownRef.current) focusCheckPendingRef.current = true;
+                      else recheckFocus();
+                    } : undefined}
+                    className={`relative z-[1] px-2 transition-[background-color] duration-200 ${rowTone}`}
                   >
                     <div className={`set-grid items-center ${isCurrent ? 'min-h-12' : 'min-h-[52px]'}`}>
                       <span className={`text-center font-num text-body font-semibold tabular-nums transition-colors duration-200 ${numTone}`}>
@@ -996,7 +1169,10 @@ const TrainingView = ({
                           <span className="text-subhead font-medium text-skip">已跳過</span>
                           <button
                             type="button"
-                            onClick={() => skipSet(logKey)}
+                            onClick={() => {
+                              skipSet(logKey);
+                              dropDoneFocus(logKey);
+                            }}
                             title="取消跳過"
                             className="col-span-2 ml-auto flex h-11 items-center gap-1.5 rounded-full px-3 text-subhead font-semibold text-accent-text transition-colors duration-150 active:bg-elevated"
                           >
@@ -1010,6 +1186,7 @@ const TrainingView = ({
                             {showStepper && (
                               <button
                                 type="button"
+                                onMouseDown={keepInputFocus}
                                 onClick={() => adjustWeight(logKey, -1, historyWeight)}
                                 title={`-${weightIncrement}kg`}
                                 aria-label={`第 ${idx + 1} 組重量減 ${weightIncrement} 公斤`}
@@ -1048,6 +1225,7 @@ const TrainingView = ({
                             {showStepper && (
                               <button
                                 type="button"
+                                onMouseDown={keepInputFocus}
                                 onClick={() => adjustWeight(logKey, 1, historyWeight)}
                                 title={`+${weightIncrement}kg`}
                                 aria-label={`第 ${idx + 1} 組重量加 ${weightIncrement} 公斤`}
@@ -1071,6 +1249,8 @@ const TrainingView = ({
                                 e.preventDefault();
                                 const nextWeightInput = findNextWeightInput(e.currentTarget, logKey, pairOrder);
                                 if (nextWeightInput) {
+                                  // 跳到的組被休息膠囊 / tab 列蓋住就捲出來（聚焦後它變成目前這組，列會變高）
+                                  revealNextRef.current = true;
                                   nextWeightInput.focus();
                                   nextWeightInput.select();
                                 }
@@ -1084,6 +1264,7 @@ const TrainingView = ({
                             data-complete-btn
                             onClick={() => {
                               completeSet(logKey, historyKey, historyEntry);
+                              dropDoneFocus(logKey);
                               if (!logData.done) {
                                 setLitKey(logKey);
                                 navigator.vibrate?.(10);
@@ -1094,6 +1275,8 @@ const TrainingView = ({
                                 setLitKey(null);
                               }
                             }}
+                            // 彈一下播完就清掉，換天再回來不會重播
+                            onAnimationEnd={() => setLitKey(k => (k === logKey ? null : k))}
                             disabled={!canComplete}
                             title={logData.done ? '取消完成' : canComplete ? '完成此組' : '先輸入次數'}
                             aria-label={logData.done ? '取消完成' : '完成此組'}
@@ -1106,12 +1289,13 @@ const TrainingView = ({
                       )}
                     </div>
 
-                    {/* 目前這組的下排：帶入上次、跳過這組 */}
+                    {/* 目前這組的下排：帶入上次、跳過這組（已完成的組在改數字時是「改成跳過」，講清楚會把做完的組改掉） */}
                     {isCurrent && !logData.skipped && (
                       <div className="fade-in flex items-center justify-between gap-2">
                         <button
                           type="button"
                           data-fill-history
+                          onMouseDown={keepInputFocus}
                           onClick={() => canFill && fillFromHistory(logKey, historyKey)}
                           disabled={!canFill}
                           title={logData.done ? '已完成' : hasHistory ? '帶入上次重量與次數' : '尚無上次紀錄'}
@@ -1128,14 +1312,16 @@ const TrainingView = ({
                         </button>
                         <button
                           type="button"
+                          onMouseDown={keepInputFocus}
                           onClick={() => {
                             skipSet(logKey);
+                            dropDoneFocus(logKey);
                             if (focusedKey === logKey) setFocusedKey(null);
                           }}
                           title="跳過此組"
                           className="-mr-1 h-11 shrink-0 rounded-full px-2 text-subhead text-label-2 transition-colors duration-150 active:bg-white/[0.06]"
                         >
-                          跳過這組
+                          {isDone ? '改成跳過' : '跳過這組'}
                         </button>
                       </div>
                     )}
@@ -1164,7 +1350,12 @@ const TrainingView = ({
                         <RestLine kind="set-done" label="休息" time={restTime} />
                       ) : null;
                     }
-                    return <RestLine kind="set-live" label="休息中" time={getCurrentRestTime(restFromTs)} />;
+                    return (
+                      <RestLine
+                        kind="set-live" label="休息中" time={getCurrentRestTime(restFromTs)}
+                        overText={overTextOf(Math.floor((currentTime - restFromTs) / 1000))}
+                      />
+                    );
                   })()}
                 </React.Fragment>
               );
@@ -1233,7 +1424,14 @@ const TrainingView = ({
       </header>
 
       {/* 底部 padding：休息膠囊出現時多留它的高度，最後一個動作不會被蓋住 */}
-      <main className={`mx-auto max-w-[480px] px-4 ${restPill ? 'pb-[60px]' : 'pb-2'}`}>
+      <main ref={mainRef} className={`relative mx-auto max-w-[480px] px-4 ${restPill ? 'pb-[60px]' : 'pb-2'}`}>
+        {/* 目前這組的浮卡：位置由 syncHighlight 寫進 style（z-0 在卡片底色之上、組列 z-[1] 之下） */}
+        <div
+          ref={highlightRef}
+          data-current-highlight
+          aria-hidden="true"
+          className="pointer-events-none absolute left-0 top-0 z-0 rounded-2xl bg-elevated opacity-0 shadow-[0_10px_24px_rgba(0,0,0,0.45),0_1px_2px_rgba(0,0,0,0.3)] outline outline-[1.5px] outline-accent [outline-offset:-1.5px]"
+        />
         {/* ==================== 大標題 ==================== */}
         <div className="flex items-end justify-between gap-3 pt-1">
           <div className="min-w-0">
@@ -1373,12 +1571,15 @@ const TrainingView = ({
                             className="pt-3"
                           >
                             <div className={`rounded-[20px] pb-1 transition-[background-color,box-shadow] duration-200 ${snapshot.isDragging ? 'bg-elevated shadow-[0_20px_44px_rgba(0,0,0,0.6)]' : 'bg-card'}`}>
-                              {/* Pair Header（拖曳把手） */}
-                              <div
-                                {...provided.dragHandleProps}
-                                role={undefined}
-                                className="flex min-h-11 cursor-grab items-center gap-2 rounded-t-[20px] px-4 pt-2 active:cursor-grabbing"
-                              >
+                              {/* Pair Header：左側把手拖整組 */}
+                              <div className="flex min-h-11 items-center gap-2 px-4 pt-2">
+                                <div
+                                  {...provided.dragHandleProps}
+                                  aria-label={`拖曳排序：superset ${a.exercise.name} + ${b.exercise.name}`}
+                                  className="-my-1 -ml-3.5 flex h-11 w-11 shrink-0 cursor-grab touch-none items-center justify-center rounded-full text-label-3 active:cursor-grabbing"
+                                >
+                                  <GripVertical size={18} aria-hidden="true" />
+                                </div>
                                 <Link size={16} className="shrink-0 text-label-2" aria-hidden="true" />
                                 <p className="min-w-0 text-footnote text-label-2">
                                   <span className="font-semibold text-label">Superset</span> · 輪間 {group.rest} 秒 · 切換 {SWITCH_TARGET_SEC} 秒
@@ -1462,9 +1663,11 @@ const TrainingView = ({
         {restPill && (
           <RestPill
             label={restPill.label}
-            elapsed={restPill.elapsed}
-            target={restPill.target}
-            nextText={restPill.nextText}
+            elapsedText={restPill.elapsedText}
+            targetText={restPill.targetText}
+            overText={restPill.overText}
+            pct={restPill.pct}
+            nextName={restPill.nextName}
             onClick={() => scrollToSet(restPill.key)}
           />
         )}
@@ -1585,7 +1788,7 @@ const TrainingView = ({
           const exName = customExerciseNames[ex.id] || ex.name;
           const setsCount = optionsEntry.sets;
           return (
-            <BottomSheet title={exName} onClose={closeSheet}>
+            <BottomSheet title={exName} onClose={closeSheet} returnFocusRef={optionsTriggerRef}>
               <div className="px-4 pb-6">
                 <p className="pb-3 text-center text-footnote text-label-2">
                   這週 <span className="font-num font-semibold tabular-nums text-label">{setsCount}</span> 組
@@ -1629,7 +1832,9 @@ const TrainingView = ({
                     </SheetAction>
                   )}
                 </div>
-                <p className="mt-4 text-center text-footnote text-label-3">按住動作標題可以拖曳排序</p>
+                <p className="mt-4 text-center text-footnote text-label-3">
+                  {pairMemberIds.has(ex.id) ? 'Superset 跟著配對一起排序：按住配對標頭左側的把手拖曳' : '按住左側把手可以拖曳排序'}
+                </p>
               </div>
             </BottomSheet>
           );
@@ -1642,6 +1847,7 @@ const TrainingView = ({
           <BottomSheet
             title="替換動作"
             onClose={() => { setPickerForExId(null); setPickerSearch(''); }}
+            returnFocusRef={optionsTriggerRef}
             footer={currentOverrideId && (
               <div className="hairline-t px-4 pb-4 pt-3">
                 <button

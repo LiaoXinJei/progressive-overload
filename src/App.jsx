@@ -6,7 +6,9 @@ import { useRestNotification, requestNotificationPermission } from './hooks/useR
 import TrainingView from './components/training/TrainingView';
 import NutritionView from './components/nutrition/NutritionView';
 import TabNavigation from './components/shared/TabNavigation';
-import BottomSheet, { SheetPresence } from './components/shared/BottomSheet';
+import BottomSheet, {
+  SheetPresence, useScrollLock, trapTab, restoreFocus,
+} from './components/shared/BottomSheet';
 import ExerciseLibraryManager from './components/settings/ExerciseLibraryManager';
 import { DEFAULT_EXERCISE_LIBRARY } from './constants/workouts';
 import { buildSessionPlan, getWorkoutForDay, customSetsKey } from './utils/sessionPlan';
@@ -380,6 +382,67 @@ const WeightIncrementInput = ({ value, onChange }) => {
   );
 };
 
+// 重設確認框：開啟時焦點進來（取消鈕）、Tab 在框裡循環、Esc 取消、背景不能捲；
+// 關掉後焦點回到打開設定的那顆鈕（設定 sheet 已經關了，它不再被蓋住）
+const ResetAlert = ({ onCancel, onConfirm, returnFocusRef }) => {
+  const boxRef = useRef(null);
+  const cancelRef = useRef(null);
+  const onCancelRef = useRef(onCancel);
+  onCancelRef.current = onCancel;
+  useScrollLock();
+  useEffect(() => {
+    const box = boxRef.current;
+    cancelRef.current?.focus({ preventScroll: true });
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape') onCancelRef.current();
+      else trapTab(e, box);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      restoreFocus(box, returnFocusRef, null);
+    };
+  }, [returnFocusRef]);
+
+  return (
+    // z-[60]：疊在同樣 z-50、DOM 在前面的底部 TabNavigation 上面
+    <div className="sheet-backdrop-in fixed inset-0 z-[60] flex touch-none items-center justify-center bg-black/50 p-8">
+      <div
+        ref={boxRef}
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="reset-title"
+        aria-describedby="reset-desc"
+        className="w-full max-w-[320px] overflow-hidden rounded-[20px] bg-elevated text-center text-label shadow-[0_20px_48px_rgba(0,0,0,0.5)]"
+      >
+        <div className="px-5 pb-4 pt-5">
+          <h3 id="reset-title" className="text-body font-semibold">重設所有資料？</h3>
+          <p id="reset-desc" className="mt-1.5 text-footnote text-label-2">
+            會清掉所有訓練紀錄、營養資料和進度，清掉就救不回來。Gemini API Key 會保留。
+          </p>
+        </div>
+        <div className="hairline-t grid grid-cols-2">
+          <button
+            ref={cancelRef}
+            type="button"
+            onClick={onCancel}
+            className="h-12 text-body text-accent-text transition-colors active:bg-fill"
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            className="h-12 border-l-[0.5px] border-white/[0.12] text-body font-semibold text-skip-text transition-colors active:bg-fill"
+          >
+            確定重設
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const RPFocusPro = () => {
   // ==================== 狀態管理 ====================
   const [logs, setLogs] = useState({});
@@ -451,7 +514,12 @@ const RPFocusPro = () => {
     setCurrentDay(0);
   };
 
-  const openSettings = () => setShowSettings(true);
+  // 打開設定的那顆鈕（訓練頁或營養頁頂部），設定 / 重設確認關掉後焦點回到它
+  const settingsTriggerRef = useRef(null);
+  const openSettings = (e) => {
+    settingsTriggerRef.current = e?.currentTarget instanceof HTMLElement ? e.currentTarget : document.activeElement;
+    setShowSettings(true);
+  };
 
   // ==================== 資料持久化 ====================
 
@@ -642,46 +710,18 @@ const RPFocusPro = () => {
       <TabNavigation activeTab={activeTab} setActiveTab={setActiveTab} />
 
       {/* ==================== Reset Alert ==================== */}
-      {/* z-[60]：疊在同樣 z-50、DOM 在前面的底部 TabNavigation 上面 */}
       {showResetConfirm && (
-        <div className="sheet-backdrop-in fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-8">
-          <div
-            role="alertdialog"
-            aria-modal="true"
-            aria-labelledby="reset-title"
-            aria-describedby="reset-desc"
-            className="w-full max-w-[320px] overflow-hidden rounded-[20px] bg-elevated text-center text-label shadow-[0_20px_48px_rgba(0,0,0,0.5)]"
-          >
-            <div className="px-5 pb-4 pt-5">
-              <h3 id="reset-title" className="text-body font-semibold">重設所有資料？</h3>
-              <p id="reset-desc" className="mt-1.5 text-footnote text-label-2">
-                會清掉所有訓練紀錄、營養資料和進度，清掉就救不回來。Gemini API Key 會保留。
-              </p>
-            </div>
-            <div className="hairline-t grid grid-cols-2">
-              <button
-                type="button"
-                onClick={() => setShowResetConfirm(false)}
-                className="h-12 text-body text-accent-text transition-colors active:bg-fill"
-              >
-                取消
-              </button>
-              <button
-                type="button"
-                onClick={resetData}
-                className="h-12 border-l-[0.5px] border-white/[0.12] text-body font-semibold text-skip-text transition-colors active:bg-fill"
-              >
-                確定重設
-              </button>
-            </div>
-          </div>
-        </div>
+        <ResetAlert
+          onCancel={() => setShowResetConfirm(false)}
+          onConfirm={resetData}
+          returnFocusRef={settingsTriggerRef}
+        />
       )}
 
       {/* ==================== Settings Sheet ==================== */}
       <SheetPresence>
         {showSettings && (
-          <BottomSheet title="設定" doneLabel="完成" onClose={() => setShowSettings(false)}>
+          <BottomSheet title="設定" doneLabel="完成" onClose={() => setShowSettings(false)} returnFocusRef={settingsTriggerRef}>
             <div className="px-4 pb-8 pt-2">
               {/* Settings Tabs */}
               <div role="group" aria-label="設定分類" className="mb-6 grid h-[52px] grid-cols-2 gap-1 rounded-[14px] bg-elevated p-1">

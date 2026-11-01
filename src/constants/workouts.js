@@ -189,13 +189,14 @@ export const SUPERSET_PAIRS = {
 };
 
 // ==================== Session 類型標籤與顏色 ====================
-// 推 / 拉 / 腿：D1–D5 與本週循環的圓點（dot）、動作卡進度條（bar）。
+// 推 / 拉 / 腿：只用在 D1–D5 與本週循環的圓點（dot）。動作進度條統一用完成綠，
+// 不然推日粉紅撞「已跳過」紅、腿日琥珀撞休息琥珀。
 // 顏色是 tailwind.config.cjs 的 push #FF375F / pull #0A84FF / legs #FF9F0A
 
 export const SESSION_TYPE_THEME = {
-  push: { label: '推', dot: 'bg-push', bar: 'bg-push' },
-  pull: { label: '拉', dot: 'bg-pull', bar: 'bg-pull' },
-  legs: { label: '腿', dot: 'bg-legs', bar: 'bg-legs' },
+  push: { label: '推', dot: 'bg-push' },
+  pull: { label: '拉', dot: 'bg-pull' },
+  legs: { label: '腿', dot: 'bg-legs' },
 };
 
 // ==================== 動作庫預設資料 ====================
