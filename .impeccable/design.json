@@ -1,0 +1,623 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-01T01:47:00+00:00",
+  "title": "Design System: RP FOCUS PRO",
+  "extensions": {
+    "colorMeta": {
+      "canvas": {
+        "role": "neutral",
+        "displayName": "純黑 Canvas",
+        "canonical": "#000000",
+        "tonalRamp": [
+          "#0B0B0B",
+          "#242424",
+          "#404040",
+          "#5D5D5D",
+          "#7D7D7D",
+          "#9E9E9E",
+          "#C4C4C4",
+          "#EEEEEE"
+        ]
+      },
+      "card": {
+        "role": "neutral",
+        "displayName": "卡片 Card",
+        "canonical": "#1C1C1E",
+        "tonalRamp": [
+          "#0B0B0C",
+          "#242425",
+          "#3F3F41",
+          "#5D5D5F",
+          "#7D7D7F",
+          "#9E9EA0",
+          "#C4C4C6",
+          "#EEEEEF"
+        ]
+      },
+      "elevated": {
+        "role": "neutral",
+        "displayName": "浮起層 Elevated",
+        "canonical": "#2C2C2E",
+        "tonalRamp": [
+          "#0B0B0C",
+          "#242425",
+          "#3F3F41",
+          "#5D5D5F",
+          "#7D7D7F",
+          "#9E9EA0",
+          "#C4C4C6",
+          "#EEEEEF"
+        ]
+      },
+      "fill": {
+        "role": "neutral",
+        "displayName": "輸入底 Fill",
+        "canonical": "#3A3A3C",
+        "tonalRamp": [
+          "#0B0B0B",
+          "#242425",
+          "#3F3F41",
+          "#5D5D5F",
+          "#7D7D7F",
+          "#9E9EA0",
+          "#C4C4C5",
+          "#EEEEEF"
+        ]
+      },
+      "thumb": {
+        "role": "neutral",
+        "displayName": "選中塊 Thumb",
+        "canonical": "#48484A",
+        "tonalRamp": [
+          "#0B0B0B",
+          "#242425",
+          "#3F3F41",
+          "#5D5D5F",
+          "#7D7D7F",
+          "#9E9EA0",
+          "#C4C4C5",
+          "#EEEEEF"
+        ]
+      },
+      "grabber": {
+        "role": "neutral",
+        "displayName": "把手 Grabber",
+        "canonical": "#5A5A5E",
+        "tonalRamp": [
+          "#0B0B0C",
+          "#242425",
+          "#3F3F42",
+          "#5D5D61",
+          "#7D7D81",
+          "#9E9EA2",
+          "#C4C4C7",
+          "#EEEEF0"
+        ]
+      },
+      "separator": {
+        "role": "neutral",
+        "displayName": "分隔線 Separator",
+        "canonical": "#38383A",
+        "tonalRamp": [
+          "#0B0B0B",
+          "#242425",
+          "#3F3F41",
+          "#5D5D5F",
+          "#7D7D7F",
+          "#9E9EA0",
+          "#C4C4C5",
+          "#EEEEEF"
+        ]
+      },
+      "label": {
+        "role": "neutral",
+        "displayName": "主文字 Label",
+        "canonical": "#FFFFFF",
+        "tonalRamp": [
+          "#0B0B0B",
+          "#242424",
+          "#404040",
+          "#5D5D5D",
+          "#7D7D7D",
+          "#9E9E9E",
+          "#C4C4C4",
+          "#EEEEEE"
+        ]
+      },
+      "label-2": {
+        "role": "neutral",
+        "displayName": "次要文字 Label 2",
+        "canonical": "#AEAEB2",
+        "tonalRamp": [
+          "#0B0B0C",
+          "#242425",
+          "#3F3F42",
+          "#5D5D60",
+          "#7D7D80",
+          "#9E9EA1",
+          "#C4C4C6",
+          "#EEEEF0"
+        ]
+      },
+      "label-3": {
+        "role": "neutral",
+        "displayName": "第三層文字 Label 3",
+        "canonical": "#8E8E93",
+        "tonalRamp": [
+          "#0B0B0C",
+          "#242426",
+          "#3F3F42",
+          "#5D5D61",
+          "#7D7D82",
+          "#9E9EA2",
+          "#C4C4C7",
+          "#EEEEF1"
+        ]
+      },
+      "done": {
+        "role": "secondary",
+        "displayName": "完成綠 Done",
+        "canonical": "#30D158",
+        "tonalRamp": [
+          "#001100",
+          "#002F00",
+          "#005100",
+          "#007600",
+          "#009B1C",
+          "#2DBC50",
+          "#80DD8B",
+          "#C4FFCA"
+        ]
+      },
+      "accent": {
+        "role": "primary",
+        "displayName": "選取藍 Accent",
+        "canonical": "#0A84FF",
+        "tonalRamp": [
+          "#000A22",
+          "#002252",
+          "#003C87",
+          "#0059C0",
+          "#0079F3",
+          "#419EFF",
+          "#83C7FF",
+          "#C5F2FF"
+        ]
+      },
+      "accent-text": {
+        "role": "primary",
+        "displayName": "選取藍文字 Accent Text",
+        "canonical": "#409CFF",
+        "tonalRamp": [
+          "#000B1E",
+          "#00244A",
+          "#003F7A",
+          "#005DAE",
+          "#1A7EDE",
+          "#50A1FC",
+          "#8CC8FF",
+          "#CAF2FF"
+        ]
+      },
+      "rest": {
+        "role": "secondary",
+        "displayName": "休息琥珀 Rest",
+        "canonical": "#FF9F0A",
+        "tonalRamp": [
+          "#180600",
+          "#3D1900",
+          "#662F00",
+          "#934600",
+          "#BD6200",
+          "#DD8800",
+          "#F8B56C",
+          "#FFE5B7"
+        ]
+      },
+      "skip": {
+        "role": "tertiary",
+        "displayName": "跳過紅 Skip",
+        "canonical": "#FF453A",
+        "tonalRamp": [
+          "#1F0000",
+          "#4B0001",
+          "#7D0003",
+          "#B20007",
+          "#E42420",
+          "#FF5E4F",
+          "#FF9A8A",
+          "#FFD5C8"
+        ]
+      },
+      "skip-text": {
+        "role": "tertiary",
+        "displayName": "跳過紅文字 Skip Text",
+        "canonical": "#FF6961",
+        "tonalRamp": [
+          "#1C0202",
+          "#460B0B",
+          "#741919",
+          "#A62828",
+          "#D5423E",
+          "#F66D65",
+          "#FFA298",
+          "#FFD9D1"
+        ]
+      },
+      "push": {
+        "role": "tertiary",
+        "displayName": "推 Push",
+        "canonical": "#FF375F",
+        "tonalRamp": [
+          "#1F0003",
+          "#4C0010",
+          "#7E0021",
+          "#B40034",
+          "#E60E4C",
+          "#FF5570",
+          "#FF95A0",
+          "#FFD2D6"
+        ]
+      },
+      "pull": {
+        "role": "tertiary",
+        "displayName": "拉 Pull",
+        "canonical": "#0A84FF",
+        "tonalRamp": [
+          "#000A22",
+          "#002252",
+          "#003C87",
+          "#0059C0",
+          "#0079F3",
+          "#419EFF",
+          "#83C7FF",
+          "#C5F2FF"
+        ]
+      },
+      "legs": {
+        "role": "tertiary",
+        "displayName": "腿 Legs",
+        "canonical": "#FF9F0A",
+        "tonalRamp": [
+          "#180600",
+          "#3D1900",
+          "#662F00",
+          "#934600",
+          "#BD6200",
+          "#DD8800",
+          "#F8B56C",
+          "#FFE5B7"
+        ]
+      },
+      "phase-hypertrophy": {
+        "role": "tertiary",
+        "displayName": "肌肥大 Hypertrophy",
+        "canonical": "#30D158",
+        "tonalRamp": [
+          "#001100",
+          "#002F00",
+          "#005100",
+          "#007600",
+          "#009B1C",
+          "#2DBC50",
+          "#80DD8B",
+          "#C4FFCA"
+        ]
+      },
+      "phase-strength": {
+        "role": "tertiary",
+        "displayName": "肌力 Strength",
+        "canonical": "#64D2FF",
+        "tonalRamp": [
+          "#000E16",
+          "#002939",
+          "#004761",
+          "#00688B",
+          "#008AB4",
+          "#47ABD3",
+          "#89CFEE",
+          "#C9F7FF"
+        ]
+      },
+      "phase-deload": {
+        "role": "tertiary",
+        "displayName": "減量 Deload",
+        "canonical": "#FFD60A",
+        "tonalRamp": [
+          "#120A00",
+          "#312200",
+          "#553C00",
+          "#7A5900",
+          "#A07800",
+          "#BF9B00",
+          "#DEC35D",
+          "#FFEFAF"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "large-title": {
+        "displayName": "Large Title",
+        "purpose": "訓練名稱，捲動時收進頂部 bar。"
+      },
+      "title2": {
+        "displayName": "Title 2",
+        "purpose": "今天進度的完成組數（圓體）。"
+      },
+      "title3": {
+        "displayName": "Title 3",
+        "purpose": "動作名稱、組列重量與次數。"
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "內文、sheet 標題與動作列。"
+      },
+      "subhead": {
+        "displayName": "Subhead",
+        "purpose": "膠囊標題、上次紀錄、D1–D5。"
+      },
+      "footnote": {
+        "displayName": "Footnote",
+        "purpose": "副標、休息線、徽章。"
+      },
+      "caption": {
+        "displayName": "Caption",
+        "purpose": "欄位標題、tab 標籤。"
+      },
+      "numeral": {
+        "displayName": "Numeral",
+        "purpose": "所有數字：ui-rounded + tabular-nums。"
+      }
+    },
+    "shadows": [
+      {
+        "name": "thumb",
+        "value": "0 3px 8px rgba(0,0,0,0.35), 0 1px 1px rgba(0,0,0,0.2)",
+        "purpose": "分段控制選中塊。"
+      },
+      {
+        "name": "current-set",
+        "value": "0 10px 24px rgba(0,0,0,0.45), 0 1px 2px rgba(0,0,0,0.3)",
+        "purpose": "目前這組浮卡。"
+      },
+      {
+        "name": "sticky-bar",
+        "value": "0 6px 16px rgba(0,0,0,0.35)",
+        "purpose": "superset 黏頂狀態條。"
+      },
+      {
+        "name": "pill",
+        "value": "0 12px 32px rgba(0,0,0,0.5)",
+        "purpose": "休息膠囊、toast。"
+      },
+      {
+        "name": "dialog",
+        "value": "0 20px 48px rgba(0,0,0,0.5)",
+        "purpose": "置中確認框。"
+      },
+      {
+        "name": "dragging",
+        "value": "0 20px 44px rgba(0,0,0,0.6)",
+        "purpose": "排序模式拿起的列。"
+      },
+      {
+        "name": "sheet",
+        "value": "0 -10px 40px rgba(0,0,0,0.5)",
+        "purpose": "bottom sheet 往上投影。"
+      },
+      {
+        "name": "hairline",
+        "value": "inset 0 0.5px 0 rgba(255,255,255,0.12)",
+        "purpose": "材質層與內容的交界（頂 / 底）。"
+      },
+      {
+        "name": "material",
+        "value": "background: rgba(22,22,24,0.78); backdrop-filter: blur(24px) saturate(180%)",
+        "purpose": "頂部 bar（捲動後）、tab bar。"
+      },
+      {
+        "name": "material-elevated",
+        "value": "background: rgba(44,44,46,0.72); backdrop-filter: blur(24px) saturate(180%)",
+        "purpose": "休息膠囊、superset 狀態條。"
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease-ios",
+        "value": "cubic-bezier(0.32, 0.72, 0, 1)",
+        "purpose": "sheet 滑入退場 400ms、分段選中塊 300ms、浮卡 FLIP 300ms。"
+      },
+      {
+        "name": "ease-pop",
+        "value": "cubic-bezier(0.22, 1, 0.36, 1)",
+        "purpose": "check-pop 350ms（0.85→1.08→1）、pill-in 350ms（過衝 3px）。"
+      },
+      {
+        "name": "ease-exit",
+        "value": "cubic-bezier(0.4, 0, 1, 1)",
+        "purpose": "pill-out 250ms。"
+      },
+      {
+        "name": "state",
+        "value": "150–200ms ease",
+        "purpose": "按下回饋、列淡入綠底、文字色、頂部 bar 換材質。"
+      },
+      {
+        "name": "progress",
+        "value": "400ms ease-out",
+        "purpose": "今天進度與動作進度條。"
+      },
+      {
+        "name": "timer-progress",
+        "value": "1000ms linear",
+        "purpose": "休息與輪間計時進度條。"
+      },
+      {
+        "name": "fade",
+        "value": "200ms / 220ms / 300ms ease-out",
+        "purpose": "目前這組第二排、排序模式切換、遮罩。"
+      },
+      {
+        "name": "reduced-motion",
+        "value": "prefers-reduced-motion: reduce",
+        "purpose": "拿掉位移縮放：check-pop 與模式淡入取消，sheet 與膠囊改 200ms 淡入淡出，浮卡原地淡入，分段選中塊直接跳，自動捲動瞬間。"
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "narrow",
+        "value": "max-width: 374px"
+      },
+      {
+        "name": "content-max",
+        "value": "480px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Tinted Button",
+      "kind": "button",
+      "refersTo": "button-tinted",
+      "description": "主要動作：選取藍 20% 底、深底藍字的全圓膠囊（排序模式「完成」）。",
+      "html": "<button class=\"ds-btn-tinted\">完成</button>",
+      "css": ".ds-btn-tinted { height: 44px; padding: 0 16px; border: none; border-radius: 9999px; background: rgba(10,132,255,0.2); color: #409CFF; font: 600 17px/22px -apple-system, BlinkMacSystemFont, \"SF Pro Text\", \"PingFang TC\", \"Noto Sans TC\", system-ui, sans-serif; letter-spacing: -0.01em; cursor: pointer; transition: background-color 200ms; } .ds-btn-tinted:active { background: rgba(10,132,255,0.3); } .ds-btn-tinted:focus-visible { outline: 2px solid #409CFF; outline-offset: 2px; }"
+    },
+    {
+      "name": "Sheet Action Row",
+      "kind": "button",
+      "refersTo": "sheet-action",
+      "description": "Bottom sheet 裡的一列動作；破壞性版本用 skip-text。",
+      "html": "<div class=\"ds-sheet-list\"><button class=\"ds-sheet-action\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" aria-hidden=\"true\"><path d=\"M5 12h14\"/><path d=\"M12 5v14\"/></svg>新增動作</button><button class=\"ds-sheet-action ds-destructive\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" aria-hidden=\"true\"><path d=\"M5 12h14\"/></svg>移除這個動作</button></div>",
+      "css": ".ds-sheet-list { background: #2C2C2E; border-radius: 14px; overflow: hidden; width: 320px; } .ds-sheet-action { display: flex; align-items: center; gap: 12px; width: 100%; height: 52px; padding: 0 16px; border: none; background: transparent; color: #FFFFFF; font: 400 17px/22px -apple-system, BlinkMacSystemFont, \"SF Pro Text\", \"PingFang TC\", \"Noto Sans TC\", system-ui, sans-serif; text-align: left; cursor: pointer; transition: background-color 150ms; } .ds-sheet-action + .ds-sheet-action { box-shadow: inset 0 0.5px 0 #38383A; } .ds-sheet-action svg { color: #409CFF; flex-shrink: 0; } .ds-sheet-action:active { background: #3A3A3C; } .ds-sheet-action:focus-visible { outline: 2px solid #409CFF; outline-offset: -2px; } .ds-destructive, .ds-destructive svg { color: #FF6961; }"
+    },
+    {
+      "name": "Set Field (weight stepper)",
+      "kind": "input",
+      "refersTo": "set-field-current",
+      "description": "目前這組的重量 stepper：fill 底、圓體等寬數字、44px 的 − / +。",
+      "html": "<label class=\"ds-stepper\"><button class=\"ds-step\" aria-label=\"減\"><svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" aria-hidden=\"true\"><path d=\"M5 12h14\"/></svg></button><input class=\"ds-num-input\" type=\"text\" value=\"62.5\" aria-label=\"重量\"><button class=\"ds-step\" aria-label=\"加\"><svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" aria-hidden=\"true\"><path d=\"M5 12h14\"/><path d=\"M12 5v14\"/></svg></button></label>",
+      "css": ".ds-stepper { display: flex; align-items: center; width: 200px; height: 44px; border-radius: 12px; background: #3A3A3C; } .ds-step { width: 44px; height: 44px; border: none; background: transparent; color: #FFFFFF; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background-color 150ms; } .ds-step:first-child { border-radius: 12px 0 0 12px; } .ds-step:last-child { border-radius: 0 12px 12px 0; } .ds-step:active { background: rgba(255,255,255,0.08); } .ds-num-input { flex: 1; min-width: 0; width: 0; height: 44px; border: none; background: transparent; color: #FFFFFF; text-align: center; font: 600 20px/25px ui-rounded, \"SF Pro Rounded\", -apple-system, system-ui, sans-serif; font-variant-numeric: tabular-nums; caret-color: #409CFF; } .ds-num-input::placeholder { color: #AEAEB2; } .ds-num-input:focus-visible, .ds-step:focus-visible { outline: 2px solid #409CFF; outline-offset: -2px; }"
+    },
+    {
+      "name": "Segmented Control (D1–D5)",
+      "kind": "nav",
+      "refersTo": "segmented-control",
+      "description": "card 底的五段控制，thumb 選中塊用 iOS 曲線滑動，每格帶 session 色點。",
+      "html": "<div class=\"ds-seg\" role=\"group\"><span class=\"ds-seg-thumb\"></span><button class=\"ds-seg-btn\"><span class=\"ds-seg-d\">D1</span><span class=\"ds-seg-t\"><i style=\"background:#FF375F\"></i>推</span></button><button class=\"ds-seg-btn\"><span class=\"ds-seg-d\">D2</span><span class=\"ds-seg-t\"><i style=\"background:#0A84FF\"></i>拉</span></button><button class=\"ds-seg-btn\"><span class=\"ds-seg-d\">D3</span><span class=\"ds-seg-t\"><i style=\"background:#FF375F\"></i>推</span></button><button class=\"ds-seg-btn\"><span class=\"ds-seg-d\">D4</span><span class=\"ds-seg-t\"><i style=\"background:#0A84FF\"></i>拉</span></button><button class=\"ds-seg-btn\"><span class=\"ds-seg-d\">D5</span><span class=\"ds-seg-t\"><i style=\"background:#FF9F0A\"></i>腿</span></button></div>",
+      "css": ".ds-seg { position: relative; display: grid; grid-template-columns: repeat(5, 1fr); width: 358px; height: 52px; padding: 4px; border-radius: 14px; background: #1C1C1E; } .ds-seg-thumb { position: absolute; top: 4px; bottom: 4px; left: 4px; width: calc((100% - 8px) / 5); border-radius: 10px; background: #48484A; box-shadow: 0 3px 8px rgba(0,0,0,0.35), 0 1px 1px rgba(0,0,0,0.2); transform: translateX(100%); transition: transform 300ms cubic-bezier(0.32, 0.72, 0, 1); } .ds-seg:has(.ds-seg-btn:nth-child(2):hover) .ds-seg-thumb { transform: translateX(0%); } .ds-seg:has(.ds-seg-btn:nth-child(4):hover) .ds-seg-thumb { transform: translateX(200%); } .ds-seg-btn { position: relative; height: 44px; border: none; background: transparent; border-radius: 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; cursor: pointer; } .ds-seg-btn:focus-visible { outline: 2px solid #409CFF; outline-offset: 2px; } .ds-seg-d { font: 600 15px/1 ui-rounded, \"SF Pro Rounded\", -apple-system, system-ui, sans-serif; font-variant-numeric: tabular-nums; color: #FFFFFF; } .ds-seg-t { display: flex; align-items: center; gap: 4px; font: 400 12px/1 -apple-system, BlinkMacSystemFont, \"SF Pro Text\", \"PingFang TC\", \"Noto Sans TC\", system-ui, sans-serif; color: #AEAEB2; } .ds-seg-t i { width: 6px; height: 6px; border-radius: 50%; }"
+    },
+    {
+      "name": "Exercise Card with Set Rows",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "動作卡：完成列淡綠底、休息線、目前這組浮卡（elevated、16px、藍框、浮卡陰影）、待做列。",
+      "html": "<section class=\"ds-card\"><h3 class=\"ds-card-title\">引體向上</h3><p class=\"ds-card-sub\">背部 · 複合 · 8–12 下 × 4 組</p><div class=\"ds-bar\"><span style=\"width:50%\"></span></div><div class=\"ds-row ds-done\"><span class=\"ds-n\">1</span><span class=\"ds-v\">60 <small>kg</small></span><span class=\"ds-v\">10</span><button class=\"ds-check ds-check-done\" aria-label=\"取消完成\"><svg width=\"22\" height=\"22\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M20 6 9 17l-5-5\"/></svg></button></div><div class=\"ds-rest\"><i></i><span>休息中 <b>1:24</b></span><i></i></div><div class=\"ds-row ds-current\"><span class=\"ds-n\">2</span><span class=\"ds-field\">62.5</span><span class=\"ds-field\">9</span><button class=\"ds-check ds-check-current\" aria-label=\"完成此組\"><svg width=\"22\" height=\"22\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M20 6 9 17l-5-5\"/></svg></button></div><div class=\"ds-row\"><span class=\"ds-n ds-n-pending\">3</span><span class=\"ds-field ds-field-pending\">62.5</span><span class=\"ds-field ds-field-pending\">次</span><button class=\"ds-check ds-check-pending\" aria-label=\"完成此組\"><svg width=\"22\" height=\"22\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M20 6 9 17l-5-5\"/></svg></button></div></section>",
+      "css": ".ds-card { width: 358px; padding: 16px 10px 12px; border-radius: 20px; background: #1C1C1E; color: #FFFFFF; font-family: -apple-system, BlinkMacSystemFont, \"SF Pro Text\", \"PingFang TC\", \"Noto Sans TC\", system-ui, sans-serif; } .ds-card-title { margin: 0 6px; font: 600 20px/25px -apple-system, BlinkMacSystemFont, \"SF Pro Text\", \"PingFang TC\", \"Noto Sans TC\", system-ui, sans-serif; } .ds-card-sub { margin: 2px 6px 0; font: 400 13px/18px -apple-system, BlinkMacSystemFont, \"SF Pro Text\", \"PingFang TC\", \"Noto Sans TC\", system-ui, sans-serif; color: #AEAEB2; } .ds-bar { height: 4px; margin: 10px 6px 8px; border-radius: 9999px; background: #3A3A3C; overflow: hidden; } .ds-bar span { display: block; height: 100%; background: #30D158; border-radius: 9999px; transition: width 400ms ease-out; } .ds-row { display: grid; grid-template-columns: 36px 1fr 72px 44px; column-gap: 8px; align-items: center; min-height: 52px; padding: 0 8px; margin-top: 6px; border-radius: 14px; transition: background-color 200ms; } .ds-done { background: rgba(48,209,88,0.08); } .ds-current { min-height: 48px; padding: 8px; border-radius: 16px; background: #2C2C2E; outline: 1.5px solid #0A84FF; outline-offset: -1.5px; box-shadow: 0 10px 24px rgba(0,0,0,0.45), 0 1px 2px rgba(0,0,0,0.3); } .ds-n { text-align: center; font: 600 17px/22px ui-rounded, \"SF Pro Rounded\", -apple-system, system-ui, sans-serif; font-variant-numeric: tabular-nums; color: #30D158; } .ds-current .ds-n { color: #409CFF; } .ds-n-pending { color: #8E8E93; } .ds-v { text-align: center; font: 600 20px/25px ui-rounded, \"SF Pro Rounded\", -apple-system, system-ui, sans-serif; font-variant-numeric: tabular-nums; } .ds-v small { font: 400 13px -apple-system, BlinkMacSystemFont, \"SF Pro Text\", \"PingFang TC\", \"Noto Sans TC\", system-ui, sans-serif; color: #AEAEB2; } .ds-field { display: flex; align-items: center; justify-content: center; height: 44px; border-radius: 12px; background: #3A3A3C; font: 600 20px/25px ui-rounded, \"SF Pro Rounded\", -apple-system, system-ui, sans-serif; font-variant-numeric: tabular-nums; } .ds-field-pending { background: #2C2C2E; color: #AEAEB2; } .ds-check { width: 44px; height: 44px; border-radius: 9999px; display: flex; align-items: center; justify-content: center; cursor: pointer; border: none; transition: background-color 200ms, color 200ms; } .ds-check:focus-visible { outline: 2px solid #409CFF; outline-offset: 2px; } .ds-check-done { background: #30D158; color: #000000; animation: ds-pop 350ms cubic-bezier(0.22, 1, 0.36, 1); } .ds-check-current { background: rgba(10,132,255,0.2); color: #409CFF; } .ds-check-pending { background: transparent; border: 1.5px solid #3A3A3C; color: #8E8E93; } .ds-check-pending:active { background: #30D158; color: #000; } @keyframes ds-pop { 0% { transform: scale(0.85); } 55% { transform: scale(1.08); } 100% { transform: scale(1); } } .ds-rest { display: flex; align-items: center; gap: 10px; height: 28px; padding: 0 8px; } .ds-rest i { flex: 1; height: 0.5px; background: rgba(255,159,10,0.4); } .ds-rest span { font: 600 13px/18px -apple-system, BlinkMacSystemFont, \"SF Pro Text\", \"PingFang TC\", \"Noto Sans TC\", system-ui, sans-serif; color: #FF9F0A; white-space: nowrap; } .ds-rest b { font-family: ui-rounded, \"SF Pro Rounded\", -apple-system, system-ui, sans-serif; font-variant-numeric: tabular-nums; } @media (prefers-reduced-motion: reduce) { .ds-check-done { animation: none; } }"
+    },
+    {
+      "name": "Rest Pill",
+      "kind": "custom",
+      "refersTo": "rest-pill",
+      "description": "浮在 tab bar 上方的半透明休息膠囊，琥珀計時與底部進度條；hover 示範超時狀態。",
+      "html": "<button class=\"ds-pill\"><span class=\"ds-pill-tint\"></span><span class=\"ds-pill-icon\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><line x1=\"10\" x2=\"14\" y1=\"2\" y2=\"2\"/><line x1=\"12\" x2=\"15\" y1=\"14\" y2=\"11\"/><circle cx=\"12\" cy=\"14\" r=\"8\"/></svg></span><span class=\"ds-pill-mid\"><span class=\"ds-pill-title\">休息中</span><span class=\"ds-pill-sub\">下一組：引體向上 第 3 組</span></span><span class=\"ds-pill-time\">1:24<small> / 2:00</small></span><span class=\"ds-pill-bar\"><span></span></span></button>",
+      "css": ".ds-pill { position: relative; display: flex; align-items: center; gap: 12px; width: 366px; height: 60px; padding: 0 18px 0 10px; overflow: hidden; border-radius: 30px; border: 0.5px solid rgba(255,255,255,0.12); background: rgba(44,44,46,0.72); -webkit-backdrop-filter: blur(24px) saturate(180%); backdrop-filter: blur(24px) saturate(180%); box-shadow: 0 12px 32px rgba(0,0,0,0.5); text-align: left; cursor: pointer; transition: border-color 300ms; animation: ds-pill-in 350ms cubic-bezier(0.22, 1, 0.36, 1); } .ds-pill:hover { border-color: rgba(255,159,10,0.4); } .ds-pill:focus-visible { outline: 2px solid #409CFF; outline-offset: 2px; } .ds-pill-tint { position: absolute; inset: 0; background: rgba(255,159,10,0.14); opacity: 0; transition: opacity 300ms; } .ds-pill:hover .ds-pill-tint { opacity: 1; } .ds-pill-icon { position: relative; flex-shrink: 0; width: 40px; height: 40px; border-radius: 50%; background: rgba(255,159,10,0.2); color: #FF9F0A; display: flex; align-items: center; justify-content: center; } .ds-pill-mid { position: relative; flex: 1; min-width: 0; } .ds-pill-title { display: block; font: 600 15px/20px -apple-system, BlinkMacSystemFont, \"SF Pro Text\", \"PingFang TC\", \"Noto Sans TC\", system-ui, sans-serif; color: #FFFFFF; } .ds-pill-sub { display: block; font: 400 13px/18px -apple-system, BlinkMacSystemFont, \"SF Pro Text\", \"PingFang TC\", \"Noto Sans TC\", system-ui, sans-serif; color: #AEAEB2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .ds-pill-time { position: relative; flex-shrink: 0; font: 600 24px/28px ui-rounded, \"SF Pro Rounded\", -apple-system, system-ui, sans-serif; font-variant-numeric: tabular-nums; color: #FF9F0A; } .ds-pill-time small { font: 400 13px/18px ui-rounded, \"SF Pro Rounded\", -apple-system, system-ui, sans-serif; color: #AEAEB2; } .ds-pill-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: rgba(255,159,10,0.2); } .ds-pill-bar span { display: block; height: 100%; width: 70%; background: #FF9F0A; transition: width 1000ms linear; } .ds-pill:hover .ds-pill-bar span { width: 100%; } @keyframes ds-pill-in { 0% { opacity: 0; transform: translateY(24px) scale(0.96); } 65% { opacity: 1; transform: translateY(-3px) scale(1.005); } 100% { transform: none; } } @media (prefers-reduced-motion: reduce) { .ds-pill { animation: ds-fade 200ms ease-out; } @keyframes ds-fade { from { opacity: 0; } } }"
+    },
+    {
+      "name": "Bottom Sheet",
+      "kind": "custom",
+      "refersTo": "bottom-sheet",
+      "description": "card 面板、頂部 28px 圓角、grabber、置中標題與 fill 圓底關閉鈕。",
+      "html": "<div class=\"ds-sheet\"><span class=\"ds-grabber\"></span><div class=\"ds-sheet-head\"><span></span><h3>動作選項</h3><button class=\"ds-sheet-close\" aria-label=\"關閉\"><span><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.5\" stroke-linecap=\"round\"><path d=\"M18 6 6 18\"/><path d=\"m6 6 12 12\"/></svg></span></button></div><div class=\"ds-sheet-body\">替換、調整組數、調整順序、移除</div></div>",
+      "css": ".ds-sheet { position: relative; width: 390px; padding: 16px 8px 24px; border-radius: 28px 28px 0 0; background: #1C1C1E; color: #FFFFFF; box-shadow: 0 -10px 40px rgba(0,0,0,0.5); font-family: -apple-system, BlinkMacSystemFont, \"SF Pro Text\", \"PingFang TC\", \"Noto Sans TC\", system-ui, sans-serif; animation: ds-sheet-in 400ms cubic-bezier(0.32, 0.72, 0, 1); } .ds-grabber { position: absolute; top: 6px; left: 50%; width: 36px; height: 5px; transform: translateX(-50%); border-radius: 9999px; background: #5A5A5E; } .ds-sheet-head { display: flex; align-items: center; min-height: 44px; gap: 4px; } .ds-sheet-head > span { width: 56px; } .ds-sheet-head h3 { flex: 1; margin: 0; text-align: center; font: 600 17px/22px -apple-system, BlinkMacSystemFont, \"SF Pro Text\", \"PingFang TC\", \"Noto Sans TC\", system-ui, sans-serif; } .ds-sheet-close { width: 56px; height: 44px; border: none; background: transparent; display: flex; align-items: center; justify-content: center; cursor: pointer; } .ds-sheet-close span { width: 30px; height: 30px; border-radius: 50%; background: #3A3A3C; color: #AEAEB2; display: flex; align-items: center; justify-content: center; transition: background-color 150ms; } .ds-sheet-close:hover span { background: #48484A; } .ds-sheet-close:focus-visible { outline: 2px solid #409CFF; outline-offset: 2px; } .ds-sheet-body { margin: 8px; padding: 16px; border-radius: 14px; background: #2C2C2E; font: 400 15px/20px -apple-system, BlinkMacSystemFont, \"SF Pro Text\", \"PingFang TC\", \"Noto Sans TC\", system-ui, sans-serif; color: #AEAEB2; } @keyframes ds-sheet-in { from { transform: translateY(100%); } } @media (prefers-reduced-motion: reduce) { .ds-sheet { animation: ds-f 200ms ease-out; } @keyframes ds-f { from { opacity: 0; } } }"
+    },
+    {
+      "name": "Tab Bar",
+      "kind": "nav",
+      "refersTo": "tab-bar-item-active",
+      "description": "半透明材質 tab bar，選中 accent-text、未選 label-3。",
+      "html": "<nav class=\"ds-tabbar\"><button class=\"ds-tab ds-tab-active\"><svg width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M14.4 14.4 9.6 9.6\"/><path d=\"M18.657 21.485a2 2 0 1 1-2.829-2.828l-1.767 1.768a2 2 0 1 1-2.829-2.829l6.364-6.364a2 2 0 1 1 2.829 2.829l-1.768 1.767a2 2 0 1 1 2.828 2.829z\"/><path d=\"m21.5 21.5-1.4-1.4\"/><path d=\"M3.9 3.9 2.5 2.5\"/><path d=\"M6.404 12.768a2 2 0 1 1-2.829-2.829l1.768-1.767a2 2 0 1 1-2.828-2.829l2.828-2.828a2 2 0 1 1 2.829 2.828l1.767-1.768a2 2 0 1 1 2.829 2.829z\"/></svg><span>訓練</span></button><button class=\"ds-tab\"><svg width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2\"/><path d=\"M7 2v20\"/><path d=\"M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 3 2h3Zm0 0v7\"/></svg><span>營養</span></button></nav>",
+      "css": ".ds-tabbar { display: grid; grid-template-columns: 1fr 1fr; width: 390px; background: rgba(22,22,24,0.78); -webkit-backdrop-filter: blur(24px) saturate(180%); backdrop-filter: blur(24px) saturate(180%); box-shadow: inset 0 0.5px 0 rgba(255,255,255,0.12); } .ds-tab { height: 49px; border: none; background: transparent; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: #8E8E93; font: 600 12px/16px -apple-system, BlinkMacSystemFont, \"SF Pro Text\", \"PingFang TC\", \"Noto Sans TC\", system-ui, sans-serif; cursor: pointer; transition: color 200ms; } .ds-tab:hover { color: #AEAEB2; } .ds-tab-active, .ds-tab-active:hover { color: #409CFF; } .ds-tab:focus-visible { outline: 2px solid #409CFF; outline-offset: 2px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "組間的 iPhone",
+    "overview": "這是一支在健身房組間單手操作的 App，畫面要像 iOS 內建 App 一樣安靜、順、看兩三秒就懂。純黑底上疊三層灰階圓角卡片，深度靠色階和少量柔和陰影；狀態全部交給 Apple 深色系統色，每個顏色只講一件事：綠是做完、藍是選取與目前、琥珀是休息、紅是跳過。招牌是「目前這組」那張浮起來的卡，按 ✓ 後勾勾彈一下、列淡入綠底、浮卡滑到下一組，休息膠囊從底部浮出倒數。\n\n密度中等偏鬆。每個可點的東西至少 44px，數字一律圓體等寬，標題用 iOS 大標題，捲動時收進半透明頂部 bar。動態用 iOS 的減速曲線，短而確定，全部尊重「減少動態效果」。\n\n這個世界取代了原本的 neutral-950 介面，也取代了被退回的「場館看板」過渡版（窄體數字、紙卡、裁判燈，留在 `backup/meet-lights-redesign`）。使用者明確拒絕復古感，也拒絕一片深灰只有一個強調色。",
+    "keyCharacteristics": [
+      "純黑底，卡片 / 浮起層 / 輸入底三層灰階，大圓角",
+      "系統色各司其職，語意不混用",
+      "數字用 ui-rounded + tabular-nums",
+      "頂部 bar、休息膠囊、tab bar、superset 狀態條是半透明模糊材質",
+      "目前這組是一層會滑動的浮卡，不是列底色",
+      "動態用 `cubic-bezier(0.32, 0.72, 0, 1)`，減少動態效果時只留淡入淡出"
+    ],
+    "rules": [
+      {
+        "name": "The 第三層只上黑與卡片 Rule",
+        "body": "`label-3` 只放在 `canvas` 或 `card` 上。放到 elevated、fill、thumb 上的次要字一律改用 `label-2`。",
+        "section": "colors"
+      },
+      {
+        "name": "The 藍分兩支 Rule",
+        "body": "`accent` 是填色和框線，`accent-text` 是字。小字不准用 `accent`，fill 上不准放藍字。",
+        "section": "colors"
+      },
+      {
+        "name": "The 紅只給跳過 Rule",
+        "body": "紅色只代表「跳過」與破壞性動作。休息超時、訓練超時都用琥珀加文字說明超過多少，不變紅。",
+        "section": "colors"
+      },
+      {
+        "name": "The 琥珀只給休息 Rule",
+        "body": "琥珀代表休息與時間。腿日色點剛好也是琥珀，但只以 6px 圓點出現在 D1–D5，不擴散到其他元件。",
+        "section": "colors"
+      },
+      {
+        "name": "The 一色一義 Rule",
+        "body": "進度條一律完成綠，推拉腿色只留在 D1–D5 的圓點。",
+        "section": "colors"
+      },
+      {
+        "name": "The 數字都是圓體等寬 Rule",
+        "body": "週次、D1–D5、組號、重量、次數、計時、進度、週訓練量全部 `font-num` + `tabular-nums`，計時跳動時寬度不晃。",
+        "section": "typography"
+      },
+      {
+        "name": "The 沒有小標籤 Rule",
+        "body": "不用全大寫、加字距的眉標。區塊標題就是一般字級的 `label-2` 文字或卡片內標題。",
+        "section": "typography"
+      },
+      {
+        "name": "The 捲到才有材質 Rule",
+        "body": "頂部 bar 在頁面頂端是透明的，大標題開始被蓋住才換成材質加底部 hairline。",
+        "section": "elevation"
+      },
+      {
+        "name": "The 陰影是浮起來的證據 Rule",
+        "body": "只有浮在別的內容上的東西有陰影（浮卡、選中塊、膠囊、sheet、拖曳中的列）。靜止的卡片沒有陰影。",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "**Do** 用色階分層：`canvas` 上放 `card`，`card` 裡浮起的東西用 `elevated`，輸入底用 `fill`。",
+      "**Do** 每個語意色只講一件事：綠完成、藍選取 / 目前、琥珀休息、紅跳過。",
+      "**Do** 所有數字用 `font-num` + `tabular-nums`。",
+      "**Do** 可點目標至少 44px，主要列 52px。",
+      "**Do** 超過目標的休息或訓練時間維持琥珀，用文字寫超過多少。",
+      "**Do** 新的動態一律提供減少動態效果的版本：拿掉位移縮放，只留淡入淡出。",
+      "**Do** 頂部 bar、tab bar、浮在內容上的膠囊和狀態條用半透明模糊材質。",
+      "**Do** 改版營養、設定、動作庫頁面時，往這份文件的色票、字級、圓角收斂。"
+    ],
+    "donts": [
+      "**Don't** 把 `label-3` 放在 elevated、fill、thumb 上；改用 `label-2`。",
+      "**Don't** 用 `accent` 當小字顏色，深底藍字一律 `accent-text`。",
+      "**Don't** 把紅色用在跳過與破壞性動作以外的地方，包括休息超時。",
+      "**Don't** 把推拉腿色用在色點以外（進度條、卡片底、文字）。",
+      "**Don't** 在平常模式顯示拖曳把手；排序只走排序模式。",
+      "**Don't** 用列底色表示目前這組；目前這組是那張會滑動的浮卡，畫面上只有一張。",
+      "**Don't** 用硬邊位移陰影或靜止卡片的陰影。",
+      "**Don't** 用全大寫加字距的眉標當區塊標題。",
+      "**Don't** 回到窄體數字、紙卡、裁判燈這類復古場館看板語言。"
+    ]
+  }
+}

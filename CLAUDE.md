@@ -228,4 +228,4 @@ refactor: 抽出 VolumeConfig 為獨立模組
 | 休息通知 | `src/hooks/useRestNotification.js` + `src/sw.js` |
 | PWA 設定 | `vite.config.js` 的 `VitePWA` 區段 |
 
-UI 樣式：Tailwind CSS，深色主題（neutral-950）。肌肥大期綠色系，肌力期青色系。
+UI 樣式：Apple 式深色介面（純黑底、圓角卡片分層、半透明材質、系統色），設計系統與 token 規則見 [DESIGN.md](DESIGN.md) 和 [docs/guide/conventions.md](docs/guide/conventions.md)。改 UI 前先讀 DESIGN.md；訓練頁的方向與實作決策在 `.impeccable/surfaces/` 的 surface brief。
