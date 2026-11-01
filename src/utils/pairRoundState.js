@@ -127,17 +127,33 @@ export const getPairRoundState = (pair, aSets, bSets, currentWeek, currentDay, l
 };
 
 /**
- * 取得 pair 完成後給「下一個獨立動作」起算的 timestamp。
- * 等同於最後一個 complete round 的 endTs（max(A,B) 取 done 一方）。
- * 若不存在完整 round 或全 skipped、回傳 null。
+ * 一個動作（或配對的兩個動作）每組都完成或跳過時，回傳完成組裡最晚的 completedAt。
+ * 還有組沒 settled、或每組都跳過 → null。
+ *
+ * @param {Array<{ exerciseId: string, sets: number }>} exercises
  */
-export const getPairEndTimestamp = (pair, aSets, bSets, currentWeek, currentDay, logs) => {
-  const { rounds } = getPairRoundState(pair, aSets, bSets, currentWeek, currentDay, logs);
-  for (let i = rounds.length - 1; i >= 0; i--) {
-    if (rounds[i].complete && rounds[i].endTs != null) return rounds[i].endTs;
+export const getExercisesEndTimestamp = (exercises, currentWeek, currentDay, logs) => {
+  let end = null;
+  for (const { exerciseId, sets } of exercises) {
+    for (let i = 0; i < sets; i++) {
+      const log = logs[getLogKey(currentWeek, currentDay, exerciseId, i)];
+      if (!isSettled(log)) return null;
+      if (log.done && log.completedAt != null) end = end == null ? log.completedAt : Math.max(end, log.completedAt);
+    }
   }
-  return null;
+  return end;
 };
+
+/**
+ * 取得 pair 完成後給「下一個 group」起算的 timestamp。
+ * 整個配對（核心輪 + tail 組）每組都完成或跳過才算結束，回傳完成組裡最晚的 completedAt；
+ * 還沒結束或全部跳過 → null。
+ */
+export const getPairEndTimestamp = (pair, aSets, bSets, currentWeek, currentDay, logs) =>
+  getExercisesEndTimestamp([
+    { exerciseId: pair.primary, sets: aSets },
+    { exerciseId: pair.secondary, sets: bSets },
+  ], currentWeek, currentDay, logs);
 
 /**
  * 在指定 session 內、找出包含 exerciseId 的 pair 設定。
@@ -177,6 +193,27 @@ export const getPairTailProgress = (pair, aSets, bSets, currentWeek, currentDay,
     if (isSettled(logs[getLogKey(currentWeek, currentDay, exerciseId, i)])) settled++;
   }
   return { total: sets - coreRoundCount, settled };
+};
+
+/**
+ * 最近一筆 done log（completedAt 最晚）所在的週 / 天。休息通知綁這一天，不綁畫面上正在看的那天，
+ * 休息中切去看別天 / 別週，通知照樣排程。沒有任何 done log → null。
+ *
+ * @returns {{ week: number, day: number } | null}
+ */
+export const getLatestDoneSession = (logs) => {
+  let latest = null;
+  let latestTs = 0;
+  for (const [key, log] of Object.entries(logs)) {
+    if (!log?.done) continue;
+    const ts = log.completedAt ?? 0;
+    if (ts <= latestTs) continue;
+    const parsed = parseLogKey(key);
+    if (!parsed) continue;
+    latest = { week: parsed.week, day: parsed.day };
+    latestTs = ts;
+  }
+  return latest;
 };
 
 /**
@@ -324,11 +361,12 @@ const fallbackSingle = ({
   const entry = sessionPlan.find(e => e.exercise.id === exerciseId);
   const setsCount = entry?.sets ?? (setIdx + 1);
 
-  // 5a. 同動作下一組未 settled → in-set
-  if (setIdx < setsCount - 1) {
-    const nextKey = `${prefix}${exerciseId}-s${setIdx + 1}`;
-    const nextLog = logs[nextKey];
-    if (!nextLog?.done && !nextLog?.skipped) {
+  // 5a. 同動作下一個沒跳過的組還沒做 → in-set（中間組跳過時往後找）
+  let nextIdx = setIdx + 1;
+  while (nextIdx < setsCount && logs[`${prefix}${exerciseId}-s${nextIdx}`]?.skipped) nextIdx++;
+  if (nextIdx < setsCount) {
+    const nextLog = logs[`${prefix}${exerciseId}-s${nextIdx}`];
+    if (!nextLog?.done) {
       return {
         type: 'in-set',
         delay: globalDelay,

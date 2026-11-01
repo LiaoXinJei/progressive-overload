@@ -4,7 +4,7 @@ import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { buildSessionPlan, getPhase, getWeeklyMuscleVolume, splitByWeights } from './sessionPlan.js';
 import { getPairRoundState } from './pairRoundState.js';
-import { SUPERSET_PAIRS, VOLUME_CONFIG, SESSION_WEIGHTS, MUSCLE_SESSION_MAP } from '../constants/workouts.js';
+import { SUPERSET_PAIRS, VOLUME_CONFIG, SESSION_WEIGHTS, MUSCLE_SESSION_MAP, DEFAULT_EXERCISE_LIBRARY } from '../constants/workouts.js';
 
 const WEEKS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 const KEYS = ['A', 'B', 'C', 'D', 'E'];
@@ -111,4 +111,41 @@ test('組數覆寫只套用在設定的那一週', () => {
 
 test('舊格式（不分週）的組數覆寫不再套用', () => {
   assert.equal(setsOf(4, 'A', 'leg_ext', { customSets: { 'A-leg_ext': 1 } }), setsOf(4, 'A', 'leg_ext'));
+});
+
+// ==================== 備註跟著動作、RIR 限制跟著格子 ====================
+
+const exerciseOf = (week, key, id, opts = {}) =>
+  buildSessionPlan(week, key, opts).find(p => p.exercise.id === id).exercise;
+const replaced = (key, slotId, libId) => ({
+  exerciseOverrides: { [`${key}-${slotId}`]: libId },
+  exerciseLibrary: DEFAULT_EXERCISE_LIBRARY,
+});
+
+test('內建動作顯示自己的備註', () => {
+  assert.equal(exerciseOf(1, 'E', 'rdl_db').noteText, '建議使用助握帶（lifting straps）');
+  assert.equal(exerciseOf(1, 'C', 'tri_dips').noteText, '身體前傾，重心放胸');
+  assert.equal(exerciseOf(1, 'E', 'leg_press').noteText, undefined);
+});
+
+test('替換動作時備註換成替換上去那個動作的，原格子的備註不會留著', () => {
+  assert.equal(exerciseOf(1, 'E', 'rdl_db', replaced('E', 'rdl_db', 'lib_machine_hip_hinge')).noteText, undefined);
+  assert.equal(exerciseOf(1, 'E', 'rdl_db', replaced('E', 'rdl_db', 'lib_reverse_hyper')).noteText, '場館有才做');
+  // 動作庫動作自己的備註（脊椎安全限制）換到哪一格都會顯示
+  assert.equal(
+    exerciseOf(1, 'E', 'leg_press', replaced('E', 'leg_press', 'lib_pendulum_squat_noload')).noteText,
+    '只做無肩墊、不壓肩的版本',
+  );
+});
+
+test('替換動作時 RIR 限制跟著格子留著（保護隔天 LEGS 日）', () => {
+  const ex = exerciseOf(1, 'D', 'lying_leg_curl_d', replaced('D', 'lying_leg_curl_d', 'lib_nordic_curl'));
+  assert.equal(ex.name, '北歐腿彎舉');
+  assert.equal(ex.noteRIR, '2-3');
+  assert.equal(ex.noteText, undefined);
+});
+
+test('替換成小腿動作算下肢', () => {
+  assert.equal(exerciseOf(1, 'B', 'bi_curl', replaced('B', 'bi_curl', 'lib_calf_donkey')).isUpper, false);
+  assert.equal(exerciseOf(1, 'E', 'leg_press', replaced('E', 'leg_press', 'lib_belt_squat')).isUpper, false);
 });

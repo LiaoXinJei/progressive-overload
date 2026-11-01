@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useReducer } from 'react';
 import { ChevronLeft, ChevronRight, Plus, Camera, Pencil, Trash2, Settings } from 'lucide-react';
 import { calculateDailyTotals } from '../../utils/nutritionCalculations';
 import MacroProgressBar from './MacroProgressBar';
@@ -11,18 +11,37 @@ const toLocalDateKey = (d) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
 const NutritionView = ({ nutritionProfile, setNutritionProfile, nutritionLogs, setNutritionLogs }) => {
-  const [selectedDate, setSelectedDate] = useState(() => toLocalDateKey(new Date()));
+  // null = 跟著今天走，跨過午夜自動換到新的一天；使用者切到別天才記住那個日期
+  const [pinnedDate, setPinnedDate] = useState(null);
   const [showTDEE, setShowTDEE] = useState(false);
   const [showMealEntry, setShowMealEntry] = useState(false);
   const [showPhotoAnalyzer, setShowPhotoAnalyzer] = useState(false);
+  const [, refreshToday] = useReducer(n => n + 1, 0);
 
   const today = toLocalDateKey(new Date());
+  const selectedDate = pinnedDate ?? today;
   const isToday = selectedDate === today;
+
+  // 不靠 App 重繪：過午夜、或從背景回到前景時重算一次今天
+  useEffect(() => {
+    const now = new Date();
+    const nextMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+    const timer = setTimeout(refreshToday, nextMidnight - now + 1000);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') refreshToday();
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [today]);
 
   const navigateDate = (direction) => {
     const d = new Date(selectedDate + 'T00:00:00');
     d.setDate(d.getDate() + direction);
-    setSelectedDate(toLocalDateKey(d));
+    const next = toLocalDateKey(d);
+    setPinnedDate(next === today ? null : next);
   };
 
   const formatDateDisplay = (dateStr) => {
@@ -102,8 +121,9 @@ const NutritionView = ({ nutritionProfile, setNutritionProfile, nutritionLogs, s
   }
 
   // ==================== 主畫面 ====================
+  // 底部留空間給右下角 FAB（bottom 5rem + 高 7.25rem，App 外層已有 pb-20），最後一筆才捲得到 FAB 上方
   return (
-    <main className="max-w-2xl mx-auto px-4 py-6 space-y-6">
+    <main className="max-w-2xl mx-auto px-4 pt-6 pb-[calc(9rem+env(safe-area-inset-bottom))] space-y-6">
 
       {/* Date Navigation */}
       <div className="flex items-center justify-between">
@@ -215,9 +235,13 @@ const NutritionView = ({ nutritionProfile, setNutritionProfile, nutritionLogs, s
                       </span>
                     )}
                   </div>
+                  {/* 點擊範圍 44×44：圖示 14 + padding 15×2，負 margin 抵銷，版面不變 */}
                   <button
-                    onClick={() => deleteMeal(meal.id)}
-                    className="text-neutral-700 hover:text-red-500 transition-colors"
+                    onClick={() => {
+                      if (window.confirm(`刪除「${meal.name}」這筆餐點？`)) deleteMeal(meal.id);
+                    }}
+                    aria-label={`刪除${meal.name}`}
+                    className="p-[15px] -m-[15px] text-neutral-700 hover:text-red-500 transition-colors"
                   >
                     <Trash2 size={14} />
                   </button>
@@ -249,7 +273,8 @@ const NutritionView = ({ nutritionProfile, setNutritionProfile, nutritionLogs, s
       </div>
 
       {/* Floating Action Buttons */}
-      <div className="fixed bottom-20 right-4 flex flex-col gap-3 z-40">
+      {/* 有 home indicator 時 tab 列會變高，FAB 跟著往上 */}
+      <div className="fixed bottom-[calc(5rem+env(safe-area-inset-bottom))] right-4 flex flex-col gap-3 z-40">
         <button
           onClick={() => setShowPhotoAnalyzer(true)}
           className="w-12 h-12 rounded-full bg-purple-600 text-white shadow-lg shadow-purple-900/50

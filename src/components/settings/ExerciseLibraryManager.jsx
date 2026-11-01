@@ -2,9 +2,10 @@ import React, { useState, useMemo } from 'react';
 import { Plus, Edit2, Trash2, Save, X, Search } from 'lucide-react';
 import { MUSCLE_GROUPS } from '../../constants/workouts';
 
-const emptyDraft = { name: '', muscle: 'CHEST', type: 'isolation', defaultSets: 3 };
+// defaultSets 已經沒有地方在讀（替換後組數照週期演算法算），表單不再編輯它；舊資料的欄位保留不動
+const emptyDraft = { name: '', muscle: 'CHEST', type: 'isolation' };
 
-const ExerciseLibraryManager = ({ exerciseLibrary, setExerciseLibrary }) => {
+const ExerciseLibraryManager = ({ exerciseLibrary, setExerciseLibrary, exerciseOverrides = {}, setExerciseOverrides }) => {
   const [search, setSearch] = useState('');
   const [editingId, setEditingId] = useState(null);
   const [draft, setDraft] = useState(emptyDraft);
@@ -19,13 +20,14 @@ const ExerciseLibraryManager = ({ exerciseLibrary, setExerciseLibrary }) => {
     );
   }, [exerciseLibrary, search]);
 
+  // 新增和編輯共用同一份 draft，一次只開一個表單
   const startEdit = (item) => {
+    setShowAdd(false);
     setEditingId(item.id);
     setDraft({
       name: item.name,
       muscle: item.muscle,
       type: item.type,
-      defaultSets: item.defaultSets,
     });
   };
 
@@ -38,14 +40,26 @@ const ExerciseLibraryManager = ({ exerciseLibrary, setExerciseLibrary }) => {
     if (!draft.name.trim()) return;
     setExerciseLibrary(prev => prev.map(item =>
       item.id === editingId
-        ? { ...item, name: draft.name.trim(), muscle: draft.muscle, type: draft.type, defaultSets: draft.defaultSets }
+        ? { ...item, name: draft.name.trim(), muscle: draft.muscle, type: draft.type }
         : item
     ));
     cancelEdit();
   };
 
-  const removeItem = (id) => {
-    setExerciseLibrary(prev => prev.filter(item => item.id !== id));
+  // 刪掉正在當替換的動作時，課表會改回原動作；先問過，再把指向它的替換設定一起清掉，不留孤兒
+  const removeItem = (item) => {
+    const usedKeys = Object.keys(exerciseOverrides).filter(key => exerciseOverrides[key] === item.id);
+    if (usedKeys.length > 0) {
+      // key 是 `${session}-${動作 id}`，同一個課表換了兩格只算一個
+      const sessionCount = new Set(usedKeys.map(key => key.split('-')[0])).size;
+      if (!window.confirm(`「${item.name}」有 ${sessionCount} 個課表在用，刪掉會改回原動作。確定刪除？`)) return;
+      setExerciseOverrides(prev => {
+        const next = { ...prev };
+        usedKeys.forEach(key => { delete next[key]; });
+        return next;
+      });
+    }
+    setExerciseLibrary(prev => prev.filter(l => l.id !== item.id));
   };
 
   const addItem = () => {
@@ -56,7 +70,6 @@ const ExerciseLibraryManager = ({ exerciseLibrary, setExerciseLibrary }) => {
       name: draft.name.trim(),
       muscle: draft.muscle,
       type: draft.type,
-      defaultSets: draft.defaultSets,
     }]);
     setDraft(emptyDraft);
     setShowAdd(false);
@@ -93,18 +106,6 @@ const ExerciseLibraryManager = ({ exerciseLibrary, setExerciseLibrary }) => {
           <option value="compound">複合</option>
           <option value="isolation">隔離</option>
         </select>
-      </div>
-      <div className="flex items-center gap-2">
-        <label className="text-xs text-neutral-400">預設組數</label>
-        <input
-          type="number"
-          min="1"
-          max="10"
-          value={draft.defaultSets}
-          onChange={(e) => setDraft(d => ({ ...d, defaultSets: Math.max(1, Math.min(10, parseInt(e.target.value) || 1)) }))}
-          className="w-16 bg-neutral-900 px-2 py-1 rounded-lg text-sm font-mono text-center text-neutral-100
-            focus:outline-none focus:ring-2 focus:ring-emerald-500 border border-neutral-700"
-        />
       </div>
       <div className="flex gap-2">
         <button
@@ -173,7 +174,6 @@ const ExerciseLibraryManager = ({ exerciseLibrary, setExerciseLibrary }) => {
                   <span className={`text-[10px] font-bold ${item.type === 'compound' ? 'text-cyan-500' : 'text-neutral-500'}`}>
                     {item.type === 'compound' ? '複合' : '隔離'}
                   </span>
-                  <span className="text-[10px] font-mono text-neutral-500">{item.defaultSets} 組</span>
                 </div>
               </div>
               <div className="flex items-center gap-1 flex-shrink-0">
@@ -185,7 +185,7 @@ const ExerciseLibraryManager = ({ exerciseLibrary, setExerciseLibrary }) => {
                   <Edit2 size={14} />
                 </button>
                 <button
-                  onClick={() => removeItem(item.id)}
+                  onClick={() => removeItem(item)}
                   className="p-1.5 text-neutral-600 hover:text-rose-500 transition-colors"
                   title="刪除"
                 >

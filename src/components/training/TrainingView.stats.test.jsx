@@ -64,25 +64,34 @@ const statText = (label) => {
 
 const statSets = (label) => parseInt(statText(label), 10);
 
+// 本週訓練量是 bottom sheet，從「今天進度」卡片底下的入口打開
+const openVolume = () => act(() => {
+  container.querySelector('[data-open-volume]').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+});
+const volumeSheet = () => container.querySelector('[data-volume-sheet]');
+
 // 統計面板預設開啟、App 首次 render 就會走到這裡；缺 import 時整個 App 白畫面
 // 每天一個 test、裡面跑 W1–W10：換週時動作卡片不變、只更新文字，比每次都換天（整批卡片重建）快很多，
 // 單一 test 也短，機器忙時不會撞到 vitest 預設的 5 秒逾時
 test.each([1, 2, 3, 4, 5])('統計面板開啟時、D%i 的 W1–W10 都能渲染', (d) => {
   for (let week = 1; week <= 10; week++) {
     render({ ...baseProps(), currentWeek: week, currentDay: d - 1 });
-    assert.ok(container.textContent.includes('本週訓練量'), `W${week} D${d} 缺少統計面板`);
+    if (week === 1) openVolume();
+    assert.ok(volumeSheet()?.textContent.includes('本週訓練量'), `W${week} D${d} 缺少統計面板`);
   }
 });
 
 test('統計面板顯示肌群目標組數', () => {
   // W1 胸部目標 = VOLUME_CONFIG.CHEST[0] = 10
   render(baseProps());
+  openVolume();
   assert.match(statText('胸部'), /^\d+ \/ 10(?!\d)/);
 });
 
 test('只改 exerciseOverrides 時、本週訓練量即時更新', () => {
   const props = baseProps();
   render(props);
+  openVolume();
   const before = statSets('胸部');
 
   // PUSH A 的腿伸直（股四頭）換成平板啞鈴臥推（胸）

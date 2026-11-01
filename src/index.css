@@ -8,12 +8,85 @@
   box-sizing: border-box;
 }
 
+/* ==================== 瀏覽器表面 ==================== */
+
+:root {
+  color-scheme: dark;
+  scrollbar-color: theme('colors.fill') theme('colors.canvas');
+}
+
+html,
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
+  background-color: theme('colors.canvas');
+  /* 手機上往下拖 sheet 時不要觸發瀏覽器的下拉重新整理 */
+  overscroll-behavior-y: none;
+}
+
+html {
+  /* 鍵盤跳格、scrollIntoView 時避開頂部 bar 與底部的 tab 列 + 休息膠囊（49 + 8 + 60 + 16） */
+  scroll-padding-top: var(--app-header-h, 0px);
+  scroll-padding-bottom: calc(133px + env(safe-area-inset-bottom));
+  /* sheet 開著時鎖捲動（overflow: hidden）不要因為捲軸消失讓版面左右跳 */
+  scrollbar-gutter: stable;
+}
+
+body {
+  color: theme('colors.label.DEFAULT');
+  font-family: theme('fontFamily.sans');
+  letter-spacing: -0.01em;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+  caret-color: theme('colors.accent.text');
+}
+
+::selection {
+  background-color: theme('colors.accent.DEFAULT');
+  color: theme('colors.label.DEFAULT');
+}
+
+/* Tailwind preflight 把 placeholder 設成 gray-400（在 fill 上只有 4.47:1），改用次要文字色 */
+input::placeholder,
+textarea::placeholder {
+  color: theme('colors.label.2');
+  opacity: 1;
+}
+
+:focus-visible {
+  outline: 2px solid theme('colors.accent.text');
+  outline-offset: 2px;
+}
+
+/* 組列裡的輸入框夾在 − / + 和 ✓ 中間，focus ring 往內收才不會壓到旁邊的按鈕 */
+[data-set-row] input:focus-visible {
+  outline-offset: -2px;
+}
+
+/* 數字輸入框不要上下箭頭 */
+input[type='number']::-webkit-outer-spin-button,
+input[type='number']::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type='number'] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: theme('colors.fill');
+  border-radius: 9999px;
 }
 
 .no-scrollbar::-webkit-scrollbar {
@@ -27,4 +100,158 @@ body {
 
 .safe-area-bottom {
   padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* ==================== 材質 ==================== */
+
+/* 半透明模糊材質：頂部 bar（捲動後）、底部 tab、休息膠囊、superset 狀態條 */
+.material {
+  background-color: rgba(22, 22, 24, 0.78);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  backdrop-filter: blur(24px) saturate(180%);
+}
+
+.material-elevated {
+  background-color: rgba(44, 44, 46, 0.72);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  backdrop-filter: blur(24px) saturate(180%);
+}
+
+/* 0.5px 分隔線（2x 螢幕上是一條實體像素） */
+.hairline-b {
+  box-shadow: inset 0 -0.5px 0 rgba(255, 255, 255, 0.12);
+}
+
+.hairline-t {
+  box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.12);
+}
+
+/* sheet 最高 90% 視窗高；支援 dvh 的瀏覽器扣掉網址列 */
+.sheet-max-h {
+  max-height: 90vh;
+  max-height: 90dvh;
+}
+
+/* ==================== 組列格線 ==================== */
+
+/* 組號 / 重量 stepper / 次數 / ✓。360 寬時欄位收窄，重量欄才不會被擠扁 */
+.set-grid {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) 72px 44px;
+  column-gap: 8px;
+}
+
+@media (max-width: 374px) {
+  .set-grid {
+    grid-template-columns: 28px minmax(0, 1fr) 60px 44px;
+    column-gap: 6px;
+  }
+}
+
+/* ==================== 動態 ==================== */
+
+/* 按 ✓：勾勾圓鈕彈一下（彈簧感由關鍵影格的 1.08 過衝給，曲線本身是平順的減速） */
+.check-pop {
+  animation: check-pop 350ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes check-pop {
+  0% {
+    transform: scale(0.85);
+  }
+  55% {
+    transform: scale(1.08);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* 進出排序模式：清單淡入（減少動態效果時直接切換） */
+.mode-fade {
+  animation: fade-in 220ms ease-out;
+}
+
+/* 新出現的目前這組下排（上次紀錄、跳過）淡入 */
+.fade-in {
+  animation: fade-in 200ms ease-out;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* bottom sheet：遮罩淡入、面板從下往上滑入。關閉時面板用 transition 滑出（拖曳到一半放開也接得上） */
+.sheet-backdrop-in {
+  animation: fade-in 300ms ease-out;
+}
+
+.sheet-in {
+  animation: sheet-in 400ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+@keyframes sheet-in {
+  from {
+    transform: translateY(100%);
+  }
+}
+
+/* 休息膠囊：從下往上浮出（彈簧），結束時滑出 */
+.pill-in {
+  animation: pill-in 350ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.pill-out {
+  animation: pill-out 250ms cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+
+/* 彈簧：先衝過頭 3px 再落定 */
+@keyframes pill-in {
+  0% {
+    opacity: 0;
+    transform: translateY(24px) scale(0.96);
+  }
+  65% {
+    opacity: 1;
+    transform: translateY(-3px) scale(1.005);
+  }
+  100% {
+    transform: none;
+  }
+}
+
+@keyframes pill-out {
+  to {
+    opacity: 0;
+    transform: translateY(24px) scale(0.96);
+  }
+}
+
+/* 減少動態效果：拿掉位移與縮放，只留淡入淡出 */
+@media (prefers-reduced-motion: reduce) {
+  .check-pop,
+  .mode-fade {
+    animation: none;
+  }
+
+  .sheet-in,
+  .pill-in {
+    animation: fade-in 200ms ease-out;
+  }
+
+  .pill-out {
+    animation: fade-out 200ms ease-out forwards;
+  }
+
+  .motion-slide {
+    transition-property: opacity, background-color, border-color, color, box-shadow !important;
+  }
+}
+
+@keyframes fade-out {
+  to {
+    opacity: 0;
+  }
 }

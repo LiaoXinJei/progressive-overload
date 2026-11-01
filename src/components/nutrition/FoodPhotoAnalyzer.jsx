@@ -48,6 +48,14 @@ const FoodPhotoAnalyzer = ({ apiKey, onSave, onClose, onNeedApiKey }) => {
     setResults(prev => prev.filter(item => item.id !== id));
   };
 
+  // 回到拍照 / 上傳畫面（分析失敗、或結果全部刪光時用）
+  const resetToUpload = () => {
+    setImagePreview(null);
+    setResults(null);
+    setError(null);
+    setEditingItem(null);
+  };
+
   const handleSave = () => {
     if (!results || results.length === 0) return;
 
@@ -65,7 +73,8 @@ const FoodPhotoAnalyzer = ({ apiKey, onSave, onClose, onNeedApiKey }) => {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-4">
+    // z-[60]：要疊在底部 tab 列（z-50）上面，不然按得到 nav、切頁會丟掉 AI 分析結果
+    <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-[60] flex items-center justify-center p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
       <div className="bg-neutral-900 border border-neutral-800 p-6 rounded-[40px] max-w-lg w-full shadow-2xl max-h-[90vh] overflow-y-auto">
         <div className="flex justify-between items-center mb-6">
           <h3 className="text-xl font-black text-white italic uppercase flex items-center gap-2">
@@ -135,10 +144,7 @@ const FoodPhotoAnalyzer = ({ apiKey, onSave, onClose, onNeedApiKey }) => {
             <p className="text-red-400 text-sm font-bold mb-1">分析失敗</p>
             <p className="text-red-500/70 text-xs">{error}</p>
             <button
-              onClick={() => {
-                setImagePreview(null);
-                setError(null);
-              }}
+              onClick={resetToUpload}
               className="mt-3 text-xs text-red-400 underline hover:text-red-300"
             >
               重新上傳
@@ -189,6 +195,7 @@ const FoodPhotoAnalyzer = ({ apiKey, onSave, onClose, onNeedApiKey }) => {
                       </button>
                       <button
                         onClick={() => removeResult(item.id)}
+                        aria-label={`移除${item.name}`}
                         className="text-neutral-600 hover:text-red-500 transition-colors"
                       >
                         <X size={14} />
@@ -204,11 +211,13 @@ const FoodPhotoAnalyzer = ({ apiKey, onSave, onClose, onNeedApiKey }) => {
                     ].map(({ field, label }) => (
                       <div key={field}>
                         <label className="block text-[9px] text-neutral-600 mb-1">{label}</label>
+                        {/* 16px 以上 iOS 聚焦時才不會放大畫面 */}
                         <input
                           type="number"
+                          inputMode="decimal"
                           value={item[field]}
                           onChange={(e) => updateResult(item.id, field, e.target.value)}
-                          className="w-full bg-neutral-900 px-2 py-1.5 rounded-lg text-center font-mono text-xs
+                          className="w-full bg-neutral-900 px-2 py-1.5 rounded-lg text-center font-mono text-base
                           focus:outline-none focus:ring-2 focus:ring-emerald-500 border border-neutral-700"
                         />
                       </div>
@@ -226,6 +235,21 @@ const FoodPhotoAnalyzer = ({ apiKey, onSave, onClose, onNeedApiKey }) => {
               <Save size={16} /> 儲存分析結果
             </button>
           </>
+        )}
+
+        {/* 結果全部刪光：沒有東西可存，給重拍入口 */}
+        {results && results.length === 0 && (
+          <div className="text-center py-6">
+            <p className="text-neutral-400 text-sm font-bold">辨識結果都刪掉了</p>
+            <p className="text-neutral-600 text-xs mt-1">重新拍一張，或關掉改用手動新增</p>
+            <button
+              onClick={resetToUpload}
+              className="mt-4 px-6 py-3 rounded-2xl border border-neutral-700 text-neutral-300 text-sm font-bold
+              hover:border-emerald-600 hover:text-emerald-400 transition-all inline-flex items-center gap-2"
+            >
+              <Camera size={16} /> 重新拍照
+            </button>
+          </div>
         )}
       </div>
     </div>

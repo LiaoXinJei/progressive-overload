@@ -53,16 +53,17 @@ const MyView = ({ propA, propB, ... }) => {
 
 ## 樣式
 
-- **Tailwind CSS** 唯一樣式來源，不寫獨立 CSS（除 `index.css` 的 Tailwind 進入點）
-- **深色主題基底**：`neutral-950` / `neutral-900`
-- **語義色**：
-  - 肌肥大期（hypertrophy）：`emerald-*`（綠色系）
-  - 肌力期（strength）：`cyan-*`（青色系）
-  - 減量週（deload）：`amber-*`
-  - 上肢：`blue-*`；下肢：`orange-*`
-  - 警示 / 重要：`red-*` / `rose-*`
-- **手機優先**：預設樣式針對手機，避免亂寫 `md:` / `lg:` 斷點
-- **觸控目標**：按鈕最小高度 `py-3` 以上，確保拇指可點
+完整的設計系統（色票角色、對比規則、字級、圓角、材質、動態、元件狀態）寫在根目錄的 [DESIGN.md](../../DESIGN.md)，token 在 `tailwind.config.cjs`。這裡只列寫程式時最常用到的規則：
+
+- **Tailwind CSS** 是主要樣式來源。`index.css` 只放 Tailwind 進入點、瀏覽器表面（selection、caret、focus ring、scroll-padding）和少數 Tailwind 寫不出來的元件 class（材質、動畫 keyframes）
+- **用具名 token，不要散寫 hex 或 `neutral-*`**：底 `canvas`、卡片 `card`、浮起層 `elevated`、輸入底 `fill`、分隔線 `separator`；文字 `label` / `label-2` / `label-3`
+- **語意色各司其職**：完成 `done`（綠）、選取與主要動作 `accent`（深底上的藍字用 `accent-text`）、休息計時 `rest`（琥珀）、跳過 `skip`（紅，深底文字用 `skip-text`）。紅色只給跳過，琥珀只給休息
+- **推 / 拉 / 腿**用 `push` / `pull` / `legs`，只出現在 D1–D5 的色點；**階段**用 `phase-hypertrophy` / `phase-strength` / `phase-deload`
+- **對比**：次要文字至少 4.5:1。`label-3` 只能放在 `canvas` / `card` 上，放在 `elevated` / `fill` 上的次要字和 placeholder 一律用 `label-2`。不要用 opacity 淡化文字
+- **數字**用 `font-num` 加 `tabular-nums`
+- **動態**只動 transform / opacity / 顏色，曲線用 `ease-ios`，所有位移動畫都要處理 `prefers-reduced-motion`
+- **手機優先**：預設樣式針對手機，桌面是單欄置中（max-width 480px），避免亂寫 `md:` / `lg:` 斷點
+- **觸控目標**：所有可點元素至少 44×44（視覺可以比較小，用 padding 撐觸控範圍）
 
 ---
 

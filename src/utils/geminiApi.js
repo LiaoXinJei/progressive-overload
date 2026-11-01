@@ -1,3 +1,39 @@
+// gemini-2.0-flash 已於 2026-06-01 停用，官方建議改用 gemini-3.6-flash
+// https://ai.google.dev/gemini-api/docs/deprecations
+const GEMINI_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent';
+const REQUEST_TIMEOUT_MS = 30_000;
+
+// Gemini 偶爾把數字回成帶單位的字串（"約 750"、"30g"、"1,200 kcal"）：取第一個數字，完全沒有數字才當 0
+const toNumber = (value) => {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+  const match = String(value ?? '').replace(/,/g, '').match(/\d+(?:\.\d+)?/);
+  const n = match ? parseFloat(match[0]) : NaN;
+  return Number.isNaN(n) ? 0 : n;
+};
+
+// 逾時涵蓋到讀完 body；失敗一律換成中文訊息
+const postWithTimeout = async (url, init) => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, { ...init, signal: controller.signal });
+    let body = null;
+    try {
+      body = await response.json();
+    } catch (err) {
+      if (controller.signal.aborted) throw err;
+    }
+    return { response, body };
+  } catch {
+    if (controller.signal.aborted) {
+      throw new Error('分析逾時（超過 30 秒），請確認網路後再試');
+    }
+    throw new Error('網路連線失敗，請確認網路後再試');
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
 /**
  * 使用 Google Gemini 分析食物照片
  * @param {string} apiKey - Gemini API Key
@@ -6,13 +42,10 @@
  * @returns {Promise<Array>} 食物項目列表
  */
 export const analyzeFood = async (apiKey, imageBase64, mimeType) => {
-  // gemini-2.0-flash 已於 2026-06-01 停用，官方建議改用 gemini-3.6-flash
-  // https://ai.google.dev/gemini-api/docs/deprecations
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`;
-
-  const response = await fetch(url, {
+  const { response, body } = await postWithTimeout(GEMINI_ENDPOINT, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    // 金鑰放 header，不放網址，避免出現在 log、瀏覽器紀錄或 Referer
+    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
     body: JSON.stringify({
       contents: [{
         parts: [
@@ -53,23 +86,22 @@ export const analyzeFood = async (apiKey, imageBase64, mimeType) => {
       generationConfig: {
         thinkingConfig: { thinkingLevel: 'low' },
         maxOutputTokens: 8192,
+        responseMimeType: 'application/json',
       }
     })
   });
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
     if (response.status === 400) {
       throw new Error('無效的 API Key 或請求格式錯誤');
     }
     if (response.status === 429) {
       throw new Error('API 請求過於頻繁，請稍後再試');
     }
-    throw new Error(error.error?.message || `API 錯誤 (${response.status})`);
+    throw new Error(body?.error?.message || `API 錯誤 (${response.status})`);
   }
 
-  const data = await response.json();
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  const text = body?.candidates?.[0]?.content?.parts?.[0]?.text;
 
   if (!text) {
     throw new Error('無法辨識照片中的食物');
@@ -77,19 +109,24 @@ export const analyzeFood = async (apiKey, imageBase64, mimeType) => {
 
   // 解析 JSON（移除可能的 markdown 標記）
   const jsonStr = text.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
-  const parsed = JSON.parse(jsonStr);
+  let parsed;
+  try {
+    parsed = JSON.parse(jsonStr);
+  } catch {
+    throw new Error('AI 回傳的格式無法解析，請重拍一次或改用手動新增');
+  }
 
-  if (!parsed.items || !Array.isArray(parsed.items) || parsed.items.length === 0) {
+  if (!parsed?.items || !Array.isArray(parsed.items) || parsed.items.length === 0) {
     throw new Error('無法辨識照片中的食物');
   }
 
   return parsed.items.map(item => ({
     id: `i_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-    name: item.name || '未知食物',
-    calories: Math.round(item.calories || 0),
-    protein: Math.round(item.protein || 0),
-    carbs: Math.round(item.carbs || 0),
-    fat: Math.round(item.fat || 0),
+    name: item?.name || '未知食物',
+    calories: Math.round(toNumber(item?.calories)),
+    protein: Math.round(toNumber(item?.protein)),
+    carbs: Math.round(toNumber(item?.carbs)),
+    fat: Math.round(toNumber(item?.fat)),
   }));
 };
 

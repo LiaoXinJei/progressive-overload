@@ -6,6 +6,7 @@ import {
   getPairForExerciseId,
   isPairTailSet,
   getRestContext,
+  getLatestDoneSession,
 } from './pairRoundState.js';
 
 const W = 1;
@@ -68,6 +69,23 @@ test('isPairTailSet: 動作 id 不屬於 pair', () => {
   assert.equal(isPairTailSet(pair, 3, 4, 'X', 5), false);
 });
 
+// ==================== getLatestDoneSession ====================
+
+test('getLatestDoneSession: 回傳完成時間最晚那筆 done log 的週 / 天', () => {
+  const logs = {
+    'w1-d1-pullup-s0': done(3000),
+    'w2-d0-bp_flat-s0': done(1000),
+    'w3-d4-rdl_db-s0': { skipped: true },
+    'w1-d2-db_press_seated-s0': { weight: 20, reps: '8' }, // 沒完成
+  };
+  assert.deepEqual(getLatestDoneSession(logs), { week: 1, day: 1 });
+});
+
+test('getLatestDoneSession: 沒有任何 done log → null', () => {
+  assert.equal(getLatestDoneSession({ 'w1-d1-pullup-s0': { skipped: true } }), null);
+  assert.equal(getLatestDoneSession({}), null);
+});
+
 // ==================== getRestContext: idle ====================
 
 test('restContext: 當日無 done log → idle', () => {
@@ -93,6 +111,25 @@ test('restContext: 單動作下一組未 settled → in-set、global delay', () 
   assert.equal(ctx.delay, 90);
   assert.equal(ctx.anchorTs, 1000);
   assert.match(ctx.notifyKey, /in-set/);
+});
+
+test('restContext: 中間組跳過、後面還有沒做的組 → in-set，不是 between-exercises', () => {
+  const logs = { [k('bp_flat', 0)]: done(1000), [k('bp_flat', 1)]: skipped() };
+  const ctx = getRestContext({
+    logs, currentWeek: W, currentDay: D, workoutKey,
+    sessionPlan: planA, globalDelay: 90,
+  });
+  assert.equal(ctx.type, 'in-set');
+  assert.equal(ctx.anchorTs, 1000);
+});
+
+test('restContext（不變）: 後面的組都跳過了 → between-exercises', () => {
+  const logs = { [k('bp_flat', 0)]: done(1000), [k('bp_flat', 1)]: skipped(), [k('bp_flat', 2)]: skipped() };
+  const ctx = getRestContext({
+    logs, currentWeek: W, currentDay: D, workoutKey,
+    sessionPlan: planA, globalDelay: 90,
+  });
+  assert.equal(ctx.type, 'between-exercises');
 });
 
 // ==================== getRestContext: in-pair-mid-round ====================

@@ -34,6 +34,8 @@
 - `type: 'compound' | 'isolation'` — 決定該階段的建議次數範圍
 - `isUpper` — UI 圓點顏色（上肢藍 / 下肢橙）
 - 不再有 `baseSets` — 組數完全由 `VOLUME_CONFIG` + 分配演算法決定
+- `noteRIR` — RIR 限制徽章（例如 `lying_leg_curl_d` 的 `'2-3'`，保護隔天 LEGS 日），寫在 `WORKOUTS` 的格子上，替換動作也留著
+- `noteText` — 動作底下的灰字提示，**不寫在 `WORKOUTS`**，統一放 `EXERCISE_NOTES`（id → 備註）。`buildSessionPlan` 照實際顯示的動作 id 查：替換成動作庫的動作就顯示那個動作的備註。不存進 localStorage，改備註不用 migration
 
 ### 容量分配演算法
 
@@ -48,7 +50,8 @@
 - **常數**：`SUPERSET_PAIRS[sessionKey]` 列出該 session 的 antagonist 配對（含 primary / secondary / rest 秒數）
 - **Helper**：`src/utils/pairRoundState.js`
   - `getPairRoundState(pair, aSets, bSets, week, day, logs)` — 純 derived、從 `logs` 推 round 狀態
-  - `getPairEndTimestamp(...)` — 取 `max(lastRound.A.completedAt, lastRound.B.completedAt)`、僅納入 done 組
+  - `getExercisesEndTimestamp([{ exerciseId, sets }], week, day, logs)` — 這些動作每組都完成或跳過才算結束，回傳完成組裡最晚的 `completedAt`；還有組沒 settled、或每組都跳過 → `null`。單動作的「前一 group 結束時間」用它（最後一組跳過也照算）
+  - `getPairEndTimestamp(...)` — 同上套在配對的兩個動作：核心輪 + tail 組每組都 settled 才回傳，取完成組最晚的 `completedAt`；還有一輪或 tail 組沒做 → `null`
 - **狀態機**（給定一個 pair）：
   - `idle`：尚未有任何 round 開始
   - `mid-round`：某 round 兩組「恰好一邊 settled」→ amber「⏱ 切換中」
@@ -59,9 +62,11 @@
   - logs 已記 done / skipped / completedAt、足以推出 round 狀態、不需新增欄位
   - core round 數 = `min(aSets, bSets)`、超出組數視為 single tail、回退單動作組間休息語意
 - **邊界訊息**
-  - 進入 pair（pair `idle` 且前一 group 完成）→ sticky bar 上方一行「{上一動作 / 上一配對}完成 m:ss 前 · 進入 superset」
-  - 離開 pair（pair → 後一獨立動作）→ 後動作 inter-exercise rest 起算點 = `getPairEndTimestamp(...)`
-- **pair 內隱藏 inline rest**：pair 成員的 set 列不渲染「休息時間 / 休息中」、所有休息訊息統一由 sticky bar 呈現
+  - 進入 pair（pair `idle` 且前一 group 結束）→ sticky bar 上方一行「{上一動作 / 上一配對}完成 m:ss 前 · 進入 superset」；前一 group 還有組沒做完（例如上一組配對 R2 還沒做）就不顯示
+  - 離開 pair（pair → 後一獨立動作）→ 後動作 inter-exercise rest 起算點 = `getPairEndTimestamp(...)`，有 tail 組時從 tail 組結束起算
+- **pair 內 inline rest**：核心輪的休息由 sticky bar 呈現，set 列不渲染「休息時間 / 休息中」；只有最後一個核心組 → 第一個 tail 組（從核心輪結束起算，那組自己跳過也照樣顯示）和 tail 組之間回到單動作的 inline 休息
+- **組間休息遇到跳過的組**：往後找第一個沒跳過的組，休息時間 / 休息中照樣顯示；restContext 同規則，還有組沒做就是 `in-set`
+- **時間顯示**：休息 / 經過時間 clamp 到 0，按 ✓ 的時間比畫面上的 `currentTime` 晚時顯示 0:00，不會出現 -1:-1
 - **規格**：`openspec/specs/superset-execution/` 與 `openspec/specs/workout-execution-ui/`
 
 ---
@@ -121,7 +126,9 @@
   ```
   使用者完成一組
     ↓
-  App.jsx 計算 restContext（型別 + delay + anchorTs + notifyKey）
+  App.jsx 用 getLatestDoneSession(logs) 找最近一筆完成組所在的週 / 天
+    ↓
+  App.jsx 計算那一天的 restContext（型別 + delay + anchorTs + notifyKey）
     ↓
   useRestNotification 依 restContext.notifyKey 變動 → cancel 舊通知
     ↓
@@ -130,13 +137,14 @@
   SW: setTimeout (delay) → showNotification(title, { vibrate, requireInteraction })
   ```
 
-- **權限**：`requestNotificationPermission()`（在設定面板手動觸發）
+- **綁哪一天**：restContext 綁最近一筆完成組（`completedAt` 最晚）所在的週 / 天（`getLatestDoneSession`），不綁畫面上的 `currentWeek` / `currentDay`。休息中切去看別天、別週，背景通知照樣排程；最近一筆是以前的課表時起算點早就過了，hook 不會排程。沒有任何完成組時才用畫面上的週 / 天（結果是 `idle`）
+- **權限**：`requestNotificationPermission()`（在設定面板手動觸發）；沒有 `Notification` 物件的瀏覽器（iOS Safari 沒加到主畫面）`schedule` 直接跳過
 - **restContext 五種型別**（`src/utils/pairRoundState.js#getRestContext`）：
 
   | type | 觸發條件 | delay | 排程 |
   |------|----------|-------|------|
   | `idle` | 當日無 done、或所有工作 settled | — | ✘ |
-  | `in-set` | 單動作下一組未 settled | 全域 `restNotificationDelay` | ✓ |
+  | `in-set` | 單動作下一個沒跳過的組還沒做（中間組跳過時往後找） | 全域 `restNotificationDelay` | ✓ |
   | `in-pair-mid-round` | pair round 內單邊 settled | — | ✘ |
   | `in-pair-between-rounds` | pair round 完成、下一輪未開始 | `SUPERSET_PAIRS[*].rest`（75 / 90） | ✓ |
   | `between-exercises` | 動作末組完成、後續仍有工作 | 全域 `restNotificationDelay` | ✓ |
@@ -167,7 +175,7 @@
 
 - **儲存**：`localStorage`
 - **Key**：`rp_focus_pro_data`
-- **`schemaVersion`**：`6`
-- **入口**：`src/App.jsx` 的兩個 `useEffect`（載入 + 寫回）
-- **遷移**：v2 → v3 把 `history[id]` 從 `number` 升級為 `{ weight, reps }` 物件；v3 → v4 腿部訓練計劃 v3 FINAL（動作移除 / 改名、進度重置）；v4 → v5 動作庫與替換設定對齊 v3 FINAL；v5 → v6 組數覆寫改成分週（有 log 的週轉成分週 key，其他清掉），並拿掉 C 日替換成 `lib_skullcrusher` 的設定（避免跟內建那格重複）
+- **`schemaVersion`**：`7`
+- **入口**：`src/App.jsx` 的 `useEffect`（載入、寫回、聽 `storage` 事件），遷移邏輯在 `migrateSavedData()`。寫回前跟 storage 現值比對、一樣就不寫；讀檔失敗把原始字串另存 `rp_focus_pro_data_corrupt_<timestamp>` 再照空資料啟動；`setItem` 失敗提示一次
+- **遷移**：v2 → v3 把 `history[id]` 從 `number` 升級為 `{ weight, reps }` 物件；v3 → v4 腿部訓練計劃 v3 FINAL（動作移除 / 改名、進度重置）；v4 → v5 動作庫與替換設定對齊 v3 FINAL；v5 → v6 組數覆寫改成分週（有 log 的週轉成分週 key，其他清掉），並拿掉 C 日替換成 `lib_skullcrusher` 的設定（避免跟內建那格重複）；v6 → v7 動作庫改名與 type 修正（名稱還是歷代預設名才換），並用分週組數覆寫補回 v6 換預設組數後被藏起來、但有 log 的組
 - **規則**：任何結構變更**必須加遷移邏輯**，不可破壞舊使用者資料

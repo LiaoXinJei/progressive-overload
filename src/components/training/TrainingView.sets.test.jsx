@@ -24,7 +24,7 @@ afterEach(() => {
   container = null;
 });
 
-const renderView = ({ customSets = {}, exerciseOverrides = {} } = {}) => {
+const renderView = ({ customSets = {}, exerciseOverrides = {}, logs = {} } = {}) => {
   const state = {};
   const Harness = () => {
     const [cs, setCs] = useState(customSets);
@@ -34,7 +34,7 @@ const renderView = ({ customSets = {}, exerciseOverrides = {} } = {}) => {
     const noop = () => {};
     return (
       <TrainingView
-        logs={{}} setLogs={noop}
+        logs={logs} setLogs={noop}
         history={{}} setHistory={noop}
         mode="maintenance" currentWeek={WEEK} currentDay={DAY} setCurrentDay={noop}
         showStats={false} setShowStats={noop}
@@ -60,15 +60,19 @@ const click = (el) => act(() => {
 });
 
 const byTitle = (title) => container.querySelector(`button[title="${title}"]`);
+// 替換動作、增加一組在第一個動作（平板槓鈴臥推）的「動作選項」sheet 裡
+const openOptions = () => click(container.querySelector('button[aria-label="動作選項"]'));
 
 test('BUG-14：按 +1 組只存在這一週的 key', () => {
   const state = renderView();
+  openOptions();
   click(byTitle('增加一組'));
   assert.deepEqual(state.customSets, { [`w${WEEK}-A-bp_flat`]: 5 });
 });
 
 test('BUG-14：替換動作不寫組數，組數照週期算', () => {
   const state = renderView();
+  openOptions();
   click(byTitle('替換動作'));
   const item = [...container.querySelectorAll('button')]
     .find(b => b.textContent.includes('平板啞鈴臥推'));
@@ -79,19 +83,38 @@ test('BUG-14：替換動作不寫組數，組數照週期算', () => {
 
 test('BUG-14：替換選單不顯示動作庫的預設組數', () => {
   renderView();
+  openOptions();
   click(byTitle('替換動作'));
   const item = [...container.querySelectorAll('button')]
     .find(b => b.textContent.includes('平板啞鈴臥推'));
   assert.doesNotMatch(item.textContent, /\d+ 組/);
 });
 
-test('BUG-14：恢復為原動作時清掉該動作各週的組數調整', () => {
+const restoreOriginal = () => {
+  openOptions();
+  click(byTitle('替換動作'));
+  click([...container.querySelectorAll('button')].find(b => b.textContent === '恢復為原動作'));
+};
+
+test('BUG-14：恢復為原動作時，沒有紀錄的週清掉該動作的組數調整', () => {
   const state = renderView({
     customSets: { 'w4-A-bp_flat': 5, 'w2-A-bp_flat': 2, 'w4-A-bp_incline_db': 3 },
     exerciseOverrides: { 'A-bp_flat': 'lib_flat_db_press' },
   });
-  click(byTitle('替換動作'));
-  click([...container.querySelectorAll('button')].find(b => b.textContent === '恢復為原動作'));
+  restoreOriginal();
   assert.deepEqual(state.exerciseOverrides, {});
   assert.deepEqual(state.customSets, { 'w4-A-bp_incline_db': 3 });
+});
+
+test('BUG-14：恢復為原動作時，有紀錄的週保留組數調整，做過的第 4 組不會被藏起來', () => {
+  const logs = {};
+  for (let i = 0; i < 4; i++) logs[`w1-d0-bp_flat-s${i}`] = { weight: 60, reps: '8', done: true, completedAt: 1_800_000_000_000 + i };
+  const state = renderView({
+    logs,
+    customSets: { 'w1-A-bp_flat': 4, 'w4-A-bp_flat': 5, 'w4-A-bp_incline_db': 3 },
+    exerciseOverrides: { 'A-bp_flat': 'lib_flat_db_press' },
+  });
+  restoreOriginal();
+  assert.deepEqual(state.exerciseOverrides, {});
+  assert.deepEqual(state.customSets, { 'w1-A-bp_flat': 4, 'w4-A-bp_incline_db': 3 });
 });

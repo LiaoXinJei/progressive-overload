@@ -57,7 +57,7 @@ export const WORKOUTS = {
       { id: 'bp_flat', name: '平板槓鈴臥推', muscle: 'CHEST', type: 'compound', isUpper: true },
       { id: 'bp_incline_db', name: '上斜啞鈴臥推', muscle: 'CHEST', type: 'compound', isUpper: true },
       { id: 'lateral_raise', name: '啞鈴側平舉', muscle: 'SIDE_DELT', type: 'isolation', isUpper: true },
-      { id: 'lateral_raise_lean', name: '傾斜側平舉', muscle: 'SIDE_DELT', type: 'isolation', isUpper: true },
+      { id: 'lateral_raise_lean', name: '單臂側傾側平舉', muscle: 'SIDE_DELT', type: 'isolation', isUpper: true },
       { id: 'tri_pushdown', name: '繩索三頭下壓', muscle: 'TRICEPS', type: 'isolation', isUpper: true },
       { id: 'tri_cross_body', name: '跨體三頭伸展', muscle: 'TRICEPS', type: 'isolation', isUpper: true },
       { id: 'leg_ext', name: '機械腿伸直', muscle: 'QUADS', type: 'isolation', isUpper: false },
@@ -71,9 +71,9 @@ export const WORKOUTS = {
     exercises: [
       { id: 'pullup', name: '引體向上', muscle: 'BACK', type: 'compound', isUpper: true },
       { id: 'db_row', name: '單臂啞鈴划船', muscle: 'BACK', type: 'compound', isUpper: true },
-      { id: 'seated_row', name: '坐姿划船', muscle: 'BACK', type: 'isolation', isUpper: true },
-      { id: 'rear_fly', name: '反向飛鳥（後三角）', muscle: 'REAR_DELT', type: 'isolation', isUpper: true },
-      { id: 'rear_delt_cable', name: '繩索後三角飛鳥', muscle: 'REAR_DELT', type: 'isolation', isUpper: true },
+      { id: 'seated_row', name: '坐姿划船', muscle: 'BACK', type: 'compound', isUpper: true },
+      { id: 'rear_fly', name: '反向飛鳥', muscle: 'REAR_DELT', type: 'isolation', isUpper: true },
+      { id: 'rear_delt_cable', name: '繩索反向飛鳥', muscle: 'REAR_DELT', type: 'isolation', isUpper: true },
       { id: 'bi_curl', name: '啞鈴二頭彎舉', muscle: 'BICEPS', type: 'isolation', isUpper: true },
       { id: 'bi_preacher', name: '牧師椅彎舉', muscle: 'BICEPS', type: 'isolation', isUpper: true },
       { id: 'seated_leg_curl_b', name: '坐姿腿彎舉', muscle: 'HAMS', type: 'isolation', isUpper: false },
@@ -87,12 +87,12 @@ export const WORKOUTS = {
     exercises: [
       { id: 'db_press_seated', name: '坐姿啞鈴肩推', muscle: 'SHOULDERS', type: 'compound', isUpper: true },
       { id: 'machine_press', name: '機械肩推', muscle: 'SHOULDERS', type: 'compound', isUpper: true },
-      { id: 'tri_dips', name: '雙槓臂屈伸（身體前傾、胸偏）', muscle: 'CHEST', type: 'compound', isUpper: true },
-      { id: 'lateral_raise_cable', name: '單臂滑輪側平舉', muscle: 'SIDE_DELT', type: 'isolation', isUpper: true },
+      { id: 'tri_dips', name: '雙槓撐體', muscle: 'CHEST', type: 'compound', isUpper: true },
+      { id: 'lateral_raise_cable', name: '單臂繩索側平舉', muscle: 'SIDE_DELT', type: 'isolation', isUpper: true },
       { id: 'lateral_raise_machine', name: '機械側平舉', muscle: 'SIDE_DELT', type: 'isolation', isUpper: true },
       { id: 'tri_overhead_seated', name: '坐姿過頭三頭伸展', muscle: 'TRICEPS', type: 'isolation', isUpper: true },
       // 沿用動作庫的 id，替換紀錄與歷史不用搬
-      { id: 'lib_skullcrusher', name: '骷髏粉碎機', muscle: 'TRICEPS', type: 'isolation', isUpper: true },
+      { id: 'lib_skullcrusher', name: '仰臥三頭伸展', muscle: 'TRICEPS', type: 'isolation', isUpper: true },
       { id: 'single_leg_press', name: '單腿腿推', muscle: 'QUADS', type: 'compound', isUpper: false },
       { id: 'calf_standing_c', name: '機械站姿提踵', muscle: 'CALVES', type: 'isolation', isUpper: false },
     ]
@@ -102,11 +102,11 @@ export const WORKOUTS = {
     subtitle: '水平拉力 + 腿後/小腿補刀（腿彎舉強制 RIR 2–3、保護腿日 RDL）',
     type: 'pull',
     exercises: [
-      { id: 'chest_supported_row', name: '胸靠支撐划船', muscle: 'BACK', type: 'compound', isUpper: true },
-      { id: 'pulldown_narrow', name: '窄距下拉', muscle: 'BACK', type: 'compound', isUpper: true },
+      { id: 'chest_supported_row', name: '胸靠划船', muscle: 'BACK', type: 'compound', isUpper: true },
+      { id: 'pulldown_narrow', name: '窄握高位下拉', muscle: 'BACK', type: 'compound', isUpper: true },
       { id: 'straight_arm_pd', name: '直臂下拉', muscle: 'BACK', type: 'isolation', isUpper: true },
-      { id: 'face_pull', name: '滑輪面拉', muscle: 'REAR_DELT', type: 'isolation', isUpper: true },
-      { id: 'rear_delt_machine', name: '機械反向飛鳥（後三角）', muscle: 'REAR_DELT', type: 'isolation', isUpper: true },
+      { id: 'face_pull', name: '繩索面拉', muscle: 'REAR_DELT', type: 'isolation', isUpper: true },
+      { id: 'rear_delt_machine', name: '機械反向飛鳥', muscle: 'REAR_DELT', type: 'isolation', isUpper: true },
       { id: 'bi_hammer', name: '錘式彎舉', muscle: 'BICEPS', type: 'isolation', isUpper: true },
       { id: 'bi_cable', name: '繩索彎舉', muscle: 'BICEPS', type: 'isolation', isUpper: true },
       { id: 'lying_leg_curl_d', name: '俯臥腿彎舉', muscle: 'HAMS', type: 'isolation', isUpper: false, noteRIR: '2-3' },
@@ -118,14 +118,33 @@ export const WORKOUTS = {
     subtitle: '腿部複合動作集中日',
     type: 'legs',
     exercises: [
-      { id: 'leg_press', name: '腿推（45°）', muscle: 'QUADS', type: 'compound', isUpper: false },
-      { id: 'bulgarian_split_db', name: '保加利亞分腿蹲（啞鈴垂兩側）', muscle: 'QUADS', type: 'compound', isUpper: false },
-      { id: 'rdl_db', name: '啞鈴羅馬尼亞硬舉', muscle: 'HAMS', type: 'compound', isUpper: false, noteText: '建議使用助握帶（lifting straps）' },
-      { id: 'back_ext_45', name: '45° 背伸展（負重於胸前）', muscle: 'HAMS', type: 'compound', isUpper: false },
+      { id: 'leg_press', name: '45° 腿推', muscle: 'QUADS', type: 'compound', isUpper: false },
+      { id: 'bulgarian_split_db', name: '啞鈴保加利亞分腿蹲', muscle: 'QUADS', type: 'compound', isUpper: false },
+      { id: 'rdl_db', name: '啞鈴羅馬尼亞硬舉', muscle: 'HAMS', type: 'compound', isUpper: false },
+      { id: 'back_ext_45', name: '45° 背伸展', muscle: 'HAMS', type: 'isolation', isUpper: false },
       { id: 'calf_standing_heavy', name: '機械站姿提踵（重負荷）', muscle: 'CALVES', type: 'isolation', isUpper: false },
       { id: 'calf_press_legpress', name: '腿推提踵', muscle: 'CALVES', type: 'isolation', isUpper: false },
     ]
   }
+};
+
+// ==================== 動作備註 ====================
+// 動作底下的灰字提示，WORKOUTS 跟動作庫的備註都寫在這。跟著動作走：
+// 替換成別的動作就顯示那個動作的備註（buildSessionPlan 照實際顯示的動作 id 查）。
+// 不存進 localStorage，改備註不用 migration。RIR 限制（noteRIR）跟著格子，寫在 WORKOUTS
+
+export const EXERCISE_NOTES = {
+  lateral_raise_lean: '單手扶柱，身體往外傾',
+  tri_dips: '身體前傾，重心放胸',
+  lib_skullcrusher: '躺在板凳上，槓往額頭方向放（skull crusher）',
+  bulgarian_split_db: '啞鈴垂在身體兩側，不扛肩',
+  rdl_db: '建議使用助握帶（lifting straps）',
+  back_ext_45: '負重抱在胸前',
+  lib_belt_squat: '首選，場館有才做',
+  // 脊椎安全限制，不能拿掉
+  lib_pendulum_squat_noload: '只做無肩墊、不壓肩的版本',
+  lib_step_up_db: '啞鈴垂在身體兩側',
+  lib_reverse_hyper: '場館有才做',
 };
 
 // ==================== 肌群映射 ====================
@@ -133,13 +152,13 @@ export const WORKOUTS = {
 export const MUSCLE_GROUPS = {
   CHEST: '胸部',
   BACK: '背部',
-  SHOULDERS: '肩膀',
+  SHOULDERS: '前三角',
   SIDE_DELT: '側三角',
   REAR_DELT: '後三角',
   TRICEPS: '三頭',
   BICEPS: '二頭',
   QUADS: '股四頭',
-  HAMS: '腿後側',
+  HAMS: '腿後肌',
   CALVES: '小腿',
 };
 
@@ -169,28 +188,15 @@ export const SUPERSET_PAIRS = {
   ],
 };
 
-// ==================== Session 類型配色 ====================
-// 給 Day Selector 與 session 標題使用
+// ==================== Session 類型標籤與顏色 ====================
+// 推 / 拉 / 腿：只用在 D1–D5 與本週循環的圓點（dot）。動作進度條統一用完成綠，
+// 不然推日粉紅撞「已跳過」紅、腿日琥珀撞休息琥珀。
+// 顏色是 tailwind.config.cjs 的 push #FF375F / pull #0A84FF / legs #FF9F0A
 
 export const SESSION_TYPE_THEME = {
-  push: {
-    accentText: 'text-rose-400',
-    accentBg: 'bg-rose-500',
-    activeBtn: 'bg-rose-500 text-black border-rose-500 shadow-lg',
-    label: '推',
-  },
-  pull: {
-    accentText: 'text-blue-400',
-    accentBg: 'bg-blue-500',
-    activeBtn: 'bg-blue-500 text-black border-blue-500 shadow-lg',
-    label: '拉',
-  },
-  legs: {
-    accentText: 'text-orange-400',
-    accentBg: 'bg-orange-500',
-    activeBtn: 'bg-orange-500 text-black border-orange-500 shadow-lg',
-    label: '腿',
-  },
+  push: { label: '推', dot: 'bg-push' },
+  pull: { label: '拉', dot: 'bg-pull' },
+  legs: { label: '腿', dot: 'bg-legs' },
 };
 
 // ==================== 動作庫預設資料 ====================
@@ -220,29 +226,29 @@ const EXTRA_LIBRARY_ITEMS = [
   { id: 'lib_flat_db_press', name: '平板啞鈴臥推', muscle: 'CHEST', type: 'compound', defaultSets: 3 },
   { id: 'lib_machine_press_flat', name: '平板機械胸推', muscle: 'CHEST', type: 'compound', defaultSets: 3 },
   { id: 'lib_machine_press_incline', name: '上斜機械胸推', muscle: 'CHEST', type: 'compound', defaultSets: 3 },
-  { id: 'lib_smith_incline', name: 'Smith 上斜臥推', muscle: 'CHEST', type: 'compound', defaultSets: 3 },
-  { id: 'lib_smith_flat', name: 'Smith 平板臥推', muscle: 'CHEST', type: 'compound', defaultSets: 3 },
-  { id: 'lib_weighted_dips', name: '負重雙槓臂屈伸', muscle: 'CHEST', type: 'compound', defaultSets: 3 },
+  { id: 'lib_smith_incline', name: '史密斯上斜臥推', muscle: 'CHEST', type: 'compound', defaultSets: 3 },
+  { id: 'lib_smith_flat', name: '史密斯平板臥推', muscle: 'CHEST', type: 'compound', defaultSets: 3 },
+  { id: 'lib_weighted_dips', name: '負重雙槓撐體', muscle: 'CHEST', type: 'compound', defaultSets: 3 },
   { id: 'lib_incline_bb_press', name: '上斜槓鈴臥推', muscle: 'CHEST', type: 'compound', defaultSets: 3 },
 
   // BACK
   { id: 'lib_pulldown_wide', name: '寬握高位下拉', muscle: 'BACK', type: 'compound', defaultSets: 3 },
-  { id: 'lib_t_bar_row_chest', name: 'T-Bar 划船（胸靠版）', muscle: 'BACK', type: 'compound', defaultSets: 3 },
+  { id: 'lib_t_bar_row_chest', name: '胸靠 T 槓划船', muscle: 'BACK', type: 'compound', defaultSets: 3 },
   { id: 'lib_machine_row', name: '機械划船', muscle: 'BACK', type: 'compound', defaultSets: 3 },
 
   // SHOULDERS（無站姿軸向動作）
   { id: 'lib_arnold_press_seated', name: '坐姿阿諾肩推', muscle: 'SHOULDERS', type: 'compound', defaultSets: 3 },
-  { id: 'lib_smith_seated_press', name: 'Smith 坐姿肩推', muscle: 'SHOULDERS', type: 'compound', defaultSets: 3 },
+  { id: 'lib_smith_seated_press', name: '史密斯坐姿肩推', muscle: 'SHOULDERS', type: 'compound', defaultSets: 3 },
 
   // SIDE_DELT
   { id: 'lib_lateral_raise_machine_alt', name: '單臂機械側平舉', muscle: 'SIDE_DELT', type: 'isolation', defaultSets: 3 },
 
   // REAR_DELT（限有支撐版本）
-  { id: 'lib_rear_delt_db_chest', name: '胸靠俯身啞鈴飛鳥（後三角）', muscle: 'REAR_DELT', type: 'isolation', defaultSets: 3 },
+  { id: 'lib_rear_delt_db_chest', name: '胸靠啞鈴反向飛鳥', muscle: 'REAR_DELT', type: 'isolation', defaultSets: 3 },
 
   // TRICEPS（lib_skullcrusher 已在 WORKOUTS.C，由 collectFromWorkouts 帶入）
   { id: 'lib_close_grip_bp', name: '窄握臥推', muscle: 'TRICEPS', type: 'compound', defaultSets: 3 },
-  { id: 'lib_tri_rope_overhead_seated', name: '坐姿繩索過頭三頭', muscle: 'TRICEPS', type: 'isolation', defaultSets: 3 },
+  { id: 'lib_tri_rope_overhead_seated', name: '坐姿繩索過頭三頭伸展', muscle: 'TRICEPS', type: 'isolation', defaultSets: 3 },
 
   // BICEPS
   { id: 'lib_bi_concentration', name: '集中彎舉', muscle: 'BICEPS', type: 'isolation', defaultSets: 3 },
@@ -250,23 +256,23 @@ const EXTRA_LIBRARY_ITEMS = [
   { id: 'lib_bi_incline_db', name: '上斜啞鈴彎舉', muscle: 'BICEPS', type: 'isolation', defaultSets: 3 },
 
   // QUADS（脊椎友善替代、無軸向加壓）
-  { id: 'lib_belt_squat', name: 'Belt squat（首選、若場館可用）', muscle: 'QUADS', type: 'compound', defaultSets: 3 },
-  { id: 'lib_pendulum_squat_noload', name: 'Pendulum 深蹲（限無肩墊版本）', muscle: 'QUADS', type: 'compound', defaultSets: 3 },
-  { id: 'lib_sissy_squat', name: 'Sissy squat', muscle: 'QUADS', type: 'isolation', defaultSets: 3 },
-  { id: 'lib_step_up_db', name: '啞鈴登階（啞鈴垂兩側）', muscle: 'QUADS', type: 'compound', defaultSets: 3 },
+  { id: 'lib_belt_squat', name: 'Belt Squat', muscle: 'QUADS', type: 'compound', defaultSets: 3 },
+  { id: 'lib_pendulum_squat_noload', name: '鐘擺深蹲', muscle: 'QUADS', type: 'compound', defaultSets: 3 },
+  { id: 'lib_sissy_squat', name: '西西深蹲', muscle: 'QUADS', type: 'isolation', defaultSets: 3 },
+  { id: 'lib_step_up_db', name: '啞鈴登階', muscle: 'QUADS', type: 'compound', defaultSets: 3 },
   { id: 'lib_leg_ext_alt', name: '機械腿伸直（替代）', muscle: 'QUADS', type: 'isolation', defaultSets: 3 },
 
   // HAMS（脊椎友善替代）
-  { id: 'lib_nordic_curl', name: 'Nordic 腿彎舉', muscle: 'HAMS', type: 'isolation', defaultSets: 3 },
-  { id: 'lib_cable_pullthrough', name: '繩索 Pull-through', muscle: 'HAMS', type: 'compound', defaultSets: 3 },
-  { id: 'lib_reverse_hyper', name: 'Reverse Hyper（若場館可用）', muscle: 'HAMS', type: 'isolation', defaultSets: 3 },
+  { id: 'lib_nordic_curl', name: '北歐腿彎舉', muscle: 'HAMS', type: 'isolation', defaultSets: 3 },
+  { id: 'lib_cable_pullthrough', name: '繩索 Pull-through', muscle: 'HAMS', type: 'isolation', defaultSets: 3 },
+  { id: 'lib_reverse_hyper', name: '反向背伸展', muscle: 'HAMS', type: 'isolation', defaultSets: 3 },
   { id: 'lib_machine_hip_hinge', name: '機械 Hip Hinge', muscle: 'HAMS', type: 'compound', defaultSets: 3 },
-  { id: 'lib_glute_ham_raise', name: 'Glute-Ham Raise', muscle: 'HAMS', type: 'isolation', defaultSets: 3 },
+  { id: 'lib_glute_ham_raise', name: 'GHR 臀腿抬升', muscle: 'HAMS', type: 'isolation', defaultSets: 3 },
 
   // CALVES
-  { id: 'lib_calf_donkey', name: 'Donkey 提踵', muscle: 'CALVES', type: 'isolation', defaultSets: 3 },
+  { id: 'lib_calf_donkey', name: '驢式提踵', muscle: 'CALVES', type: 'isolation', defaultSets: 3 },
   { id: 'lib_calf_single_leg_db', name: '單腿啞鈴提踵', muscle: 'CALVES', type: 'isolation', defaultSets: 3 },
-  { id: 'lib_calf_smith_standing', name: 'Smith 站姿提踵', muscle: 'CALVES', type: 'isolation', defaultSets: 3 },
+  { id: 'lib_calf_smith_standing', name: '史密斯站姿提踵', muscle: 'CALVES', type: 'isolation', defaultSets: 3 },
   { id: 'lib_calf_seated_alt', name: '坐姿提踵（替代）', muscle: 'CALVES', type: 'isolation', defaultSets: 3 },
 ];
 
