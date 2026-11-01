@@ -58,7 +58,7 @@ test('營養頁往下捲也不顯示回頂部按鈕，避免壓住「+」新增�
   expect(container.querySelector('button[title="手動新增餐點"]')).not.toBeNull();
 });
 
-// 訓練頁改版拿掉回頂部按鈕（頂部 bar 只有一條、平台看板點了會捲到下一組）
+// 訓練頁改版拿掉回頂部按鈕（頂部 bar 只有一條、休息膠囊點了會捲到下一組）
 test('訓練頁往下捲也不顯示回頂部按鈕', async () => {
   await renderWith({ activeTab: 'training' });
   scrollTo(800);

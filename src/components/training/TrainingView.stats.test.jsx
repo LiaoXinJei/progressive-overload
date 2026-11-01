@@ -64,7 +64,7 @@ const statText = (label) => {
 
 const statSets = (label) => parseInt(statText(label), 10);
 
-// 本週訓練量改成 bottom sheet，從平台看板底下的入口打開
+// 本週訓練量是 bottom sheet，從「今天進度」卡片底下的入口打開
 const openVolume = () => act(() => {
   container.querySelector('[data-open-volume]').dispatchEvent(new MouseEvent('click', { bubbles: true }));
 });

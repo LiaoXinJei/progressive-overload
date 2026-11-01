@@ -101,7 +101,7 @@ const done = (weight, reps, completedAt) => ({ weight, reps, done: true, complet
 // 回傳文字，不回傳 DOM 節點
 const leafText = (prefix) => [...container.querySelectorAll('[data-rest-label]')]
   .find(el => el.textContent.startsWith(prefix))?.textContent ?? null;
-// 讓第 n 組變成試舉卡（目前這組）：聚焦它的重量欄。跳過、帶入上次只在試舉卡上
+// 讓第 n 組變成目前這組（浮卡）：聚焦它的重量欄。跳過、帶入上次只在目前這組上
 const focusRow = (n) => act(() => container.querySelectorAll('[data-set-row]')[n].querySelector('[data-weight-input]').focus());
 
 test('✓：輸入重量和次數不會自動完成，不寫歷史、不開始休息', () => {
@@ -352,6 +352,8 @@ test('BUG-11：完成後按「+」，歷史重量跟著更新', () => {
     logs: { [key('pullup', 0)]: done(60, '10', Date.now()) },
     history: { pullup: { weight: 60, reps: '10' } },
   });
+  // 完成的組平常只顯示數字，聚焦後變成目前這組才有 − / +
+  focusRow(0);
   click(row(0).plus);
   assert.deepEqual(state.history.pullup, { weight: 62, reps: '10' });
 });
@@ -413,8 +415,9 @@ const REPLACED = { exerciseOverrides: { 'B-pullup': 'lib_pulldown_wide' } };
 
 test('BUG-16：替換成別的動作後，不顯示原動作的歷史', () => {
   renderView({ ...REPLACED, history: { pullup: { weight: 100, reps: '8' } } });
-  assert.equal(row(0).weight.placeholder, '—');
-  assert.equal(row(0).reps.placeholder, '—');
+  // 沒有上次紀錄時 placeholder 是欄位單位（kg / 次），不是原動作的 100 / 8
+  assert.equal(row(0).weight.placeholder, 'kg');
+  assert.equal(row(0).reps.placeholder, '次');
 });
 
 test('BUG-16：替換後的動作按 ✓，不會套原動作重量、也不會覆蓋原動作歷史', () => {
