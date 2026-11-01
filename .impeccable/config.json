@@ -11,6 +11,24 @@
         ],
         "createdAt": "2026-10-31T14:52:39.505Z",
         "reason": "決策頁用的一次性草圖，不出貨"
+      },
+      {
+        "rule": "design-system-font",
+        "value": "*",
+        "files": [
+          ".impeccable/mocks/**"
+        ],
+        "createdAt": "2026-11-01T01:47:54.592Z",
+        "reason": "決策頁被否決方向的一次性草圖，不出貨"
+      },
+      {
+        "rule": "design-system-font",
+        "value": "theme('fontfamily.sans')",
+        "files": [
+          "src/index.css"
+        ],
+        "createdAt": "2026-11-01T01:47:54.605Z",
+        "reason": "Tailwind theme() 函式，引用的是 DESIGN.md 已登記的系統字 stack，detector 誤判為字體名"
       }
     ]
   }
