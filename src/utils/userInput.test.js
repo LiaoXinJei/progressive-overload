@@ -9,12 +9,17 @@ import { userInput, trackUserInput, isUserScrollingWithin, smoothScrollTo, DRAG_
 trackUserInput();
 
 let scrollTo;
+// requestAnimationFrame 改成手動觸發，免得上一個測試排的 frame 跑進下一個測試的 mock
+let frames;
+const flushFrames = () => frames.splice(0).forEach(cb => cb());
 beforeEach(() => {
   userInput.lastActivityAt = 0;
   userInput.start = null;
   scrollTo = vi.fn();
   vi.stubGlobal('scrollTo', scrollTo);
   window.scrollTo = scrollTo;
+  frames = [];
+  vi.stubGlobal('requestAnimationFrame', (cb) => frames.push(cb));
 });
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -89,6 +94,37 @@ test('Q2：程式平滑捲動中在頁面上觸控 / 按下 → 停下來；按�
 test('Q2：沒有程式捲動時使用者捲動，不會呼叫停止', () => {
   document.body.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: 100 }));
   assert.equal(scrollTo.mock.calls.length, 0);
+});
+
+test('程式平滑捲動中滾第一格：停下後位置沒動，下一個 frame 補上這一格的位移', () => {
+  smoothScrollTo(800);
+  document.body.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: -150 }));
+  assert.deepEqual(scrollTo.mock.calls.at(-1)[0], { top: window.scrollY, behavior: 'instant' });
+  flushFrames();
+  assert.deepEqual(scrollTo.mock.calls.at(-1)[0], { top: window.scrollY - 150, behavior: 'instant' });
+});
+
+test('程式平滑捲動中滾第一格：瀏覽器已經捲了這一格就不再補，避免捲兩次', () => {
+  const before = window.scrollY;
+  smoothScrollTo(800);
+  document.body.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: -150 }));
+  const calls = scrollTo.mock.calls.length;
+  Object.defineProperty(window, 'scrollY', { value: before - 150, configurable: true });
+  try {
+    flushFrames();
+    assert.equal(scrollTo.mock.calls.length, calls);
+  } finally {
+    Object.defineProperty(window, 'scrollY', { value: before, configurable: true });
+  }
+});
+
+test('空白鍵按在按鈕上是按下按鈕，不算捲動；按在頁面上才算', () => {
+  const day = document.createElement('button');
+  document.body.appendChild(day);
+  day.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+  assert.equal(isUserScrollingWithin(1000), false);
+  document.body.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+  assert.equal(isUserScrollingWithin(1000), true);
 });
 
 test('Q2：減少動態效果時直接跳過去，不算進行中的平滑捲動', () => {

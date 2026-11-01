@@ -25,6 +25,8 @@ export const userInput = {
 let programmaticTimer = null;
 
 const isTypingTarget = (el) => Boolean(el?.closest?.('input, textarea, select, [contenteditable="true"]'));
+// 空白鍵按在按鈕上是「按下按鈕」，不是捲動（例如用鍵盤切 D1–D5）
+const isActivatableTarget = (el) => Boolean(el?.closest?.('button, [role="button"], [role="switch"], [role="tab"], summary'));
 // 固定在畫面上的層（頂部 bar、tab 列、休息膠囊、sheet）上按下不是在捲頁面
 const isOverlayTarget = (el) => Boolean(el?.closest?.('header, nav, [data-rest-pill], [role="dialog"], [role="alertdialog"]'));
 
@@ -82,7 +84,22 @@ export const trackUserInput = () => {
     if (Math.hypot(p.x - start.x, p.y - start.y) > DRAG_THRESHOLD_PX) markActivity();
   };
 
-  document.addEventListener('wheel', markActivity, { capture: true, passive: true });
+  // 程式平滑捲動中滾第一格：userTakesOver 的原地停下會把瀏覽器這一格的捲動蓋掉，
+  // 下一個 frame 如果位置還沒動，就自己補上這一格的位移
+  const onWheel = (e) => {
+    const wasProgrammatic = userInput.programmaticScroll;
+    markActivity();
+    if (!wasProgrammatic || !e.deltaY) return;
+    const before = window.scrollY;
+    const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? window.innerHeight : 1;
+    requestAnimationFrame(() => {
+      if (Math.abs(window.scrollY - before) < 1) {
+        window.scrollTo({ top: before + e.deltaY * unit, behavior: 'instant' });
+      }
+    });
+  };
+
+  document.addEventListener('wheel', onWheel, { capture: true, passive: true });
   document.addEventListener('touchstart', begin, { capture: true, passive: true });
   document.addEventListener('touchmove', move, { capture: true, passive: true });
   document.addEventListener('pointerdown', (e) => {
@@ -92,7 +109,9 @@ export const trackUserInput = () => {
   document.addEventListener('pointermove', move, { capture: true, passive: true });
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Tab' || e.key === 'Enter' || e.key === ' ' || e.key.startsWith('Arrow')) userInput.modality = 'keyboard';
-    if (SCROLL_KEYS.has(e.key) && !isTypingTarget(e.target)) markActivity();
+    if (!SCROLL_KEYS.has(e.key) || isTypingTarget(e.target)) return;
+    if (e.key === ' ' && isActivatableTarget(e.target)) return;
+    markActivity();
   }, true);
   window.addEventListener('scrollend', () => {
     if (userInput.programmaticScroll) endProgrammaticScroll();
