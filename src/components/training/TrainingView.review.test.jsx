@@ -193,32 +193,7 @@ test('B10（不變）：幾個小時前的休息不再顯示膠囊', () => {
   assert.equal(pill(), null);
 });
 
-// ==================== B8：拖曳把手 ====================
-
-test('B8：拖曳只從左側把手開始，標題本身不是把手', () => {
-  renderView({ logs: {}, day: 1, week: 1, customSets: {} });
-  const handles = [...container.querySelectorAll('[data-rfd-drag-handle-draggable-id]')];
-  assert.ok(handles.length > 0);
-  for (const h of handles) {
-    assert.match(h.getAttribute('aria-label') ?? '', /^拖曳排序/);
-    assert.equal(h.querySelector('h3'), null, '把手裡不應該包著動作標題');
-  }
-  for (const h3 of container.querySelectorAll('h3')) {
-    assert.equal(h3.closest('[data-rfd-drag-handle-draggable-id]'), null);
-  }
-});
-
-test('B8：動作選項 sheet 的拖曳說明，單動作講左側把手，superset 成員講拖整組', () => {
-  renderView({ logs: {}, day: 1, week: 1, customSets: {} });
-  const optionsOf = (exId) => container.querySelector(`[data-exercise-id="${exId}"] button[aria-label="動作選項"]`);
-  click(optionsOf('pullup'));
-  assert.match(container.querySelector('[role="dialog"]').textContent, /按住左側把手可以拖曳排序/);
-  act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
-  click(optionsOf('rear_fly'));
-  const text = container.querySelector('[role="dialog"]').textContent;
-  assert.doesNotMatch(text, /按住左側把手可以拖曳排序/);
-  assert.match(text, /配對/);
-});
+// B8（拖曳把手）的測試搬到 TrainingView.reorder.test.jsx：排序改成「⋯」→「調整順序」的排序模式
 
 // ==================== B6 / B4：sheet 焦點、背景捲動 ====================
 

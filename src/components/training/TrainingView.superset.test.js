@@ -96,7 +96,7 @@ const renderDay = ({ week, day, logs, currentTime }) => {
 };
 
 const pairCard = (tree, pair) => {
-  const [card] = findAll(tree, n => n.attrs['data-rfd-draggable-id'] === `pair-${pair.primary}-${pair.secondary}`);
+  const [card] = findAll(tree, n => n.attrs['data-pair-id'] === `pair-${pair.primary}-${pair.secondary}`);
   assert.ok(card, `找不到 pair 卡片 ${pair.primary}+${pair.secondary}`);
   return card;
 };
