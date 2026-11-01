@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
-  RotateCcw, AlertTriangle, TrendingUp, ShieldCheck, Settings, Bell, X,
+  RotateCcw, AlertTriangle, TrendingUp, ShieldCheck, Settings2, Bell,
 } from 'lucide-react';
 import { useRestNotification, requestNotificationPermission } from './hooks/useRestNotification';
 import TrainingView from './components/training/TrainingView';
 import NutritionView from './components/nutrition/NutritionView';
 import TabNavigation from './components/shared/TabNavigation';
+import BottomSheet, { SheetPresence } from './components/shared/BottomSheet';
 import ExerciseLibraryManager from './components/settings/ExerciseLibraryManager';
 import { DEFAULT_EXERCISE_LIBRARY } from './constants/workouts';
 import { buildSessionPlan, getWorkoutForDay, customSetsKey } from './utils/sessionPlan';
@@ -374,7 +375,7 @@ const WeightIncrementInput = ({ value, onChange }) => {
       onBlur={() => setDraft(null)}
       inputMode="decimal"
       aria-label="重量增減步長（公斤）"
-      className="h-12 min-w-0 flex-1 rounded-xl border border-line bg-surface-hi px-4 text-center font-num text-xl font-semibold tabular-nums text-fg"
+      className="h-12 min-w-0 flex-1 rounded-xl bg-elevated px-4 text-center font-num text-title3 font-semibold tabular-nums text-label"
     />
   );
 };
@@ -410,14 +411,6 @@ const RPFocusPro = () => {
   // 營養功能狀態
   const [nutritionProfile, setNutritionProfile] = useState(null);
   const [nutritionLogs, setNutritionLogs] = useState({});
-
-  // 設定 modal 按 Esc 關閉
-  useEffect(() => {
-    if (!showSettings) return;
-    const onKeyDown = (e) => { if (e.key === 'Escape') setShowSettings(false); };
-    document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
-  }, [showSettings]);
 
   // ==================== 計時器邏輯 ====================
 
@@ -587,17 +580,20 @@ const RPFocusPro = () => {
 
   // ==================== 渲染 ====================
 
-  // 設定 modal 裡的小標題與分段按鈕
-  const settingLabel = 'mb-3 flex items-center gap-2 text-sm font-bold text-fg';
-  const chip = (active) => `h-11 min-w-11 rounded-lg px-3 text-sm font-medium transition-colors
-    ${active ? 'bg-ipf text-white' : 'bg-surface-hi text-fg-2 hover:text-fg'}`;
+  // 設定 sheet 裡的小標題、分段按鈕與常用值按鈕
+  const settingLabel = 'mb-2 flex items-center gap-2 text-subhead font-semibold text-label';
+  const segment = (active) => `flex h-11 items-center justify-center gap-2 rounded-[10px] text-subhead font-medium transition-colors duration-200
+    ${active ? 'bg-thumb text-label shadow-[0_3px_8px_rgba(0,0,0,0.35)]' : 'text-label-2'}`;
+  const chip = (active) => `h-11 min-w-11 rounded-full px-4 text-subhead font-medium transition-colors duration-200
+    ${active ? 'bg-accent/20 text-accent-text' : 'bg-elevated text-label-2'}`;
+  const fieldClass = 'h-12 rounded-xl bg-elevated text-label placeholder:text-label-2';
 
   return (
-    // 底部留 tab 列（56px）+ home indicator 的空間，最後一個元素不會被蓋住
-    <div className="min-h-screen bg-hall pb-[calc(5rem+env(safe-area-inset-bottom))] font-sans text-fg">
+    // 底部留 tab 列（49px）+ home indicator 的空間，最後一個元素不會被蓋住；休息膠囊的空間由訓練頁自己留
+    <div className="min-h-screen bg-canvas pb-[calc(73px+env(safe-area-inset-bottom))] font-sans text-label">
 
       {/* ==================== Main Content ==================== */}
-      {/* 訓練頁的頂部 bar 由 TrainingView 自己畫（週次、階段、訓練時長、設定） */}
+      {/* 訓練頁的頂部 bar 由 TrainingView 自己畫（週次、計時、設定、大標題） */}
       {activeTab === 'training' ? (
         <TrainingView
           logs={logs} setLogs={setLogs}
@@ -617,58 +613,63 @@ const RPFocusPro = () => {
         />
       ) : (
         <>
-          <header className="sticky top-0 z-40 border-b border-line bg-hall pt-[env(safe-area-inset-top)]">
-            <div className="mx-auto flex h-14 max-w-[480px] items-center justify-between pl-4 pr-1">
-              <h1 className="text-xl font-bold text-fg">營養</h1>
+          <header className="material hairline-b sticky top-0 z-40 pt-[env(safe-area-inset-top)]">
+            <div className="mx-auto flex h-14 max-w-[480px] items-center justify-between pl-4 pr-3">
+              <h1 className="text-title2 font-bold text-label">營養</h1>
               <button
                 type="button"
                 onClick={openSettings}
                 title="設定"
                 aria-label="設定"
-                className="flex h-11 w-11 items-center justify-center rounded-lg text-fg-2 transition-colors hover:bg-surface hover:text-fg"
+                className="flex h-11 w-11 items-center justify-center rounded-full bg-elevated text-label-2 transition-colors duration-200 active:bg-fill"
               >
-                <Settings size={20} />
+                <Settings2 size={20} aria-hidden="true" />
               </button>
             </div>
           </header>
-          <NutritionView
-            nutritionProfile={nutritionProfile}
-            setNutritionProfile={setNutritionProfile}
-            nutritionLogs={nutritionLogs}
-            setNutritionLogs={setNutritionLogs}
-          />
+          <div className="mx-auto max-w-[480px]">
+            <NutritionView
+              nutritionProfile={nutritionProfile}
+              setNutritionProfile={setNutritionProfile}
+              nutritionLogs={nutritionLogs}
+              setNutritionLogs={setNutritionLogs}
+            />
+          </div>
         </>
       )}
 
       {/* ==================== Tab Navigation ==================== */}
       <TabNavigation activeTab={activeTab} setActiveTab={setActiveTab} />
 
-      {/* ==================== Reset Modal ==================== */}
+      {/* ==================== Reset Alert ==================== */}
       {/* z-[60]：疊在同樣 z-50、DOM 在前面的底部 TabNavigation 上面 */}
       {showResetConfirm && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-hall/80 p-6">
+        <div className="sheet-backdrop-in fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-8">
           <div
             role="alertdialog"
             aria-modal="true"
             aria-labelledby="reset-title"
-            className="w-full max-w-sm rounded-2xl border border-line bg-hall-2 p-6 text-fg shadow-2xl"
+            aria-describedby="reset-desc"
+            className="w-full max-w-[320px] overflow-hidden rounded-[20px] bg-elevated text-center text-label shadow-[0_20px_48px_rgba(0,0,0,0.5)]"
           >
-            <h3 id="reset-title" className="text-xl font-bold">重設所有資料？</h3>
-            <p className="mt-2 text-sm leading-relaxed text-fg-2">
-              會清掉所有訓練紀錄、營養資料和進度，清掉就救不回來。Gemini API Key 會保留。
-            </p>
-            <div className="mt-6 flex gap-3">
+            <div className="px-5 pb-4 pt-5">
+              <h3 id="reset-title" className="text-body font-semibold">重設所有資料？</h3>
+              <p id="reset-desc" className="mt-1.5 text-footnote text-label-2">
+                會清掉所有訓練紀錄、營養資料和進度，清掉就救不回來。Gemini API Key 會保留。
+              </p>
+            </div>
+            <div className="hairline-t grid grid-cols-2">
               <button
                 type="button"
                 onClick={() => setShowResetConfirm(false)}
-                className="h-12 flex-1 rounded-xl border border-line text-sm font-medium text-fg transition-colors hover:bg-surface"
+                className="h-12 text-body text-accent-text transition-colors active:bg-fill"
               >
                 取消
               </button>
               <button
                 type="button"
                 onClick={resetData}
-                className="h-12 flex-1 rounded-xl bg-fg text-sm font-bold text-hall transition-colors hover:bg-fg-2"
+                className="h-12 border-l-[0.5px] border-white/[0.12] text-body font-semibold text-skip-text transition-colors active:bg-fill"
               >
                 確定重設
               </button>
@@ -677,242 +678,212 @@ const RPFocusPro = () => {
         </div>
       )}
 
-      {/* ==================== Settings Modal ==================== */}
-      {showSettings && (
-        <div
-          className="fixed inset-0 z-[60] flex items-end justify-center bg-hall/80 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:items-center"
-          onClick={(e) => { if (e.target === e.currentTarget) setShowSettings(false); }}
-        >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="settings-title"
-            className="max-h-[85vh] w-full max-w-md overflow-y-auto overscroll-contain rounded-2xl border border-line bg-hall-2 p-5 text-fg shadow-2xl"
-          >
-            <div className="mb-4 flex items-center justify-between">
-              <h3 id="settings-title" className="flex items-center gap-2 text-xl font-bold">
-                <Settings size={20} className="text-fg-2" aria-hidden="true" /> 設定
-              </h3>
-              <button
-                type="button"
-                onClick={() => setShowSettings(false)}
-                aria-label="關閉"
-                className="-mr-2 flex h-11 w-11 items-center justify-center rounded-lg text-fg-2 transition-colors hover:bg-surface hover:text-fg"
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            {/* Settings Tabs */}
-            <div role="group" aria-label="設定分類" className="mb-6 grid grid-cols-2 gap-1 rounded-xl bg-hall p-1">
-              {[['general', '一般'], ['library', '動作庫']].map(([key, label]) => (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => setSettingsTab(key)}
-                  aria-pressed={settingsTab === key}
-                  className={`h-11 rounded-lg text-sm font-medium transition-colors
-                  ${settingsTab === key ? 'bg-ipf text-white' : 'text-fg-2 hover:text-fg'}`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-
-            {settingsTab === 'library' ? (
-              <ExerciseLibraryManager
-                exerciseLibrary={exerciseLibrary}
-                setExerciseLibrary={setExerciseLibrary}
-                exerciseOverrides={exerciseOverrides}
-                setExerciseOverrides={setExerciseOverrides}
-              />
-            ) : (
-            <div className="space-y-8">
-            {/* Weight Increment Setting */}
-            <section>
-              <h4 className={settingLabel}>重量增減步長</h4>
-              <div className="flex items-center gap-3">
-                <WeightIncrementInput value={weightIncrement} onChange={setWeightIncrement} />
-                <span className="text-sm text-fg-2">kg</span>
-              </div>
-              <p className="mt-3 text-sm text-fg-2">按 − / + 時重量變多少。常用值：</p>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {[1, 1.25, 2, 2.5, 5].map(val => (
+      {/* ==================== Settings Sheet ==================== */}
+      <SheetPresence>
+        {showSettings && (
+          <BottomSheet title="設定" doneLabel="完成" onClose={() => setShowSettings(false)}>
+            <div className="px-4 pb-8 pt-2">
+              {/* Settings Tabs */}
+              <div role="group" aria-label="設定分類" className="mb-6 grid h-[52px] grid-cols-2 gap-1 rounded-[14px] bg-elevated p-1">
+                {[['general', '一般'], ['library', '動作庫']].map(([key, label]) => (
                   <button
-                    key={val}
+                    key={key}
                     type="button"
-                    onClick={() => setWeightIncrement(val)}
-                    aria-pressed={weightIncrement === val}
-                    className={chip(weightIncrement === val)}
+                    onClick={() => setSettingsTab(key)}
+                    aria-pressed={settingsTab === key}
+                    className={segment(settingsTab === key)}
                   >
-                    {val}kg
+                    {label}
                   </button>
                 ))}
               </div>
-            </section>
 
-            {/* Rest Notification Setting */}
-            <section>
-              <h4 className={settingLabel}>
-                <Bell size={16} className="text-fg-2" aria-hidden="true" /> 休息計時推播通知
-              </h4>
-              <p className="mb-3 text-sm leading-relaxed text-fg-2">
-                離開 App 後，休息超過設定時間就發通知提醒做下一組。這也是訓練頁組間休息的目標時間。
-                Superset 的輪間休息照配對自己的設定（75 / 90 秒），不受這裡影響。
-              </p>
-
-              {/* Permission button */}
-              {notifPermission !== 'granted' ? (
-                <button
-                  type="button"
-                  onClick={async () => {
-                    const p = await requestNotificationPermission();
-                    setNotifPermission(p);
-                  }}
-                  disabled={notifPermission === 'denied' || notifPermission === 'unsupported'}
-                  className="mb-3 h-12 w-full rounded-xl bg-ipf text-sm font-medium text-white transition-colors hover:bg-ipf/90 disabled:cursor-not-allowed disabled:bg-surface-hi disabled:text-fg-2"
-                >
-                  {notifPermission === 'denied' ? '通知已被封鎖（請到系統設定解除）'
-                    : notifPermission === 'unsupported' ? '這台裝置不支援推播通知'
-                    : '啟用推播通知'}
-                </button>
+              {settingsTab === 'library' ? (
+                <ExerciseLibraryManager
+                  exerciseLibrary={exerciseLibrary}
+                  setExerciseLibrary={setExerciseLibrary}
+                  exerciseOverrides={exerciseOverrides}
+                  setExerciseOverrides={setExerciseOverrides}
+                />
               ) : (
-                <p className="mb-3 flex items-center gap-2 rounded-xl border border-line px-4 py-3 text-sm text-fg">
-                  <Bell size={14} className="text-ipf-bright" aria-hidden="true" /> 推播通知已啟用
-                </p>
-              )}
-
-              {/* Custom time input */}
-              <div className="mb-3 flex items-center gap-2">
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  min="0"
-                  max="59"
-                  aria-label="休息目標（分）"
-                  value={Math.floor(restNotificationDelay / 60)}
-                  onChange={(e) => {
-                    const mins = Math.max(0, Math.min(59, parseInt(e.target.value) || 0));
-                    setRestNotificationDelay(mins * 60 + (restNotificationDelay % 60));
-                  }}
-                  className="h-12 w-16 rounded-xl border border-line bg-surface-hi text-center font-num text-xl font-semibold tabular-nums text-fg"
-                />
-                <span className="font-num text-xl font-semibold text-fg-2">:</span>
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  min="0"
-                  max="59"
-                  aria-label="休息目標（秒）"
-                  value={String(restNotificationDelay % 60).padStart(2, '0')}
-                  onChange={(e) => {
-                    const secs = Math.max(0, Math.min(59, parseInt(e.target.value) || 0));
-                    setRestNotificationDelay(Math.floor(restNotificationDelay / 60) * 60 + secs);
-                  }}
-                  className="h-12 w-16 rounded-xl border border-line bg-surface-hi text-center font-num text-xl font-semibold tabular-nums text-fg"
-                />
-                <span className="text-sm text-fg-2">分 : 秒</span>
-              </div>
-
-              {/* Quick presets */}
-              <div className="flex flex-wrap items-center gap-2">
-                {[60, 90, 120, 150, 180].map(val => {
-                  const label = `${Math.floor(val / 60)}:${String(val % 60).padStart(2, '0')}`;
-                  return (
+              <div className="space-y-8">
+              {/* Weight Increment Setting */}
+              <section>
+                <h4 className={settingLabel}>重量增減步長</h4>
+                <div className="flex items-center gap-3">
+                  <WeightIncrementInput value={weightIncrement} onChange={setWeightIncrement} />
+                  <span className="text-subhead text-label-2">kg</span>
+                </div>
+                <p className="mt-3 text-footnote text-label-2">按 − / + 時重量變多少。常用值：</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {[1, 1.25, 2, 2.5, 5].map(val => (
                     <button
                       key={val}
                       type="button"
-                      onClick={() => setRestNotificationDelay(val)}
-                      aria-pressed={restNotificationDelay === val}
-                      className={`${chip(restNotificationDelay === val)} font-num text-base tabular-nums`}
+                      onClick={() => setWeightIncrement(val)}
+                      aria-pressed={weightIncrement === val}
+                      className={`${chip(weightIncrement === val)} font-num tabular-nums`}
                     >
-                      {label}
+                      {val}kg
                     </button>
-                  );
-                })}
-              </div>
-            </section>
+                  ))}
+                </div>
+              </section>
 
-            {/* 維持 / 增重：目前只存著，不影響課表 */}
-            <section>
-              <h4 className={settingLabel}>模式</h4>
-              <div role="group" aria-label="模式" className="grid grid-cols-2 gap-1 rounded-xl bg-hall p-1">
-                {[
-                  { value: 'maintenance', label: '維持模式', icon: ShieldCheck },
-                  { value: 'bulking', label: '增重模式', icon: TrendingUp },
-                ].map(({ value, label, icon: Icon }) => (
+              {/* Rest Notification Setting */}
+              <section>
+                <h4 className={settingLabel}>
+                  <Bell size={16} className="text-label-2" aria-hidden="true" /> 休息計時推播通知
+                </h4>
+                <p className="mb-3 text-footnote text-label-2">
+                  離開 App 後，休息超過設定時間就發通知提醒做下一組。這也是訓練頁組間休息的目標時間。
+                  Superset 的輪間休息照配對自己的設定（75 / 90 秒），不受這裡影響。
+                </p>
+
+                {/* Permission button */}
+                {notifPermission !== 'granted' ? (
                   <button
-                    key={value}
                     type="button"
-                    onClick={() => setMode(value)}
-                    aria-pressed={mode === value}
-                    className={`flex h-11 items-center justify-center gap-2 rounded-lg text-sm font-medium transition-colors
-                    ${mode === value ? 'bg-ipf text-white' : 'text-fg-2 hover:text-fg'}`}
+                    onClick={async () => {
+                      const p = await requestNotificationPermission();
+                      setNotifPermission(p);
+                    }}
+                    disabled={notifPermission === 'denied' || notifPermission === 'unsupported'}
+                    className="mb-3 h-12 w-full rounded-xl bg-accent/20 text-subhead font-semibold text-accent-text transition-colors duration-200 disabled:cursor-not-allowed disabled:bg-elevated disabled:text-label-2"
                   >
-                    <Icon size={16} aria-hidden="true" /> {label}
+                    {notifPermission === 'denied' ? '通知已被封鎖（請到系統設定解除）'
+                      : notifPermission === 'unsupported' ? '這台裝置不支援推播通知'
+                      : '啟用推播通知'}
                   </button>
-                ))}
+                ) : (
+                  <p className="mb-3 flex items-center gap-2 rounded-xl bg-elevated px-4 py-3 text-subhead text-label">
+                    <Bell size={14} className="text-accent-text" aria-hidden="true" /> 推播通知已啟用
+                  </p>
+                )}
+
+                {/* Custom time input */}
+                <div className="mb-3 flex items-center gap-2">
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min="0"
+                    max="59"
+                    aria-label="休息目標（分）"
+                    value={Math.floor(restNotificationDelay / 60)}
+                    onChange={(e) => {
+                      const mins = Math.max(0, Math.min(59, parseInt(e.target.value) || 0));
+                      setRestNotificationDelay(mins * 60 + (restNotificationDelay % 60));
+                    }}
+                    className={`${fieldClass} w-16 text-center font-num text-title3 font-semibold tabular-nums`}
+                  />
+                  <span className="font-num text-title3 font-semibold text-label-2">:</span>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min="0"
+                    max="59"
+                    aria-label="休息目標（秒）"
+                    value={String(restNotificationDelay % 60).padStart(2, '0')}
+                    onChange={(e) => {
+                      const secs = Math.max(0, Math.min(59, parseInt(e.target.value) || 0));
+                      setRestNotificationDelay(Math.floor(restNotificationDelay / 60) * 60 + secs);
+                    }}
+                    className={`${fieldClass} w-16 text-center font-num text-title3 font-semibold tabular-nums`}
+                  />
+                  <span className="text-subhead text-label-2">分 : 秒</span>
+                </div>
+
+                {/* Quick presets */}
+                <div className="flex flex-wrap items-center gap-2">
+                  {[60, 90, 120, 150, 180].map(val => {
+                    const label = `${Math.floor(val / 60)}:${String(val % 60).padStart(2, '0')}`;
+                    return (
+                      <button
+                        key={val}
+                        type="button"
+                        onClick={() => setRestNotificationDelay(val)}
+                        aria-pressed={restNotificationDelay === val}
+                        className={`${chip(restNotificationDelay === val)} font-num tabular-nums`}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+
+              {/* 維持 / 增重：目前只存著，不影響課表 */}
+              <section>
+                <h4 className={settingLabel}>模式</h4>
+                <div role="group" aria-label="模式" className="grid h-[52px] grid-cols-2 gap-1 rounded-[14px] bg-elevated p-1">
+                  {[
+                    { value: 'maintenance', label: '維持模式', icon: ShieldCheck },
+                    { value: 'bulking', label: '增重模式', icon: TrendingUp },
+                  ].map(({ value, label, icon: Icon }) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setMode(value)}
+                      aria-pressed={mode === value}
+                      className={segment(mode === value)}
+                    >
+                      <Icon size={16} aria-hidden="true" /> {label}
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-2 text-footnote text-label-2">目前只記錄選擇，不會改變課表。</p>
+              </section>
+
+              {/* Gemini API Key Setting */}
+              <section>
+                <label htmlFor="gemini-key" className={settingLabel}>Gemini API Key</label>
+                <input
+                  id="gemini-key"
+                  type="password"
+                  value={nutritionProfile?.geminiApiKey || ''}
+                  onChange={(e) => setNutritionProfile(prev => ({
+                    ...(prev || {}),
+                    geminiApiKey: e.target.value
+                  }))}
+                  placeholder="輸入 Google Gemini API Key"
+                  className={`${fieldClass} w-full px-4 text-body`}
+                />
+                <p className="mt-2 text-footnote text-label-2">
+                  AI 食物照片分析用，可以到 Google AI Studio 申請。
+                </p>
+              </section>
+
+              {/* 重設資料 */}
+              <section>
+                <h4 className={settingLabel}>資料</h4>
+                <button
+                  type="button"
+                  onClick={() => { setShowSettings(false); setShowResetConfirm(true); }}
+                  title="重設所有資料"
+                  className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-elevated text-subhead font-semibold text-skip-text transition-colors duration-200 active:bg-fill"
+                >
+                  <RotateCcw size={16} aria-hidden="true" /> 重設所有資料
+                </button>
+              </section>
               </div>
-              <p className="mt-2 text-xs text-fg-2">目前只記錄選擇，不會改變課表。</p>
-            </section>
-
-            {/* Gemini API Key Setting */}
-            <section>
-              <label htmlFor="gemini-key" className={settingLabel}>Gemini API Key</label>
-              <input
-                id="gemini-key"
-                type="password"
-                value={nutritionProfile?.geminiApiKey || ''}
-                onChange={(e) => setNutritionProfile(prev => ({
-                  ...(prev || {}),
-                  geminiApiKey: e.target.value
-                }))}
-                placeholder="輸入 Google Gemini API Key"
-                className="h-12 w-full rounded-xl border border-line bg-surface-hi px-4 text-base text-fg placeholder:text-fg-3"
-              />
-              <p className="mt-2 text-xs text-fg-2">
-                AI 食物照片分析用，可以到 Google AI Studio 申請。
-              </p>
-            </section>
-
-            {/* 重設資料 */}
-            <section>
-              <h4 className={settingLabel}>資料</h4>
-              <button
-                type="button"
-                onClick={() => { setShowSettings(false); setShowResetConfirm(true); }}
-                title="重設所有資料"
-                className="flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-line text-sm font-medium text-fg transition-colors hover:bg-surface"
-              >
-                <RotateCcw size={16} aria-hidden="true" /> 重設所有資料
-              </button>
-            </section>
+              )}
             </div>
-            )}
-
-            <button
-              type="button"
-              onClick={() => setShowSettings(false)}
-              className="mt-8 h-12 w-full rounded-xl bg-ipf text-sm font-bold text-white transition-colors hover:bg-ipf/90"
-            >
-              完成
-            </button>
-          </div>
-        </div>
-      )}
+          </BottomSheet>
+        )}
+      </SheetPresence>
 
       {/* ==================== 讀檔 / 寫入失敗提示 ==================== */}
       {storageNotice && (
         <div
           role="alert"
-          className="fixed inset-x-4 top-[max(1rem,env(safe-area-inset-top))] z-[70] mx-auto flex max-w-md items-start gap-3 rounded-2xl border border-line bg-surface-hi p-4 shadow-2xl"
+          className="fixed inset-x-4 top-[max(1rem,env(safe-area-inset-top))] z-[70] mx-auto flex max-w-md items-start gap-3 rounded-[20px] bg-elevated p-4 shadow-[0_12px_32px_rgba(0,0,0,0.5)]"
         >
-          <AlertTriangle size={18} className="mt-0.5 shrink-0 text-fg" aria-hidden="true" />
-          <p className="min-w-0 flex-1 break-words text-sm leading-relaxed text-fg">{storageNotice}</p>
+          <AlertTriangle size={18} className="mt-0.5 shrink-0 text-rest" aria-hidden="true" />
+          <p className="min-w-0 flex-1 break-words text-subhead text-label">{storageNotice}</p>
           <button
             type="button"
             onClick={() => setStorageNotice(null)}
-            className="-my-2 h-11 shrink-0 rounded-lg px-3 text-sm font-bold text-ipf-bright transition-colors hover:bg-surface"
+            className="-my-2 h-11 shrink-0 rounded-full px-3 text-subhead font-semibold text-accent-text transition-colors active:bg-fill"
           >
             知道了
           </button>
