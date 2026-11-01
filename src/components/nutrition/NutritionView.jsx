@@ -274,7 +274,7 @@ const NutritionView = ({ nutritionProfile, setNutritionProfile, nutritionLogs, s
 
       {/* Floating Action Buttons */}
       {/* 有 home indicator 時 tab 列會變高，FAB 跟著往上 */}
-      <div className="fixed bottom-[calc(5rem+env(safe-area-inset-bottom))] right-4 flex flex-col gap-3 z-40">
+      <div className="kb-fix fixed bottom-[calc(5rem+env(safe-area-inset-bottom))] right-4 flex flex-col gap-3 z-40">
         <button
           onClick={() => setShowPhotoAnalyzer(true)}
           className="w-12 h-12 rounded-full bg-purple-600 text-white shadow-lg shadow-purple-900/50

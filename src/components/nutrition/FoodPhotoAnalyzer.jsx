@@ -74,7 +74,7 @@ const FoodPhotoAnalyzer = ({ apiKey, onSave, onClose, onNeedApiKey }) => {
 
   return (
     // z-[60]：要疊在底部 tab 列（z-50）上面，不然按得到 nav、切頁會丟掉 AI 分析結果
-    <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-[60] flex items-center justify-center p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+    <div className="kb-fix fixed inset-0 bg-black/90 backdrop-blur-md z-[60] flex items-center justify-center p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
       <div className="bg-neutral-900 border border-neutral-800 p-6 rounded-[40px] max-w-lg w-full shadow-2xl max-h-[90vh] overflow-y-auto">
         <div className="flex justify-between items-center mb-6">
           <h3 className="text-xl font-black text-white italic uppercase flex items-center gap-2">

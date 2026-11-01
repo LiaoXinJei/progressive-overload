@@ -102,6 +102,12 @@ input[type='number'] {
   padding-bottom: env(safe-area-inset-bottom);
 }
 
+/* iOS 26 鍵盤收起後 visualViewport 沒變回來，貼底的固定層停在鍵盤上緣（見 utils/viewportFix.js）：
+   差多少就用負的 margin-bottom 推回畫面底部；inset-0 的遮罩則是往下延伸蓋滿。正常情況 --kb-gap 是 0 */
+.kb-fix {
+  margin-bottom: calc(var(--kb-gap, 0px) * -1);
+}
+
 /* ==================== 材質 ==================== */
 
 /* 半透明模糊材質：頂部 bar（捲動後）、底部 tab、休息膠囊、superset 狀態條 */

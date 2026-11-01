@@ -159,7 +159,7 @@ const BottomSheet = ({ title, onClose, children, footer, doneLabel, returnFocusR
   return (
     <>
       <div
-        className={`fixed inset-0 z-[60] touch-none bg-black/50 ${exiting ? 'pointer-events-none' : 'sheet-backdrop-in'}`}
+        className={`kb-fix fixed inset-0 z-[60] touch-none bg-black/50 ${exiting ? 'pointer-events-none' : 'sheet-backdrop-in'}`}
         style={{ opacity: backdropOpacity, transition: dragging ? 'none' : 'opacity 300ms ease-out' }}
         onClick={exiting ? undefined : onClose}
         aria-hidden="true"
@@ -170,7 +170,7 @@ const BottomSheet = ({ title, onClose, children, footer, doneLabel, returnFocusR
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className={`sheet-max-h fixed inset-x-0 bottom-0 z-[60] mx-auto flex w-full max-w-[480px] flex-col rounded-t-[28px] bg-card pb-[env(safe-area-inset-bottom)] text-label shadow-[0_-10px_40px_rgba(0,0,0,0.5)] focus:outline-none ${exiting ? 'pointer-events-none' : 'sheet-in'}`}
+        className={`kb-fix sheet-max-h fixed inset-x-0 bottom-0 z-[60] mx-auto flex w-full max-w-[480px] flex-col rounded-t-[28px] bg-card pb-[env(safe-area-inset-bottom)] text-label shadow-[0_-10px_40px_rgba(0,0,0,0.5)] focus:outline-none ${exiting ? 'pointer-events-none' : 'sheet-in'}`}
         style={{
           transform: `translateY(${offset})`,
           opacity: exiting && reduceMotion ? 0 : 1,

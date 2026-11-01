@@ -61,7 +61,7 @@ const TDEECalculator = ({ profile, onSave, onClose }) => {
 
   return (
     // z-[60]：要疊在底部 tab 列（z-50）上面
-    <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-[60] flex items-center justify-center p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+    <div className="kb-fix fixed inset-0 bg-black/90 backdrop-blur-md z-[60] flex items-center justify-center p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
       <div className="bg-neutral-900 border border-neutral-800 p-8 rounded-[40px] max-w-md w-full shadow-2xl max-h-[90vh] overflow-y-auto">
         <div className="flex justify-between items-center mb-6">
           <h3 className="text-2xl font-black text-white italic uppercase flex items-center gap-2">
