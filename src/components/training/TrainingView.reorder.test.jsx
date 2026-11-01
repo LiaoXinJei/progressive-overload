@@ -11,9 +11,10 @@ import TrainingView from './TrainingView.jsx';
 import { DEFAULT_EXERCISE_LIBRARY } from '../../constants/workouts';
 
 // 這裡不測拖拉本身，@hello-pangea/dnd 換成直接畫 children 的空殼（同 TrainingView.rest.test.jsx），
-// 把手的屬性用 data-drag-handle 標出來
+// 把手的屬性用 data-drag-handle 標出來；DragDropContext 的 props 存起來，測試裡直接呼叫 onDragStart / onDragEnd
+const dnd = vi.hoisted(() => ({ props: null }));
 vi.mock('@hello-pangea/dnd', () => ({
-  DragDropContext: ({ children }) => children,
+  DragDropContext: (props) => { dnd.props = props; return props.children; },
   Droppable: ({ children }) => children({ innerRef() {}, droppableProps: {}, placeholder: null }, {}),
   Draggable: ({ children }) => children({ innerRef() {}, draggableProps: {}, dragHandleProps: { 'data-drag-handle': '' } }, { isDragging: false }),
 }));
@@ -29,6 +30,8 @@ let root = null;
 let container = null;
 
 afterEach(() => {
+  // 輸入方式（鍵盤 / 指標）是整個 App 共用的紀錄，測完回到指標
+  document.dispatchEvent(new Event('pointerdown'));
   vi.restoreAllMocks();
   act(() => root?.unmount());
   container?.remove();
@@ -42,19 +45,25 @@ const renderView = ({ logs = {}, customExercises = {}, exerciseOrder = {} } = {}
   const Harness = () => {
     const [l, setL] = useState(logs);
     const [ce, setCe] = useState(customExercises);
+    const [order, setOrder] = useState(exerciseOrder);
+    const [week, setWeek] = useState(3);
+    const [day, setDay] = useState(1);
     const [now, setNow] = useState(T0);
     state.logs = l;
+    state.order = order;
+    state.week = week;
     state.tick = () => setNow(t => t + 1000);
     const noop = () => {};
     return (
       <TrainingView
         logs={l} setLogs={setL}
         history={{ pullup: { weight: 0, reps: '9' } }} setHistory={noop}
-        currentWeek={3} currentDay={1} setCurrentDay={noop}
+        currentWeek={week} currentDay={day} setCurrentDay={setDay}
+        onSelectWeek={(w) => { setWeek(w); setDay(0); }}
         customExerciseNames={{}} setCustomExerciseNames={noop}
         customExercises={ce} setCustomExercises={setCe}
         customSets={{ 'w3-B-pullup': 4 }} setCustomSets={noop}
-        exerciseOrder={exerciseOrder} setExerciseOrder={noop}
+        exerciseOrder={order} setExerciseOrder={setOrder}
         exerciseLibrary={DEFAULT_EXERCISE_LIBRARY} exerciseOverrides={{}} setExerciseOverrides={noop}
         weightIncrement={2}
         currentTime={now}
@@ -106,7 +115,8 @@ test('排序：「⋯」→「調整順序」進入排序模式，精簡列右�
   assert.equal(container.querySelector('button[title="設定"]'), null);
   const doneBtn = container.querySelector('[data-reorder-done]');
   assert.equal(doneBtn.textContent, '完成');
-  assert.equal(document.activeElement, doneBtn);
+  // 點擊進來：焦點放在清單上（不在「完成」上畫焦點框）
+  assert.equal(document.activeElement, container.querySelector('[data-reorder-list]'));
 
   const items = [...container.querySelectorAll('[data-reorder-item]')];
   assert.ok(items.length > 0);
@@ -203,4 +213,76 @@ test('刪除自訂動作（不變）：確認框按取消，焦點不亂跳、�
   click(container.querySelector('button[title="刪除此動作"]'));
   assert.ok(container.querySelector('[data-exercise-id="custom_1"]'));
   assert.notEqual(document.activeElement.textContent.trim(), '新增動作');
+});
+
+// ==================== 排序模式：鍵盤進入、Esc、換週、膠囊、離開後焦點 ====================
+
+const press = (key) => act(() => { document.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true })); });
+
+test('排序：用鍵盤進來時，焦點在「完成」', () => {
+  renderView();
+  press('Tab');
+  enterReorder();
+  assert.equal(document.activeElement, container.querySelector('[data-reorder-done]'));
+});
+
+test('排序（R1）：拖曳中、或 Esc 剛取消拖曳，這一下 Esc 不離開排序模式', async () => {
+  renderView();
+  enterReorder();
+  act(() => dnd.props.onDragStart({ draggableId: 's-pullup', source: { index: 0 } }));
+  esc();
+  assert.ok(container.querySelector('[data-reorder-done]'), '拖曳中的 Esc 是取消拖曳');
+  act(() => dnd.props.onDragEnd({ reason: 'CANCEL', draggableId: 's-pullup', source: { index: 0 }, destination: null }));
+  esc();
+  assert.ok(container.querySelector('[data-reorder-done]'), '取消拖曳的那一下 Esc 不離開');
+  await act(async () => { await new Promise(r => setTimeout(r, 350)); });
+  esc();
+  assert.equal(container.querySelector('[data-reorder-done]'), null, '之後的 Esc 才離開');
+});
+
+test('排序：拖過順序再離開，焦點給被移動的動作的「⋯」', () => {
+  const state = renderView();
+  enterReorder('db_row');
+  act(() => dnd.props.onDragStart({ draggableId: 's-pullup', source: { index: 0 } }));
+  act(() => dnd.props.onDragEnd({ reason: 'DROP', draggableId: 's-pullup', source: { index: 0 }, destination: { index: 2 } }));
+  assert.equal(state.order.B.indexOf('pullup'), 2);
+  click(container.querySelector('[data-reorder-done]'));
+  assert.equal(document.activeElement, optionsOf('pullup'));
+});
+
+test('排序：順序沒變就離開，焦點回到進來的「⋯」', () => {
+  renderView();
+  enterReorder('db_row');
+  act(() => dnd.props.onDragStart({ draggableId: 's-pullup', source: { index: 0 } }));
+  act(() => dnd.props.onDragEnd({ reason: 'DROP', draggableId: 's-pullup', source: { index: 0 }, destination: { index: 0 } }));
+  click(container.querySelector('[data-reorder-done]'));
+  assert.equal(document.activeElement, optionsOf('db_row'));
+});
+
+test('排序：排序模式中換到別週，直接離開排序模式', () => {
+  const state = renderView();
+  enterReorder();
+  click(container.querySelector('[data-current-week]'));
+  click([...container.querySelectorAll('[role="dialog"] button')].find(b => b.textContent.startsWith('W2')));
+  assert.equal(state.week, 2);
+  assert.equal(container.querySelector('[data-reorder-done]'), null);
+  assert.ok(container.querySelector('[data-set-row]'));
+});
+
+test('排序：排序模式中選同一週，不離開', () => {
+  renderView();
+  enterReorder();
+  click(container.querySelector('[data-current-week]'));
+  click([...container.querySelectorAll('[role="dialog"] button')].find(b => b.textContent.startsWith('W3')));
+  assert.ok(container.querySelector('[data-reorder-done]'));
+});
+
+test('排序：排序模式中點休息膠囊，先離開排序模式', () => {
+  renderView({ logs: twoDone() });
+  enterReorder();
+  const pill = container.querySelector('[data-rest-pill]');
+  assert.ok(pill);
+  click(pill);
+  assert.equal(container.querySelector('[data-reorder-done]'), null);
+  assert.equal(currentKey(), key('pullup', 2));
 });
