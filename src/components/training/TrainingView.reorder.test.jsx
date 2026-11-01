@@ -259,6 +259,25 @@ test('排序：順序沒變就離開，焦點回到進來的「⋯」', () => {
   assert.equal(document.activeElement, optionsOf('db_row'));
 });
 
+test('排序：拖過去又拖回原位，當作順序沒變，焦點回到進來的「⋯」', () => {
+  renderView();
+  enterReorder('db_row');
+  act(() => dnd.props.onDragStart({ draggableId: 's-pullup', source: { index: 0 } }));
+  act(() => dnd.props.onDragEnd({ reason: 'DROP', draggableId: 's-pullup', source: { index: 0 }, destination: { index: 2 } }));
+  act(() => dnd.props.onDragStart({ draggableId: 's-pullup', source: { index: 2 } }));
+  act(() => dnd.props.onDragEnd({ reason: 'DROP', draggableId: 's-pullup', source: { index: 2 }, destination: { index: 0 } }));
+  click(container.querySelector('[data-reorder-done]'));
+  assert.equal(document.activeElement, optionsOf('db_row'));
+});
+
+test('排序：清單容器是有名稱的 group', () => {
+  renderView();
+  enterReorder();
+  const list = container.querySelector('[data-reorder-list]');
+  assert.equal(list.getAttribute('role'), 'group');
+  assert.equal(list.getAttribute('aria-label'), '動作順序');
+});
+
 test('排序：排序模式中換到別週，直接離開排序模式', () => {
   const state = renderView();
   enterReorder();
