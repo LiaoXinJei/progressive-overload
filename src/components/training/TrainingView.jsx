@@ -18,6 +18,9 @@ import {
 } from '../../utils/sessionPlan';
 import BottomSheet, { SheetPresence } from '../shared/BottomSheet';
 import Presence, { canAnimate, prefersReducedMotion } from '../shared/Presence';
+import {
+  userInput, trackUserInput, isUserScrollingWithin, smoothScrollTo,
+} from '../../utils/userInput';
 
 
 const LOWER_MUSCLES = new Set(['QUADS', 'HAMS', 'CALVES']);
@@ -60,24 +63,6 @@ const enDash = (range) => String(range).replace('-', '–');
 
 // 休息膠囊只顯示這段時間內開始的休息（不綁日曆日，跨午夜照樣顯示）
 const REST_PILL_WINDOW_MS = 3 * 60 * 60 * 1000;
-
-// 整個 App 共用的使用者輸入紀錄（訓練頁卸載時也照記，例如在營養頁捲完馬上切回訓練頁）：
-// lastActivityAt：最近一次捲動 / 拖動 / 輸入框聚焦的時間，使用者正在捲或輸入時不自動捲動；
-// lastInputModality：最後一次輸入是鍵盤還是指標，決定程式移焦時要不要讓焦點框出現
-const userInput = { lastActivityAt: 0, modality: 'pointer', tracking: false };
-const trackUserInput = () => {
-  if (userInput.tracking || typeof document === 'undefined') return;
-  userInput.tracking = true;
-  const mark = () => { userInput.lastActivityAt = Date.now(); };
-  document.addEventListener('wheel', mark, { capture: true, passive: true });
-  document.addEventListener('touchmove', mark, { capture: true, passive: true });
-  document.addEventListener('pointermove', (e) => { if (e.buttons) mark(); }, { capture: true, passive: true });
-  document.addEventListener('focusin', (e) => { if (e.target?.matches?.('input, textarea, select')) mark(); }, true);
-  document.addEventListener('pointerdown', () => { userInput.modality = 'pointer'; }, true);
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Tab' || e.key === 'Enter' || e.key === ' ' || e.key.startsWith('Arrow')) userInput.modality = 'keyboard';
-  }, true);
-};
 
 // SSR（superset 結構測試用 renderToStaticMarkup）沒有 layout effect
 const useIsomorphicLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect;
@@ -338,12 +323,20 @@ const TrainingView = ({
   // 頂部 bar 中間的小標題放不下（例如 320 寬又超時、計時膠囊變兩行）就不顯示，不要截成「PU…」
   const smallTitleRef = useRef(null);
   const [smallTitleFits, setSmallTitleFits] = useState(true);
-  useIsomorphicLayoutEffect(() => {
+  const measureSmallTitle = () => {
     const el = smallTitleRef.current;
     if (!el || (!el.clientWidth && !el.scrollWidth)) return; // jsdom 沒有版面
-    const fits = el.scrollWidth <= el.clientWidth + 1;
-    if (fits !== smallTitleFits) setSmallTitleFits(fits);
-  });
+    setSmallTitleFits(el.scrollWidth <= el.clientWidth + 1);
+  };
+  useIsomorphicLayoutEffect(measureSmallTitle);
+  // 視窗變寬變窄時不一定會重新 render（時間暫停時），寬度變了就重新量
+  useEffect(() => {
+    const el = smallTitleRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return undefined;
+    const ro = new ResizeObserver(measureSmallTitle);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   // 按 ✓、Enter 跳格後，新的目前這組如果在畫面外（或被休息膠囊蓋住）就捲進來
   const revealNextRef = useRef(false);
   // 打開動作選項的那顆「⋯」：選項 sheet、從它開的替換動作 sheet 關掉後焦點回到這裡
@@ -983,7 +976,8 @@ const TrainingView = ({
       }
     }
     if (Math.abs(y - window.scrollY) < 1) return;
-    window.scrollTo({ top: y, behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
+    // 平滑捲動中使用者一滾輪 / 按下 / 觸控就停下來交給使用者（見 utils/userInput）
+    smoothScrollTo(y, { reduce: prefersReducedMotion() });
   };
 
   // 點休息膠囊：把下一組捲到頂部 bar 與膠囊之間的中間
@@ -1010,7 +1004,8 @@ const TrainingView = ({
     const band = pillBand();
     // auto：目前這組底緣低於膠囊頂端就捲（被膠囊蓋住、在膠囊或 tab 列底下、整個在畫面外都算）
     if (auto) {
-      if (Date.now() - userInput.lastActivityAt < 1000) return;
+      // 使用者 1 秒內自己捲過（滾輪、拖超過 10px、捲動鍵）就不動；這個 view 之後也不補捲，使用者已經接手
+      if (isUserScrollingWithin(1000)) return;
       if (rect.bottom <= band.top) return;
     }
     const top = (barRef.current?.offsetHeight ?? 0) + (row.closest('[data-pair-group]') ? 72 : 12);
@@ -1110,8 +1105,9 @@ const TrainingView = ({
   const dragCancelledAtRef = useRef(0);
   // 這次排序模式裡最後被移動的動作（draggable id）
   const movedGroupRef = useRef(null);
+  const groupOrderKey = () => groupedPlan.map(g => g.id).join(',');
   const enterReorder = (exId) => {
-    reorderReturnRef.current = { scrollY: window.scrollY, exId };
+    reorderReturnRef.current = { scrollY: window.scrollY, exId, orderBefore: groupOrderKey() };
     movedGroupRef.current = null;
     setFocusedKey(null);
     closeSheet();
@@ -1169,7 +1165,8 @@ const TrainingView = ({
     } else if (ret.then?.scrollToKey) {
       instant(ret.scrollY);
       scrollToSet(ret.then.scrollToKey);
-    } else if (movedGroupRef.current) {
+    } else if (movedGroupRef.current && ret.orderBefore !== groupOrderKey()) {
+      // 拖過去又拖回原位不算，進來前後的順序真的不一樣才算動過
       // 有動過順序：舊的捲動位置已經對不上，改把被移動的動作捲到畫面中間
       const exId = exerciseIdOfGroup(movedGroupRef.current) ?? ret.exId;
       const section = document.querySelector(`[data-exercise-id="${exId}"]`);
@@ -1761,6 +1758,7 @@ const TrainingView = ({
                     {...provided.droppableProps}
                     data-reorder-list
                     tabIndex={-1}
+                    role="group"
                     aria-label="動作順序"
                     className="focus:outline-none"
                   >
