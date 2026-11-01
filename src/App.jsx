@@ -406,7 +406,7 @@ const ResetAlert = ({ onCancel, onConfirm, returnFocusRef }) => {
 
   return (
     // z-[60]：疊在同樣 z-50、DOM 在前面的底部 TabNavigation 上面
-    <div className="sheet-backdrop-in fixed inset-0 z-[60] flex touch-none items-center justify-center bg-black/50 p-8">
+    <div className="kb-fix sheet-backdrop-in fixed inset-0 z-[60] flex touch-none items-center justify-center bg-black/50 p-8">
       <div
         ref={boxRef}
         role="alertdialog"

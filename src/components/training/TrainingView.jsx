@@ -262,7 +262,7 @@ const RestPill = ({ label, elapsedText, targetText, overText = null, pct, nextNa
       aria-label={over
         ? `該做下一組了，已休息 ${elapsedText}，超過目標 ${overText}。下一組：${nextName} ${setPart}。捲到這組`
         : `${label} ${elapsedText}，目標 ${targetText}。下一組：${nextName} ${setPart}。捲到這組`}
-      className={`material-elevated fixed inset-x-3 bottom-[calc(57px+env(safe-area-inset-bottom))] z-[45] mx-auto flex h-[60px] max-w-[456px] items-center gap-3 overflow-hidden rounded-[30px] border-[0.5px] pl-2.5 pr-[18px] text-left shadow-[0_12px_32px_rgba(0,0,0,0.5)] transition-colors duration-300
+      className={`kb-fix material-elevated fixed inset-x-3 bottom-[calc(57px+env(safe-area-inset-bottom))] z-[45] mx-auto flex h-[60px] max-w-[456px] items-center gap-3 overflow-hidden rounded-[30px] border-[0.5px] pl-2.5 pr-[18px] text-left shadow-[0_12px_32px_rgba(0,0,0,0.5)] transition-colors duration-300
         ${over ? 'border-rest/40' : 'border-white/[0.12]'}
         ${exiting ? 'pill-out pointer-events-none' : 'pill-in'}`}
     >

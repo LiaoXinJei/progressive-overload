@@ -10,7 +10,7 @@ const TabNavigation = ({ activeTab, setActiveTab }) => {
   ];
 
   return (
-    <nav aria-label="主選單" className="material hairline-t fixed bottom-0 left-0 right-0 z-50 pb-[env(safe-area-inset-bottom)]">
+    <nav aria-label="主選單" className="kb-fix material hairline-t fixed bottom-0 left-0 right-0 z-50 pb-[env(safe-area-inset-bottom)]">
       <div className="mx-auto grid max-w-[480px] grid-cols-2">
         {tabs.map(tab => {
           const Icon = tab.icon;
