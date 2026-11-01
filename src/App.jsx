@@ -349,6 +349,8 @@ const migrateSavedData = (data) => {
     exerciseOverrides: migratedOverrides,
     weightIncrement: data.weightIncrement ?? 2,
     restNotificationDelay: data.restNotificationDelay ?? 90,
+    // 健身房模式（實驗）：新增欄位、預設關，舊資料沒有這個欄位不需要遷移
+    gymMode: data.gymMode === true,
     activeTab: data.activeTab || 'training',
     nutritionProfile: data.nutritionProfile || null,
     nutritionLogs: data.nutritionLogs || {},
@@ -467,6 +469,7 @@ const RPFocusPro = () => {
   const [settingsTab, setSettingsTab] = useState('general');
   const [currentTime, setCurrentTime] = useState(Date.now());
   const [restNotificationDelay, setRestNotificationDelay] = useState(90);
+  const [gymMode, setGymMode] = useState(false);
   const [notifPermission, setNotifPermission] = useState(
     typeof Notification !== 'undefined' ? Notification.permission : 'unsupported'
   );
@@ -547,6 +550,7 @@ const RPFocusPro = () => {
     setExerciseOverrides(s.exerciseOverrides);
     setWeightIncrement(s.weightIncrement);
     setRestNotificationDelay(s.restNotificationDelay);
+    setGymMode(s.gymMode);
     setNutritionProfile(s.nutritionProfile);
     setNutritionLogs(s.nutritionLogs);
   }, []);
@@ -603,7 +607,7 @@ const RPFocusPro = () => {
       viewState: { currentWeek, currentDay, showStats },
       customExerciseNames, customExercises, customSets, exerciseOrder,
       exerciseLibrary, exerciseOverrides,
-      weightIncrement, restNotificationDelay, activeTab,
+      weightIncrement, restNotificationDelay, gymMode, activeTab,
       nutritionProfile, nutritionLogs
     };
     const json = JSON.stringify(state);
@@ -625,7 +629,7 @@ const RPFocusPro = () => {
       saveFailedRef.current = true;
       setStorageNotice('儲存失敗，瀏覽器的儲存空間可能滿了，剛才的變更沒有存到。');
     }
-  }, [isHydrated, logs, history, mode, currentWeek, currentDay, showStats, customExerciseNames, customExercises, customSets, exerciseOrder, exerciseLibrary, exerciseOverrides, weightIncrement, restNotificationDelay, activeTab, nutritionProfile, nutritionLogs]);
+  }, [isHydrated, logs, history, mode, currentWeek, currentDay, showStats, customExerciseNames, customExercises, customSets, exerciseOrder, exerciseLibrary, exerciseOverrides, weightIncrement, restNotificationDelay, gymMode, activeTab, nutritionProfile, nutritionLogs]);
 
   // ==================== 重設 ====================
 
@@ -676,6 +680,7 @@ const RPFocusPro = () => {
           weightIncrement={weightIncrement}
           currentTime={currentTime}
           restTarget={restNotificationDelay}
+          gymMode={gymMode}
           onSelectWeek={selectWeek}
           onOpenSettings={openSettings}
         />
@@ -850,6 +855,31 @@ const RPFocusPro = () => {
                     );
                   })}
                 </div>
+              </section>
+
+              {/* 健身房模式（實驗）：訓練頁多一個像素健身房場景 */}
+              <section>
+                <div className="flex min-h-11 items-center justify-between gap-3">
+                  <h4 id="gym-mode-label" className="text-subhead font-semibold text-label">健身房模式（實驗）</h4>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={gymMode}
+                    aria-labelledby="gym-mode-label"
+                    aria-describedby="gym-mode-desc"
+                    onClick={() => setGymMode(v => !v)}
+                    className="-mr-1 flex h-11 w-[60px] shrink-0 items-center justify-center rounded-full"
+                  >
+                    <span className={`relative h-[31px] w-[51px] rounded-full transition-colors duration-200 ${gymMode ? 'bg-done' : 'bg-fill'}`}>
+                      <span
+                        className={`absolute left-[2px] top-[2px] h-[27px] w-[27px] rounded-full bg-white shadow-[0_3px_8px_rgba(0,0,0,0.25),0_1px_1px_rgba(0,0,0,0.16)] transition-transform duration-300 ease-ios motion-reduce:transition-none ${gymMode ? 'translate-x-5' : ''}`}
+                      />
+                    </span>
+                  </button>
+                </div>
+                <p id="gym-mode-desc" className="mt-1 text-footnote text-label-2">
+                  訓練頁多一個像素健身房：左右滑換器材，點器材開始這組，再點一下完成。一次只顯示一個動作。
+                </p>
               </section>
 
               {/* 維持 / 增重：目前只存著，不影響課表 */}

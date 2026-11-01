@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect, useLayoutEffect } from 'react';
+import { flushSync } from 'react-dom';
 import {
   AlertTriangle, ArrowUpDown, BellRing, Check, ChevronDown, ChevronRight, GripVertical, Link, Minus, MoreHorizontal, Plus,
   Repeat, Search, Settings2, Timer, Trash2, Undo2, Wind,
@@ -21,9 +22,13 @@ import Presence, { canAnimate, prefersReducedMotion } from '../shared/Presence';
 import {
   userInput, trackUserInput, isUserScrollingWithin, smoothScrollTo,
 } from '../../utils/userInput';
+import GymScene from './gym/GymScene';
+import { stationOf } from './gym/stations';
 
 
 const LOWER_MUSCLES = new Set(['QUADS', 'HAMS', 'CALVES']);
+// 健身房模式：點器材開始後這段時間內的第二下不算完成（防連點）
+const GYM_DOUBLE_TAP_MS = 1000;
 
 // 重量 0 是有效值（自體重），只有空白才算沒填
 const hasWeight = (w) => w !== undefined && w !== null && w !== '';
@@ -305,6 +310,7 @@ const TrainingView = ({
   restTarget = DEFAULT_REST_TARGET,
   onSelectWeek,
   onOpenSettings,
+  gymMode = false,
 }) => {
   const [showAddExercise, setShowAddExercise] = useState(false);
   const [newEx, setNewEx] = useState({ name: '', muscle: 'CHEST', type: 'isolation' });
@@ -354,6 +360,19 @@ const TrainingView = ({
   const addExerciseRef = useRef(null);
   // 從選項 sheet 刪除自訂動作：刪掉之後焦點移到下一個動作的「⋯」（沒有就「新增動作」）
   const deleteFocusRef = useRef(null);
+
+  // 健身房模式：使用者自己選的站（動作 id）和選的當下「目前這組」是哪一組。
+  // 目前這組變了（完成、跳過、聚焦、換天換週）就改跟著目前這組，見下面 gymIndex
+  const [gymPick, setGymPick] = useState(null);
+  // 點器材開始的那一組（人物在做動作），再點一下完成
+  const [liftingKey, setLiftingKey] = useState(null);
+  const liftStartRef = useRef(0);
+  // 沒填次數就按完成時的提示（哪一組）
+  const [gymNeedReps, setGymNeedReps] = useState(null);
+  // 剛新增的自訂動作：出現在清單後選它那一站
+  const pendingGymExRef = useRef(null);
+  // 選中的動作卡換了：浮卡不從已經卸載的卡片滑過來
+  const gymGroupRef = useRef(null);
 
   // 改已完成的組時，手指 / 滑鼠按下當下焦點就在那一組：放開前它維持目前這組
   // （不然按別組的 ✓ 時這組先收起來，列變矮，按到一半的按鈕會跑掉、點不到）。
@@ -615,6 +634,31 @@ const TrainingView = ({
     });
   };
 
+  // ✓ 和健身房模式的「再點一下」共用：完成 / 取消完成這組，加上彈一下、震動、浮卡換組
+  const completeSlot = (logKey, historyKey, historyEntry, logData = logs[logKey] || {}) => {
+    completeSet(logKey, historyKey, historyEntry);
+    dropDoneFocus(logKey);
+    if (logData.done) {
+      if (litKey === logKey) setLitKey(null);
+      return;
+    }
+    setLitKey(logKey);
+    navigator.vibrate?.(10);
+    revealNextRef.current = true;
+    if (gymMode) {
+      setLiftingKey(k => (k === logKey ? null : k));
+      setGymNeedReps(null);
+      // 換到照做順序的下一個待做組（superset 會換到另一個動作）；不設 null，
+      // 不然不照順序做時會被拉回第一個沒做的動作
+      const at = sessionOrder.findIndex(s => s.key === logKey);
+      const rest = at < 0 ? sessionOrder : [...sessionOrder.slice(at + 1), ...sessionOrder.slice(0, at)];
+      setFocusedKey(rest.find(s => !isSettledKey(s.key))?.key ?? null);
+    } else if (focusedKey === logKey) {
+      // 做完目前這組，浮卡換到下一組
+      setFocusedKey(null);
+    }
+  };
+
   const fillFromHistory = (logKey, historyKey) => {
     const histEntry = history[historyKey];
     if (!histEntry || (histEntry.weight === '' && histEntry.reps === '')) return;
@@ -673,10 +717,17 @@ const TrainingView = ({
     }));
     setNewEx({ name: '', muscle: 'CHEST', type: 'isolation' });
     setShowAddExercise(false);
+    if (gymMode) pendingGymExRef.current = id;
   };
 
   const removeCustomExercise = (exerciseId, name) => {
     if (!window.confirm(`刪除「${name}」？`)) return;
+    // 健身房模式刪掉選中的那站：換到下一站（沒有就上一站），不跳回第一站
+    if (gymMode) {
+      const i = gymStations.findIndex(st => st.id === exerciseId);
+      const neighbor = i >= 0 ? (gymStations[i + 1] ?? gymStations[i - 1]) : null;
+      if (neighbor) pickGymExercise(neighbor.id);
+    }
     setCustomExercises(prev => ({
       ...prev,
       [workoutKey]: (prev[workoutKey] || []).filter(ex => ex.id !== exerciseId)
@@ -950,6 +1001,118 @@ const TrainingView = ({
   // 組間 / 動作間休息線超過目標時顯示超過多少
   const overTextOf = (seconds) => (seconds > restTarget ? formatTime(seconds - restTarget) : null);
 
+  // ==================== 健身房模式 ====================
+  // 一個動作一站（superset 兩站排在一起），每站記它的組、第一個待做組、像素器材
+  const gymStations = gymMode ? groupedPlan.flatMap((group, groupIdx) => (
+    group.type === 'pair' ? group.items : [group.item]
+  ).map(entry => {
+    const ex = entry.exercise;
+    const slots = sessionOrder.filter(s => s.entry.exercise.id === ex.id);
+    const firstPending = slots.find(s => !isSettledKey(s.key)) ?? null;
+    const { key: familyKey, family } = stationOf(ex);
+    return {
+      id: ex.id, groupIdx, pair: group.type === 'pair', slots, firstPending, familyKey, family,
+      name: customExerciseNames[ex.id] || ex.name,
+      doneSets: slots.filter(s => logs[s.key]?.done).length,
+    };
+  })) : [];
+  // 正在做的組：只算目前這組（使用者改點別組，第二下完成的就不是原本那組）
+  const lifting = gymMode && liftingKey && liftingKey === currentKey && !isSettledKey(liftingKey) ? liftingKey : null;
+  // 選中的站：使用者選的那一站，直到目前這組變了；之後跟著目前這組所在的站（做完就停在最後一站）。
+  // 用推導不用 effect：App 每秒更新時間，effect 跟隨會一直把使用者拉回目前這組
+  const gymStamp = `${currentWeek}-${currentDay}-${currentKey}`;
+  const stationIndexOf = (exId) => gymStations.findIndex(st => st.id === exId);
+  const pickedIdx = gymPick?.stamp === gymStamp ? stationIndexOf(gymPick.exId) : -1;
+  const currentStationIdx = currentSlot ? stationIndexOf(currentSlot.entry.exercise.id) : -1;
+  const gymIndex = pickedIdx >= 0 ? pickedIdx : currentStationIdx >= 0 ? currentStationIdx : Math.max(0, gymStations.length - 1);
+  const gymGroupIdx = gymMode ? (gymStations[gymIndex]?.groupIdx ?? -1) : -1;
+  const gymGroupNowRef = useRef(gymGroupIdx);
+  gymGroupNowRef.current = gymGroupIdx;
+  const pickGymExercise = (exId) => setGymPick({ exId, stamp: gymStamp });
+
+  // 每站的 HUD：組數、提示、中間按鈕念的字
+  const gymStationView = gymStations.map(st => {
+    const liftSlot = lifting ? st.slots.find(s => s.key === lifting) : null;
+    const next = st.firstPending;
+    let hint;
+    let hintTone = 'default';
+    let actionLabel;
+    if (liftSlot) {
+      const needReps = gymNeedReps === lifting;
+      hint = needReps ? '先填次數再點完成' : `做完再點一下 · 第 ${liftSlot.idx + 1} 組`;
+      hintTone = needReps ? 'rest' : 'accent';
+      actionLabel = `完成 ${st.name} 第 ${liftSlot.idx + 1} 組`;
+    } else if (finished) {
+      hint = '今天的課表做完了';
+      hintTone = 'done';
+      actionLabel = `${st.name}，今天的課表做完了`;
+    } else if (!next) {
+      hint = '這個動作做完了';
+      hintTone = 'done';
+      actionLabel = `${st.name} 做完了`;
+    } else {
+      if (restPill) {
+        hint = restPill.overText ? `該做下一組了 · 超過 ${restPill.overText}` : `${restPill.label} ${restPill.elapsedText} / ${restPill.targetText}`;
+        hintTone = 'rest';
+      } else {
+        hint = `點器材開始第 ${next.idx + 1} 組`;
+      }
+      actionLabel = `開始 ${st.name} 第 ${next.idx + 1} 組`;
+    }
+    return {
+      id: st.id, family: st.family, familyKey: st.familyKey, name: st.name, pair: st.pair, done: !next,
+      setText: `${st.doneSets}/${st.slots.length} 組`, hint, hintTone, actionLabel,
+    };
+  });
+
+  const focusRepsOf = (logKey) => {
+    const row = document.querySelector(`[data-weight-input][data-log-key="${logKey}"]`)?.closest('[data-set-row]');
+    row?.querySelector('[data-reps-input]')?.focus();
+  };
+  // 點中間：正在做這站 → 完成；不然開始這個動作第一個待做組（不聚焦輸入框，不跳鍵盤）
+  const onGymTap = (i) => {
+    const st = gymStations[i];
+    if (!st) return;
+    const liftSlot = lifting ? st.slots.find(s => s.key === lifting) : null;
+    if (liftSlot) {
+      if (Date.now() - liftStartRef.current < GYM_DOUBLE_TAP_MS) return;
+      const ex = liftSlot.entry.exercise;
+      const historyKey = ex._libraryId ?? ex.id;
+      const historyEntry = history[historyKey] || {};
+      const logData = logs[liftSlot.key] || {};
+      if (!logData.reps && !hasReps(historyEntry.reps)) {
+        setGymNeedReps(liftSlot.key);
+        focusRepsOf(liftSlot.key);
+        return;
+      }
+      completeSlot(liftSlot.key, historyKey, historyEntry, logData);
+      return;
+    }
+    if (!st.firstPending) return;
+    setGymNeedReps(null);
+    setFocusedKey(st.firstPending.key);
+    setLiftingKey(st.firstPending.key);
+    liftStartRef.current = Date.now();
+    navigator.vibrate?.(10);
+  };
+
+  // 換天換週：清掉做到一半的那組
+  useEffect(() => {
+    setLiftingKey(null);
+    setGymNeedReps(null);
+  }, [currentWeek, currentDay]);
+  // 那組完成或跳過了（場景、✓、另一個視窗都算）就清掉，之後取消完成人物也不會又開始做
+  useEffect(() => {
+    if (liftingKey && isSettledKey(liftingKey)) setLiftingKey(null);
+  }, [liftingKey, logs]);
+  // 剛新增的自訂動作出現在清單上：選它那一站
+  useEffect(() => {
+    const id = pendingGymExRef.current;
+    if (!id || !gymStations.some(st => st.id === id)) return;
+    pendingGymExRef.current = null;
+    pickGymExercise(id);
+  });
+
   const rowOf = (logKey) => document.querySelector(`[data-weight-input][data-log-key="${logKey}"]`)?.closest('[data-set-row]');
 
   // 休息膠囊的版面位置（不含進場動畫的位移）；沒有膠囊就是 tab 列頂端
@@ -1045,6 +1208,11 @@ const TrainingView = ({
     const hl = highlightRef.current;
     const main = mainRef.current;
     if (!hl || !main) return;
+    // 健身房模式換了動作卡：舊卡片已經卸載，浮卡原地淡入，不從舊位置滑過來
+    if (gymGroupRef.current !== gymGroupNowRef.current) {
+      gymGroupRef.current = gymGroupNowRef.current;
+      highlightPosRef.current = null;
+    }
     const key = currentKeyRef.current;
     const row = key ? main.querySelector(`[data-weight-input][data-log-key="${key}"]`)?.closest('[data-set-row]') : null;
     if (!row) {
@@ -1116,6 +1284,14 @@ const TrainingView = ({
   // then：'top'（換週）、{ scrollToKey }（點休息膠囊）；沒給就照順序有沒有變決定
   const exitReorder = (then = null) => {
     if (reorderReturnRef.current) reorderReturnRef.current.then = then;
+    // 健身房模式一次只畫一個動作：離開時選要捲過去的那個（膠囊的下一組 > 被移動的 > 從哪個進來的）
+    if (gymMode) {
+      const pillSlot = then?.scrollToKey ? sessionOrder.find(s => s.key === then.scrollToKey) : null;
+      const exId = pillSlot?.entry.exercise.id
+        ?? (movedGroupRef.current ? exerciseIdOfGroup(movedGroupRef.current) : null)
+        ?? reorderReturnRef.current?.exId;
+      if (exId) pickGymExercise(exId);
+    }
     reorderExitedRef.current = true;
     setReorderMode(false);
   };
@@ -1438,7 +1614,15 @@ const TrainingView = ({
                             onKeyDown={(e) => {
                               if (e.key === 'Enter') {
                                 e.preventDefault();
-                                const nextWeightInput = findNextWeightInput(e.currentTarget, logKey, pairOrder);
+                                let nextWeightInput = findNextWeightInput(e.currentTarget, logKey, pairOrder);
+                                // 健身房模式一次只畫一個動作：最後一組按 Enter 先換到下一站，再聚焦它第一個重量欄。
+                                // flushSync 讓 focus 留在這次按鍵裡，iOS 才會跳鍵盤
+                                const nextGroup = !nextWeightInput && gymMode ? groupedPlan[gymGroupIdx + 1] : null;
+                                if (nextGroup) {
+                                  const first = nextGroup.type === 'pair' ? nextGroup.items[0] : nextGroup.item;
+                                  flushSync(() => pickGymExercise(first.exercise.id));
+                                  nextWeightInput = document.querySelector('[data-weight-input]');
+                                }
                                 if (nextWeightInput) {
                                   // 跳到的組被休息膠囊 / tab 列蓋住就捲出來（聚焦後它變成目前這組，列會變高）
                                   revealNextRef.current = true;
@@ -1453,19 +1637,7 @@ const TrainingView = ({
                           <button
                             type="button"
                             data-complete-btn
-                            onClick={() => {
-                              completeSet(logKey, historyKey, historyEntry);
-                              dropDoneFocus(logKey);
-                              if (!logData.done) {
-                                setLitKey(logKey);
-                                navigator.vibrate?.(10);
-                                revealNextRef.current = true;
-                                // 做完目前這組，浮卡換到下一組
-                                if (focusedKey === logKey) setFocusedKey(null);
-                              } else if (litKey === logKey) {
-                                setLitKey(null);
-                              }
-                            }}
+                            onClick={() => completeSlot(logKey, historyKey, historyEntry, logData)}
                             // 彈一下播完就清掉，換天再回來不會重播
                             onAnimationEnd={() => setLitKey(k => (k === logKey ? null : k))}
                             disabled={!canComplete}
@@ -1732,6 +1904,24 @@ const TrainingView = ({
             </span>
           </button>
         </section>
+
+        {/* ==================== 健身房模式 ==================== */}
+        {gymMode && gymStationView.length > 0 && (
+          <GymScene
+            stations={gymStationView}
+            index={gymIndex}
+            onSelect={(i) => {
+              setGymNeedReps(null);
+              pickGymExercise(gymStations[i].id);
+            }}
+            onTap={onGymTap}
+            character={{
+              liftIndex: lifting ? gymStations.findIndex(st => st.slots.some(s => s.key === lifting)) : -1,
+              rest: restPill && !lifting ? { over: Boolean(restPill.overText) } : null,
+              finished,
+            }}
+          />
+        )}
         </div>
         )}
 
@@ -1811,6 +2001,8 @@ const TrainingView = ({
         ) : (
           <div className={reorderExitedRef.current ? 'mode-fade' : undefined}>
             {groupedPlan.map((group, groupIdx) => {
+              // 健身房模式只畫選中那站的動作（superset 是整張配對卡）；照舊跑 map，groupBoundaries 才對得上
+              if (gymMode && groupIdx !== gymGroupIdx) return null;
               const { prevEndTs, prevKind } = groupBoundaries[groupIdx];
               if (group.type === 'pair') {
                 const [a, b] = group.items;
@@ -1899,7 +2091,8 @@ const TrainingView = ({
 
       {/* ==================== 休息膠囊 ==================== */}
       <Presence exitMs={PILL_EXIT_MS}>
-        {restPill && (
+        {/* 健身房模式做組中不顯示（人物正在做下一組）；底部留白和膠囊出現的紀錄照舊用 restPill */}
+        {restPill && !lifting && (
           <RestPill
             label={restPill.label}
             elapsedText={restPill.elapsedText}
@@ -1908,7 +2101,16 @@ const TrainingView = ({
             pct={restPill.pct}
             nextName={restPill.nextName}
             nextSetNo={restPill.nextSetNo}
-            onClick={() => (reorderMode ? exitReorder({ scrollToKey: restPill.key }) : scrollToSet(restPill.key))}
+            onClick={() => {
+              if (reorderMode) {
+                exitReorder({ scrollToKey: restPill.key });
+                return;
+              }
+              // 健身房模式：先換到下一組那站（同步畫出它的動作卡）再捲過去
+              const slot = gymMode ? sessionOrder.find(s => s.key === restPill.key) : null;
+              if (slot) flushSync(() => pickGymExercise(slot.entry.exercise.id));
+              scrollToSet(restPill.key);
+            }}
           />
         )}
       </Presence>
