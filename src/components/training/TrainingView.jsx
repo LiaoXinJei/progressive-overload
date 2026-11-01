@@ -1,6 +1,6 @@
-import React, { useState, useMemo, useRef, useEffect, useLayoutEffect, useReducer } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useLayoutEffect } from 'react';
 import {
-  AlertTriangle, BellRing, Check, ChevronDown, ChevronRight, GripVertical, Link, Minus, MoreHorizontal, Plus,
+  AlertTriangle, ArrowUpDown, BellRing, Check, ChevronDown, ChevronRight, GripVertical, Link, Minus, MoreHorizontal, Plus,
   Repeat, Search, Settings2, Timer, Trash2, Undo2, Wind,
 } from 'lucide-react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
@@ -17,7 +17,7 @@ import {
   customSetsKey, withoutCustomSets,
 } from '../../utils/sessionPlan';
 import BottomSheet, { SheetPresence } from '../shared/BottomSheet';
-import Presence, { prefersReducedMotion } from '../shared/Presence';
+import Presence, { canAnimate, prefersReducedMotion } from '../shared/Presence';
 
 
 const LOWER_MUSCLES = new Set(['QUADS', 'HAMS', 'CALVES']);
@@ -219,12 +219,37 @@ const SheetAction = ({ icon: Icon, destructive = false, children, ...props }) =>
 
 // 休息膠囊：休息中時浮在 tab bar 上方，點了把目前這組捲到畫面中間。
 // 時間格式跟休息線同一個（formatTime，超過一小時是 1:06:00）。
-// 超過目標（overText）：標籤改「該做下一組了」、大字顯示超出多少、進度條滿格、膠囊加淡琥珀底、圖示換成鈴
-const RestPill = ({ label, elapsedText, targetText, overText = null, pct, nextName, onClick, exiting = false }) => {
+// 超過目標（overText）：標籤改「該做下一組了」、大字顯示超出多少、進度條滿格、膠囊加淡琥珀底、圖示換成鈴。
+// 窄螢幕：標籤和「第 N 組」永遠完整；放不下時先拿掉右邊的小字（已休 … / 目標），再截動作名
+const RestPill = ({ label, elapsedText, targetText, overText = null, pct, nextName, nextSetNo, onClick, exiting = false }) => {
   const over = Boolean(overText);
   const bigText = over ? `+${overText}` : elapsedText;
-  // 超過目標時標籤已經寫「該做下一組了」，第二行只放哪個動作第幾組，窄螢幕比較放得下
-  const nextText = over ? nextName : `下一組：${nextName}`;
+  const title = over ? '該做下一組了' : label;
+  // 超過目標時標籤已經寫「該做下一組了」，第二行不再重複「下一組：」
+  const namePart = over ? nextName : `下一組：${nextName}`;
+  const setPart = `第 ${nextSetNo} 組`;
+  const extraText = over ? `已休 ${elapsedText}` : `/ ${targetText}`;
+
+  const midRef = useRef(null);
+  const titleRef = useRef(null);
+  const setRef = useRef(null);
+  const extraRef = useRef(null);
+  const extraWidthRef = useRef(0);
+  const [tight, setTight] = useState(false);
+  // 量中間欄放不放得下標籤 +「第 N 組」+ 至少兩個字的動作名；放不下就收右邊的小字，空間回來再放回去
+  useIsomorphicLayoutEffect(() => {
+    const mid = midRef.current;
+    // jsdom 沒有版面（寬度都是 0），不判斷
+    if (!mid?.clientWidth || !titleRef.current || !setRef.current) return;
+    const need = Math.max(titleRef.current.scrollWidth, setRef.current.offsetWidth + 28);
+    if (!tight) {
+      if (extraRef.current) extraWidthRef.current = extraRef.current.offsetWidth + 4;
+      if (mid.clientWidth < need) setTight(true);
+    } else if (mid.clientWidth - extraWidthRef.current >= need + 8) {
+      setTight(false);
+    }
+  });
+
   return (
     <button
       type="button"
@@ -232,8 +257,8 @@ const RestPill = ({ label, elapsedText, targetText, overText = null, pct, nextNa
       data-over={over ? '' : undefined}
       onClick={exiting ? undefined : onClick}
       aria-label={over
-        ? `該做下一組了，已休息 ${elapsedText}，超過目標 ${overText}。${nextText}。捲到這組`
-        : `${label} ${elapsedText}，目標 ${targetText}。${nextText}。捲到這組`}
+        ? `該做下一組了，已休息 ${elapsedText}，超過目標 ${overText}。下一組：${nextName} ${setPart}。捲到這組`
+        : `${label} ${elapsedText}，目標 ${targetText}。下一組：${nextName} ${setPart}。捲到這組`}
       className={`material-elevated fixed inset-x-3 bottom-[calc(57px+env(safe-area-inset-bottom))] z-[45] mx-auto flex h-[60px] max-w-[456px] items-center gap-3 overflow-hidden rounded-[30px] border-[0.5px] pl-2.5 pr-[18px] text-left shadow-[0_12px_32px_rgba(0,0,0,0.5)] transition-colors duration-300
         ${over ? 'border-rest/40' : 'border-white/[0.12]'}
         ${exiting ? 'pill-out pointer-events-none' : 'pill-in'}`}
@@ -243,13 +268,18 @@ const RestPill = ({ label, elapsedText, targetText, overText = null, pct, nextNa
       <span className={`relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-rest ${over ? 'bg-rest/30' : 'bg-rest/20'}`} aria-hidden="true">
         {over ? <BellRing size={20} /> : <Timer size={20} />}
       </span>
-      <span className="relative min-w-0 flex-1" aria-hidden="true">
-        <span className="block truncate text-subhead font-semibold text-label">{over ? '該做下一組了' : label}</span>
-        <span className="block truncate text-footnote text-label-2">{nextText}</span>
+      <span ref={midRef} className="relative min-w-0 flex-1" aria-hidden="true">
+        <span ref={titleRef} data-pill-title className="block whitespace-nowrap text-subhead font-semibold text-label">{title}</span>
+        <span className="flex min-w-0 whitespace-nowrap text-footnote text-label-2">
+          <span data-pill-name className="truncate">{namePart}</span>
+          <span ref={setRef} data-pill-set className="shrink-0">&nbsp;{setPart}</span>
+        </span>
       </span>
       <span className="relative shrink-0 whitespace-nowrap" aria-hidden="true">
         <span className={`font-num font-semibold tabular-nums text-rest ${bigText.length > 5 ? 'text-title3' : 'text-[24px] leading-7'}`}>{bigText}</span>
-        <span className="ml-1 font-num text-footnote tabular-nums text-label-2">{over ? `已休 ${elapsedText}` : `/ ${targetText}`}</span>
+        {!tight && (
+          <span ref={extraRef} data-pill-extra className="ml-1 font-num text-footnote tabular-nums text-label-2">{extraText}</span>
+        )}
       </span>
       <span className="absolute inset-x-0 bottom-0 h-[3px] bg-rest/20" aria-hidden="true">
         <span className="block h-full bg-rest transition-[width] duration-1000 ease-linear" style={{ width: `${over ? 100 : pct}%` }} />
@@ -296,37 +326,61 @@ const TrainingView = ({
   const highlightRef = useRef(null);
   const highlightPosRef = useRef(null);
 
-  // 手指 / 滑鼠還按著時，已完成的浮卡先不收（收了列會變矮，按到一半的按鈕會跑掉、點不到）。
-  // 放開、click 跑完之後再重新判斷一次
-  const pointerDownRef = useRef(false);
-  const focusCheckPendingRef = useRef(false);
-  const [, recheckFocus] = useReducer(n => n + 1, 0);
+  // 排序模式（iOS 的「編輯排序」）：動作卡收成精簡列、右側出現把手，頂部 bar 的設定鈕換成「完成」
+  const [reorderMode, setReorderMode] = useState(false);
+  // 進排序模式前的捲動位置、從哪個動作的「⋯」進來（離開時捲回去、焦點回到那個「⋯」）
+  const reorderReturnRef = useRef(null);
+  const reorderDoneRef = useRef(null);
+  const addExerciseRef = useRef(null);
+  // 從選項 sheet 刪除自訂動作：刪掉之後焦點移到下一個動作的「⋯」（沒有就「新增動作」）
+  const deleteFocusRef = useRef(null);
+
+  // 改已完成的組時，手指 / 滑鼠按下當下焦點就在那一組：放開前它維持目前這組
+  // （不然按別組的 ✓ 時這組先收起來，列變矮，按到一半的按鈕會跑掉、點不到）。
+  // 按下時焦點不在那一組（例如先點空白處收掉了、之後再按住畫面捲動），就不豁免
+  const pressFocusKeyRef = useRef(null);
+  // 焦點在按著的時候離開了已完成的組：放開（click 跑完）之後再把它從目前這組拿掉
+  const blurPendingKeyRef = useRef(null);
+  // 最近一次捲動 / 拖動 / 輸入框聚焦的時間：使用者正在捲或輸入時，不自動捲動（進頁、換天、膠囊出現）
+  const lastUserScrollRef = useRef(0);
   useEffect(() => {
     let timer = null;
+    const rowKeyOf = (el) => el?.closest?.('[data-set-row]')?.querySelector('[data-weight-input]')?.dataset.logKey ?? null;
     const release = () => {
       clearTimeout(timer);
       timer = null;
-      if (!pointerDownRef.current) return;
-      pointerDownRef.current = false;
-      if (focusCheckPendingRef.current) {
-        focusCheckPendingRef.current = false;
-        recheckFocus();
+      const pending = blurPendingKeyRef.current;
+      pressFocusKeyRef.current = null;
+      blurPendingKeyRef.current = null;
+      if (pending && rowKeyOf(document.activeElement) !== pending) {
+        setFocusedKey(k => (k === pending ? null : k));
       }
     };
-    const down = () => { pointerDownRef.current = true; };
+    const down = () => { pressFocusKeyRef.current = rowKeyOf(document.activeElement); };
     // click 在 pointerup 之後才派發（iOS 還隔一個 task），等 click 跑完；沒有 click（捲動）就等 400ms
-    const up = () => { timer = setTimeout(release, 400); };
+    const up = () => { clearTimeout(timer); timer = setTimeout(release, 400); };
     const click = () => { setTimeout(release, 0); };
+    const markActivity = () => { lastUserScrollRef.current = Date.now(); };
+    const moveWhilePressed = (e) => { if (e.buttons) markActivity(); };
+    const focusIn = (e) => { if (e.target?.matches?.('input, textarea, select')) markActivity(); };
     document.addEventListener('pointerdown', down, true);
     document.addEventListener('pointerup', up, true);
     document.addEventListener('pointercancel', up, true);
     document.addEventListener('click', click, true);
+    document.addEventListener('pointermove', moveWhilePressed, { capture: true, passive: true });
+    document.addEventListener('touchmove', markActivity, { capture: true, passive: true });
+    document.addEventListener('wheel', markActivity, { capture: true, passive: true });
+    document.addEventListener('focusin', focusIn, true);
     return () => {
       clearTimeout(timer);
       document.removeEventListener('pointerdown', down, true);
       document.removeEventListener('pointerup', up, true);
       document.removeEventListener('pointercancel', up, true);
       document.removeEventListener('click', click, true);
+      document.removeEventListener('pointermove', moveWhilePressed, { capture: true });
+      document.removeEventListener('touchmove', markActivity, { capture: true });
+      document.removeEventListener('wheel', markActivity, { capture: true });
+      document.removeEventListener('focusin', focusIn, true);
     };
   }, []);
 
@@ -817,7 +871,7 @@ const TrainingView = ({
   };
   const focusedSlot = focusedKey
     ? sessionOrder.find(s => s.key === focusedKey && !logs[s.key]?.skipped
-      && (!logs[s.key]?.done || focusInRow(s.key) || pointerDownRef.current)) ?? null
+      && (!logs[s.key]?.done || focusInRow(s.key) || pressFocusKeyRef.current === s.key)) ?? null
     : null;
   const currentSlot = focusedSlot ?? firstPendingSlot;
   const currentKey = currentSlot?.key ?? null;
@@ -880,7 +934,8 @@ const TrainingView = ({
         targetText: formatTime(target),
         overText: elapsed > target ? formatTime(elapsed - target) : null,
         pct: target > 0 ? Math.min(100, (elapsed / target) * 100) : 0,
-        nextName: `${customExerciseNames[nextEx.id] || nextEx.name} 第 ${nextSlot.idx + 1} 組`,
+        nextName: customExerciseNames[nextEx.id] || nextEx.name,
+        nextSetNo: nextSlot.idx + 1,
       };
     })()
     : null;
@@ -889,44 +944,79 @@ const TrainingView = ({
 
   const rowOf = (logKey) => document.querySelector(`[data-weight-input][data-log-key="${logKey}"]`)?.closest('[data-set-row]');
 
+  // 休息膠囊的版面位置（不含進場動畫的位移）；沒有膠囊就是 tab 列頂端
+  const pillBand = () => {
+    const navTop = document.querySelector('nav[aria-label="主選單"]')?.getBoundingClientRect().top ?? window.innerHeight;
+    const pill = document.querySelector('[data-rest-pill]');
+    return pill ? { top: pill.offsetTop, bottom: pill.offsetTop + pill.offsetHeight } : { top: navTop, bottom: navTop };
+  };
+
+  // 自動捲到 targetY（文件座標）。大標題不停在半收合：落在「開始被蓋住」到「完全收合」之間就捲到完全收合；
+  // 完全收合會把要看的列推進頂部 bar 底下時，改停在大標題剛好完整的位置
+  const scrollPageTo = (targetY, row) => {
+    const barH = barRef.current?.offsetHeight ?? 0;
+    let y = Math.max(0, targetY);
+    const title = titleRef.current?.getBoundingClientRect();
+    if (title?.height) {
+      const titleTop = title.top + window.scrollY;
+      const startCover = titleTop - barH;
+      const fullCover = titleTop + title.height - barH;
+      if (y > startCover && y < fullCover) {
+        const r = row?.getBoundingClientRect();
+        const rowTopAfter = r ? r.top + window.scrollY - fullCover : Infinity;
+        y = rowTopAfter >= barH ? fullCover : Math.max(0, startCover);
+      }
+    }
+    if (Math.abs(y - window.scrollY) < 1) return;
+    window.scrollTo({ top: y, behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
+  };
+
+  // 點休息膠囊：把下一組捲到頂部 bar 與膠囊之間的中間
   const scrollToSet = (logKey) => {
-    const row = rowOf(logKey);
-    if (!row) return;
-    row.scrollIntoView({ block: 'center', behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
+    const r = rowOf(logKey)?.getBoundingClientRect();
+    if (!r?.height) return;
+    const barH = barRef.current?.offsetHeight ?? 0;
+    const center = (barH + pillBand().top) / 2;
+    scrollPageTo(window.scrollY + r.top + r.height / 2 - center, rowOf(logKey));
   };
 
   // 把目前這組捲到看得到的地方：不被頂部 bar（superset 再多讓出狀態條）、休息膠囊、tab 列蓋住。
+  // auto（進頁、換天換週、膠囊第一次出現）只在目前這組跟膠囊重疊時才捲，而且使用者 1 秒內在捲動 / 輸入就不動；
+  // 使用者動作（按 ✓、跳過、Enter 跳格）之後只要被蓋住就捲。
   // 讀 ref 拿最新的目前這組（從 requestAnimationFrame 呼叫時，closure 可能是舊的）
   const currentKeyRef = useRef(currentKey);
   currentKeyRef.current = currentKey;
-  const revealCurrent = () => {
+  const revealCurrent = ({ auto = false } = {}) => {
     const key = currentKeyRef.current;
     if (!key) return;
     const row = rowOf(key);
     const rect = row?.getBoundingClientRect();
-    if (!rect?.height) return; // jsdom 沒有版面
+    if (!rect?.height) return; // jsdom 沒有版面；排序模式沒有組列
+    const band = pillBand();
+    if (auto) {
+      if (Date.now() - lastUserScrollRef.current < 1000) return;
+      const overlapsPill = rect.top < band.bottom && rect.bottom > band.top;
+      if (!overlapsPill) return;
+    }
     const top = (barRef.current?.offsetHeight ?? 0) + (row.closest('[data-pair-group]') ? 72 : 12);
-    const navTop = document.querySelector('nav[aria-label="主選單"]')?.getBoundingClientRect().top ?? window.innerHeight;
-    // 休息膠囊：tab 列上方 8px、高 60px
-    const bottom = (document.querySelector('[data-rest-pill]') ? navTop - 68 : navTop) - 12;
-    const behavior = prefersReducedMotion() ? 'auto' : 'smooth';
-    if (rect.bottom > bottom) window.scrollBy({ top: rect.bottom - bottom, behavior });
-    else if (rect.top < top) window.scrollBy({ top: rect.top - top, behavior });
+    const bottom = band.top - 12;
+    if (rect.bottom > bottom) scrollPageTo(window.scrollY + rect.bottom - bottom, row);
+    else if (rect.top < top) scrollPageTo(window.scrollY + rect.top - top, row);
   };
 
-  // 按 ✓、次數欄按 Enter 跳格之後，新的目前這組在畫面外就平滑捲進來
+  // 按 ✓、跳過、次數欄按 Enter 跳格之後，新的目前這組在畫面外就平滑捲進來
   useEffect(() => {
     if (!revealNextRef.current) return;
     revealNextRef.current = false;
     revealCurrent();
   }, [currentKey, logs]);
 
-  // 休息膠囊第一次出現、進訓練頁、換天 / 換週時膠囊已經在：目前這組可能剛好被膠囊蓋住，捲一次
+  // 休息膠囊第一次出現、進訓練頁、換天 / 換週時膠囊已經在：目前這組剛好被膠囊蓋住才捲一次
   const pillShown = Boolean(restPill);
   const pillRevealedForRef = useRef(null);
   useEffect(() => {
-    if (!pillShown) {
-      pillRevealedForRef.current = null;
+    if (!pillShown || reorderMode) {
+      if (!pillShown) pillRevealedForRef.current = null;
       return undefined;
     }
     const view = `${currentWeek}-${currentDay}`;
@@ -934,10 +1024,10 @@ const TrainingView = ({
     // 等版面（膠囊、浮卡）就位再量
     const id = requestAnimationFrame(() => {
       pillRevealedForRef.current = view;
-      revealCurrent();
+      revealCurrent({ auto: true });
     });
     return () => cancelAnimationFrame(id);
-  }, [pillShown, currentWeek, currentDay]);
+  }, [pillShown, currentWeek, currentDay, reorderMode]);
 
   // 浮卡（目前這組的浮起層）跟著目前這組：換組時從舊列滑到新列（FLIP：位置量出來，只動 transform），
   // 減少動態效果時直接換位置再淡入。同一組因為版面變動移位時不播動畫
@@ -985,9 +1075,6 @@ const TrainingView = ({
 
   const phaseStyle = PHASE_STYLE[phase] ?? PHASE_STYLE.hypertrophy;
   const rirChip = `${guidance.label.includes('衝刺') ? '衝刺週 · ' : ''}RIR ${guidance.rir}`;
-  // superset 成員：選項 sheet 的拖曳說明要講拖整組
-  const pairMemberIds = new Set(groupedPlan.filter(g => g.type === 'pair').flatMap(g => g.items.map(it => it.exercise.id)));
-
   // 已完成的組當浮卡時，去按別組的 ✓ / 跳過：浮卡回到自動選的組
   const dropDoneFocus = (exceptKey) => {
     setFocusedKey(k => (k && k !== exceptKey && logs[k]?.done ? null : k));
@@ -996,10 +1083,54 @@ const TrainingView = ({
   // 改已完成的組時焦點一離開那一列它就不再是目前這組，按鈕會在 click 之前消失（iOS 點按鈕不會給按鈕焦點）
   const keepInputFocus = (e) => e.preventDefault();
 
+  // ==================== 排序模式 ====================
+  // 進來時記住捲動位置和從哪個動作進來、捲到頂、焦點到「完成」；離開時捲回原位、焦點回到那個動作的「⋯」。
+  // 浮卡在排序模式沒有組列可以跟，自然藏起來；休息膠囊照常顯示但不自動捲
+  const reorderExitedRef = useRef(false);
+  const enterReorder = (exId) => {
+    reorderReturnRef.current = { scrollY: window.scrollY, exId };
+    setFocusedKey(null);
+    closeSheet();
+    setReorderMode(true);
+  };
+  const exitReorder = () => {
+    reorderExitedRef.current = true;
+    setReorderMode(false);
+  };
+  useEffect(() => {
+    if (reorderMode) {
+      if (canAnimate()) window.scrollTo({ top: 0 });
+      reorderDoneRef.current?.focus({ preventScroll: true });
+      // Esc 離開（有 sheet 開著時 Esc 是關 sheet）
+      const onKeyDown = (e) => {
+        if (e.key === 'Escape' && !document.querySelector('[role="dialog"]')) exitReorder();
+      };
+      document.addEventListener('keydown', onKeyDown);
+      return () => document.removeEventListener('keydown', onKeyDown);
+    }
+    const ret = reorderReturnRef.current;
+    if (!ret) return undefined;
+    reorderReturnRef.current = null;
+    if (canAnimate()) window.scrollTo({ top: ret.scrollY });
+    document.querySelector(`[data-exercise-id="${ret.exId}"] button[aria-label="動作選項"]`)?.focus({ preventScroll: true });
+    return undefined;
+  }, [reorderMode]);
+
+  // 刪除自訂動作之後（確認框按了刪除）：焦點移到下一個動作的「⋯」，沒有下一個就「新增動作」
+  useEffect(() => {
+    const pending = deleteFocusRef.current;
+    if (!pending) return;
+    deleteFocusRef.current = null;
+    if (currentSessionPlan.some(e => e.exercise.id === pending.exId)) return; // 確認框按了取消
+    const next = pending.nextId
+      && document.querySelector(`[data-exercise-id="${pending.nextId}"] button[aria-label="動作選項"]`);
+    (next || addExerciseRef.current)?.focus({ preventScroll: true });
+  });
+
   // inPair：superset 卡片裡的動作，不自己畫卡片底色
   // pairOrder：pair 成員才有（見 findNextWeightInput），單動作為 undefined
   const renderExerciseInner = ({
-    entry, dragHandleProps, hideInterRest, pairRest, prevEndTs, pairOrder, inPair = false, isDragging = false,
+    entry, hideInterRest, pairRest, prevEndTs, pairOrder, inPair = false,
   }) => {
     const { exercise: ex, sets: setsCount } = entry;
     const exName = customExerciseNames[ex.id] || ex.name;
@@ -1040,19 +1171,10 @@ const TrainingView = ({
         <div
           className={inPair
             ? 'px-2.5 pb-3 pt-4'
-            : `rounded-[20px] px-2.5 pb-3 pt-4 transition-[background-color,box-shadow] duration-200 ${isDragging ? 'bg-elevated shadow-[0_20px_44px_rgba(0,0,0,0.6)]' : 'bg-card'}`}
+            : 'rounded-[20px] bg-card px-2.5 pb-3 pt-4'}
         >
-          {/* 動作標題。拖曳只從左側把手（44×44）開始，手指停在標題上捲動不會誤拖 */}
+          {/* 動作標題（排序走「⋯」→「調整順序」的排序模式，平常沒有把手） */}
           <div className="flex select-none items-start gap-1 px-1.5">
-            {dragHandleProps && (
-              <div
-                {...dragHandleProps}
-                aria-label={`拖曳排序：${exName}`}
-                className="-mb-2 -ml-3.5 -mt-2 flex h-11 w-11 shrink-0 cursor-grab touch-none items-center justify-center rounded-full text-label-3 active:cursor-grabbing"
-              >
-                <GripVertical size={18} aria-hidden="true" />
-              </div>
-            )}
             <div className="min-w-0 flex-1 pt-0.5">
               <h3 className="text-title3 font-semibold text-label">{exName}</h3>
               <p className="mt-0.5 text-footnote text-label-2">
@@ -1152,11 +1274,11 @@ const TrainingView = ({
                     data-set-row
                     data-current={isCurrent ? '' : undefined}
                     // 已完成的組：焦點離開這一列就不再是目前這組（改完數字點別的地方，浮卡回到下一組）。
-                    // 還按著的話等放開再收，不然列變矮、按到一半的按鈕會跑掉
+                    // 按下時焦點就在這一組的話，等放開（click 跑完）再收，不然列變矮、按到一半的按鈕會跑掉
                     onBlur={isDone && isCurrent ? (e) => {
                       if (e.currentTarget.contains(e.relatedTarget)) return;
-                      if (pointerDownRef.current) focusCheckPendingRef.current = true;
-                      else recheckFocus();
+                      if (pressFocusKeyRef.current === logKey) blurPendingKeyRef.current = logKey;
+                      else setFocusedKey(k => (k === logKey ? null : k));
                     } : undefined}
                     className={`relative z-[1] px-2 transition-[background-color] duration-200 ${rowTone}`}
                   >
@@ -1186,7 +1308,7 @@ const TrainingView = ({
                             {showStepper && (
                               <button
                                 type="button"
-                                onMouseDown={keepInputFocus}
+                                onMouseDown={isCurrent ? keepInputFocus : undefined}
                                 onClick={() => adjustWeight(logKey, -1, historyWeight)}
                                 title={`-${weightIncrement}kg`}
                                 aria-label={`第 ${idx + 1} 組重量減 ${weightIncrement} 公斤`}
@@ -1225,7 +1347,7 @@ const TrainingView = ({
                             {showStepper && (
                               <button
                                 type="button"
-                                onMouseDown={keepInputFocus}
+                                onMouseDown={isCurrent ? keepInputFocus : undefined}
                                 onClick={() => adjustWeight(logKey, 1, historyWeight)}
                                 title={`+${weightIncrement}kg`}
                                 aria-label={`第 ${idx + 1} 組重量加 ${weightIncrement} 公斤`}
@@ -1316,6 +1438,7 @@ const TrainingView = ({
                           onClick={() => {
                             skipSet(logKey);
                             dropDoneFocus(logKey);
+                            revealNextRef.current = true;
                             if (focusedKey === logKey) setFocusedKey(null);
                           }}
                           title="跳過此組"
@@ -1411,15 +1534,27 @@ const TrainingView = ({
               </span>
             )}
           </div>
-          <button
-            type="button"
-            onClick={onOpenSettings}
-            title="設定"
-            aria-label="設定"
-            className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-label-2 transition-colors duration-200 ${scrolled ? 'bg-elevated' : 'bg-card'}`}
-          >
-            <Settings2 size={20} aria-hidden="true" />
-          </button>
+          {reorderMode ? (
+            <button
+              ref={reorderDoneRef}
+              type="button"
+              data-reorder-done
+              onClick={exitReorder}
+              className="flex h-11 shrink-0 items-center justify-center rounded-full bg-accent/20 px-4 text-body font-semibold text-accent-text"
+            >
+              完成
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onOpenSettings}
+              title="設定"
+              aria-label="設定"
+              className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-label-2 transition-colors duration-200 ${scrolled ? 'bg-elevated' : 'bg-card'}`}
+            >
+              <Settings2 size={20} aria-hidden="true" />
+            </button>
+          )}
         </div>
       </header>
 
@@ -1443,6 +1578,9 @@ const TrainingView = ({
           </span>
         </div>
 
+        {/* 排序模式時收起 D1–D5 和今天進度，只留要排的清單 */}
+        {!reorderMode && (
+        <div className={reorderExitedRef.current ? 'mode-fade' : undefined}>
         {/* ==================== D1–D5 分段控制 ==================== */}
         <div role="group" aria-label="訓練日" className="relative mt-3.5 grid h-[52px] grid-cols-5 rounded-[14px] bg-card p-1">
           {/* 選中塊：換天時滑過去 */}
@@ -1524,138 +1662,160 @@ const TrainingView = ({
             </span>
           </button>
         </section>
+        </div>
+        )}
 
         {/* ==================== 動作清單 ==================== */}
-        <DragDropContext
-          onDragEnd={handleDragEnd}
-          dragHandleUsageInstructions="按空白鍵拿起動作，用上下方向鍵移動，再按空白鍵放下，按 Esc 取消。"
-          autoScrollerOptions={{
-            startFromPercentage: 0.15,
-            maxScrollAtPercentage: 0.03,
-            maxPixelScroll: 8,
-            ease: (p) => p * p,
-          }}
-        >
-          <Droppable droppableId={`exercises-${workoutKey}`}>
-            {(provided) => (
-              <div
-                ref={provided.innerRef}
-                {...provided.droppableProps}
-              >
-                {groupedPlan.map((group, groupIdx) => {
-                  const { prevEndTs, prevKind } = groupBoundaries[groupIdx];
-                  if (group.type === 'pair') {
-                    const [a, b] = group.items;
-                    const pairCfg = { primary: a.exercise.id, secondary: b.exercise.id, rest: group.rest };
-                    const pairState = getPairRoundState(pairCfg, a.sets, b.sets, currentWeek, currentDay, logs);
-                    const tailProgress = getPairTailProgress(pairCfg, a.sets, b.sets, currentWeek, currentDay, logs);
-                    const pairRest = {
-                      coreRoundCount: pairState.coreRoundCount,
-                      coreDone: pairState.state === 'done',
-                      coreEndTs: pairState.lastCompleteRoundEndTs,
-                    };
-                    const enterPairLabel = prevKind === 'pair' ? '上一配對' : '上一動作';
-                    // 輪次順序 A1 → B1 → A2 → B2 …，組數多的一方 tail 組接在後面
-                    const pairOrder = [];
-                    for (let i = 0; i < Math.max(a.sets, b.sets); i++) {
-                      if (i < a.sets) pairOrder.push(`w${currentWeek}-d${currentDay}-${a.exercise.id}-s${i}`);
-                      if (i < b.sets) pairOrder.push(`w${currentWeek}-d${currentDay}-${b.exercise.id}-s${i}`);
-                    }
-                    return (
-                      <Draggable key={group.id} draggableId={group.id} index={groupIdx}>
-                        {(provided, snapshot) => (
-                          <div
-                            ref={provided.innerRef}
-                            {...provided.draggableProps}
-                            data-pair-group
-                            className="pt-3"
-                          >
-                            <div className={`rounded-[20px] pb-1 transition-[background-color,box-shadow] duration-200 ${snapshot.isDragging ? 'bg-elevated shadow-[0_20px_44px_rgba(0,0,0,0.6)]' : 'bg-card'}`}>
-                              {/* Pair Header：左側把手拖整組 */}
-                              <div className="flex min-h-11 items-center gap-2 px-4 pt-2">
+        {reorderMode ? (
+          // 排序模式：每個動作（superset 是一整個配對）收成一列，只有右側把手能拖
+          <div className="mode-fade">
+            <p className="mt-3 px-1 text-footnote text-label-2">按住右側把手拖曳，調整這天的動作順序。</p>
+            <DragDropContext
+              onDragEnd={handleDragEnd}
+              dragHandleUsageInstructions="按空白鍵拿起動作，用上下方向鍵移動，再按空白鍵放下，按 Esc 取消。"
+              autoScrollerOptions={{
+                startFromPercentage: 0.15,
+                maxScrollAtPercentage: 0.03,
+                maxPixelScroll: 8,
+                ease: (p) => p * p,
+              }}
+            >
+              <Droppable droppableId={`exercises-${workoutKey}`}>
+                {(provided) => (
+                  <div ref={provided.innerRef} {...provided.droppableProps} data-reorder-list>
+                    {groupedPlan.map((group, groupIdx) => {
+                      const names = group.type === 'pair'
+                        ? group.items.map(it => customExerciseNames[it.exercise.id] || it.exercise.name)
+                        : [customExerciseNames[group.item.exercise.id] || group.item.exercise.name];
+                      const single = group.type === 'single' ? group.item : null;
+                      return (
+                        <Draggable key={group.id} draggableId={group.id} index={groupIdx}>
+                          {(provided, snapshot) => (
+                            <div ref={provided.innerRef} {...provided.draggableProps} data-reorder-item={group.id} className="pt-2">
+                              <div className={`flex min-h-[64px] items-center gap-2 rounded-[16px] py-2.5 pl-4 pr-1 transition-[background-color,box-shadow] duration-200 ${snapshot.isDragging ? 'bg-elevated shadow-[0_20px_44px_rgba(0,0,0,0.6)]' : 'bg-card'}`}>
+                                <div className="min-w-0 flex-1">
+                                  {single ? (
+                                    <>
+                                      <p className="truncate text-body font-semibold text-label">{names[0]}</p>
+                                      <p className="truncate text-footnote text-label-2">
+                                        {MUSCLE_GROUPS[single.exercise.muscle] ?? '未知'} · {single.exercise.type === 'compound' ? '複合' : '隔離'} · {single.sets} 組
+                                      </p>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <p className="flex items-center gap-1.5 text-footnote text-label-2">
+                                        <Link size={13} aria-hidden="true" />Superset
+                                      </p>
+                                      {names.map(n => <p key={n} className="truncate text-subhead font-semibold text-label">{n}</p>)}
+                                    </>
+                                  )}
+                                </div>
                                 <div
                                   {...provided.dragHandleProps}
-                                  aria-label={`拖曳排序：superset ${a.exercise.name} + ${b.exercise.name}`}
-                                  className="-my-1 -ml-3.5 flex h-11 w-11 shrink-0 cursor-grab touch-none items-center justify-center rounded-full text-label-3 active:cursor-grabbing"
+                                  aria-label={`拖曳排序：${names.join(' + ')}`}
+                                  className="flex h-11 w-11 shrink-0 cursor-grab touch-none items-center justify-center rounded-full text-label-3 active:cursor-grabbing"
                                 >
-                                  <GripVertical size={18} aria-hidden="true" />
+                                  <GripVertical size={20} aria-hidden="true" />
                                 </div>
-                                <Link size={16} className="shrink-0 text-label-2" aria-hidden="true" />
-                                <p className="min-w-0 text-footnote text-label-2">
-                                  <span className="font-semibold text-label">Superset</span> · 輪間 {group.rest} 秒 · 切換 {SWITCH_TARGET_SEC} 秒
-                                </p>
                               </div>
-                              {/* Sticky 狀態條（pair 唯一休息呈現載體） */}
-                              <PairStickyBar
-                                pairState={pairState}
-                                pairInfo={pairCfg}
-                                tailProgress={tailProgress}
-                                currentTime={currentTime}
-                                enterPairFromTs={prevEndTs}
-                                enterPairLabel={enterPairLabel}
-                              />
-                              {/* Inner exercises */}
-                              <div className="divide-y-[0.5px] divide-separator">
-                                {group.items.map(entry => (
-                                  <React.Fragment key={entry.exercise.id}>
-                                    {renderExerciseInner({
-                                      entry,
-                                      dragHandleProps: null,
-                                      hideInterRest: true,
-                                      pairRest,
-                                      prevEndTs: null,
-                                      pairOrder,
-                                      inPair: true,
-                                    })}
-                                  </React.Fragment>
-                                ))}
-                              </div>
-                              {/* TMJ footer */}
-                              <p className="hairline-t mx-4 flex h-11 items-center gap-2 text-footnote text-label-2">
-                                <Wind size={16} aria-hidden="true" />
-                                下顎放鬆 · 鼻吸口呼
-                              </p>
                             </div>
-                          </div>
-                        )}
-                      </Draggable>
-                    );
-                  }
-                  return (
-                    <Draggable key={group.id} draggableId={group.id} index={groupIdx}>
-                      {(provided, snapshot) => (
-                        <div
-                          ref={provided.innerRef}
-                          {...provided.draggableProps}
-                          className="pt-3"
-                        >
-                          {renderExerciseInner({
-                            entry: group.item,
-                            dragHandleProps: provided.dragHandleProps,
-                            hideInterRest: false,
-                            pairRest: null,
-                            prevEndTs,
-                            isDragging: snapshot.isDragging,
-                          })}
-                        </div>
-                      )}
-                    </Draggable>
-                  );
-                })}
-                {provided.placeholder}
-              </div>
-            )}
-          </Droppable>
-        </DragDropContext>
+                          )}
+                        </Draggable>
+                      );
+                    })}
+                    {provided.placeholder}
+                  </div>
+                )}
+              </Droppable>
+            </DragDropContext>
+          </div>
+        ) : (
+          <div className={reorderExitedRef.current ? 'mode-fade' : undefined}>
+            {groupedPlan.map((group, groupIdx) => {
+              const { prevEndTs, prevKind } = groupBoundaries[groupIdx];
+              if (group.type === 'pair') {
+                const [a, b] = group.items;
+                const pairCfg = { primary: a.exercise.id, secondary: b.exercise.id, rest: group.rest };
+                const pairState = getPairRoundState(pairCfg, a.sets, b.sets, currentWeek, currentDay, logs);
+                const tailProgress = getPairTailProgress(pairCfg, a.sets, b.sets, currentWeek, currentDay, logs);
+                const pairRest = {
+                  coreRoundCount: pairState.coreRoundCount,
+                  coreDone: pairState.state === 'done',
+                  coreEndTs: pairState.lastCompleteRoundEndTs,
+                };
+                const enterPairLabel = prevKind === 'pair' ? '上一配對' : '上一動作';
+                // 輪次順序 A1 → B1 → A2 → B2 …，組數多的一方 tail 組接在後面
+                const pairOrder = [];
+                for (let i = 0; i < Math.max(a.sets, b.sets); i++) {
+                  if (i < a.sets) pairOrder.push(`w${currentWeek}-d${currentDay}-${a.exercise.id}-s${i}`);
+                  if (i < b.sets) pairOrder.push(`w${currentWeek}-d${currentDay}-${b.exercise.id}-s${i}`);
+                }
+                return (
+                  <div key={group.id} data-pair-group data-pair-id={group.id} className="pt-3">
+                    <div className="rounded-[20px] bg-card pb-1">
+                      {/* Pair Header */}
+                      <div className="flex min-h-11 items-center gap-2 px-4 pt-2">
+                        <Link size={16} className="shrink-0 text-label-2" aria-hidden="true" />
+                        <p className="min-w-0 text-footnote text-label-2">
+                          <span className="font-semibold text-label">Superset</span> · 輪間 {group.rest} 秒 · 切換 {SWITCH_TARGET_SEC} 秒
+                        </p>
+                      </div>
+                      {/* Sticky 狀態條（pair 唯一休息呈現載體） */}
+                      <PairStickyBar
+                        pairState={pairState}
+                        pairInfo={pairCfg}
+                        tailProgress={tailProgress}
+                        currentTime={currentTime}
+                        enterPairFromTs={prevEndTs}
+                        enterPairLabel={enterPairLabel}
+                      />
+                      {/* Inner exercises */}
+                      <div className="divide-y-[0.5px] divide-separator">
+                        {group.items.map(entry => (
+                          <React.Fragment key={entry.exercise.id}>
+                            {renderExerciseInner({
+                              entry,
+                              hideInterRest: true,
+                              pairRest,
+                              prevEndTs: null,
+                              pairOrder,
+                              inPair: true,
+                            })}
+                          </React.Fragment>
+                        ))}
+                      </div>
+                      {/* TMJ footer */}
+                      <p className="hairline-t mx-4 flex h-11 items-center gap-2 text-footnote text-label-2">
+                        <Wind size={16} aria-hidden="true" />
+                        下顎放鬆 · 鼻吸口呼
+                      </p>
+                    </div>
+                  </div>
+                );
+              }
+              return (
+                <div key={group.id} className="pt-3">
+                  {renderExerciseInner({
+                    entry: group.item,
+                    hideInterRest: false,
+                    pairRest: null,
+                    prevEndTs,
+                  })}
+                </div>
+              );
+            })}
 
-        {/* 新增動作 */}
-        <button
-          type="button"
-          onClick={() => setShowAddExercise(true)}
-          className="mt-3 flex h-[50px] w-full items-center justify-center gap-2 rounded-full bg-card text-body font-semibold text-accent-text transition-colors duration-150 active:bg-elevated"
-        >
-          <Plus size={20} aria-hidden="true" /> 新增動作
-        </button>
+            {/* 新增動作 */}
+            <button
+              ref={addExerciseRef}
+              type="button"
+              onClick={() => setShowAddExercise(true)}
+              className="mt-3 flex h-[50px] w-full items-center justify-center gap-2 rounded-full bg-card text-body font-semibold text-accent-text transition-colors duration-150 active:bg-elevated"
+            >
+              <Plus size={20} aria-hidden="true" /> 新增動作
+            </button>
+          </div>
+        )}
       </main>
 
       {/* ==================== 休息膠囊 ==================== */}
@@ -1668,6 +1828,7 @@ const TrainingView = ({
             overText={restPill.overText}
             pct={restPill.pct}
             nextName={restPill.nextName}
+            nextSetNo={restPill.nextSetNo}
             onClick={() => scrollToSet(restPill.key)}
           />
         )}
@@ -1805,6 +1966,14 @@ const TrainingView = ({
                   >
                     替換動作
                   </SheetAction>
+                  {/* superset 成員也有：排序的單位是整個配對 */}
+                  <SheetAction
+                    icon={ArrowUpDown}
+                    title="調整順序"
+                    onClick={() => enterReorder(ex.id)}
+                  >
+                    調整順序
+                  </SheetAction>
                   <SheetAction
                     icon={Plus}
                     title="增加一組"
@@ -1826,15 +1995,16 @@ const TrainingView = ({
                       icon={Trash2}
                       destructive
                       title="刪除此動作"
-                      onClick={() => removeCustomExercise(ex.id, exName)}
+                      onClick={() => {
+                        const ids = groupedPlan.flatMap(g => (g.type === 'pair' ? g.items.map(it => it.exercise.id) : [g.item.exercise.id]));
+                        deleteFocusRef.current = { exId: ex.id, nextId: ids[ids.indexOf(ex.id) + 1] ?? null };
+                        removeCustomExercise(ex.id, exName);
+                      }}
                     >
                       刪除此動作
                     </SheetAction>
                   )}
                 </div>
-                <p className="mt-4 text-center text-footnote text-label-3">
-                  {pairMemberIds.has(ex.id) ? 'Superset 跟著配對一起排序：按住配對標頭左側的把手拖曳' : '按住左側把手可以拖曳排序'}
-                </p>
               </div>
             </BottomSheet>
           );

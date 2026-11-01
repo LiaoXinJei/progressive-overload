@@ -167,6 +167,11 @@ input[type='number'] {
   }
 }
 
+/* 進出排序模式：清單淡入（減少動態效果時直接切換） */
+.mode-fade {
+  animation: fade-in 220ms ease-out;
+}
+
 /* 新出現的目前這組下排（上次紀錄、跳過）淡入 */
 .fade-in {
   animation: fade-in 200ms ease-out;
@@ -226,7 +231,8 @@ input[type='number'] {
 
 /* 減少動態效果：拿掉位移與縮放，只留淡入淡出 */
 @media (prefers-reduced-motion: reduce) {
-  .check-pop {
+  .check-pop,
+  .mode-fade {
     animation: none;
   }
 
