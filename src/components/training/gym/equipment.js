@@ -121,4 +121,60 @@ export const bottle = (L, x, y, angle = 0) => {
   disk(L, x + dx * 1.3, y + dy * 1.3, 0.8, EQ.bottleCap);
 };
 
+// ==================== 槓片 ====================
+// 色票照比賽槓片：藍 20、綠 10、白 5、紅 2.5、銀 1.25。r 是 20 kg 槓片 3.6 格時的半徑
+export const PLATE_LOOK = {
+  20: { r: 3.6, c: rgb('#3A86FF'), rim: rgb('#7DB0FF') },
+  10: { r: 2.8, c: rgb('#30C26A'), rim: rgb('#7BE0A0') },
+  5: { r: 2.1, c: rgb('#EDEDF5'), rim: rgb('#FFFFFF') },
+  2.5: { r: 1.6, c: rgb('#FF5A64'), rim: rgb('#FF9AA0') },
+  1.25: { r: 1.2, c: rgb('#C3C8E0'), rim: rgb('#FFFFFF') },
+};
+
+// 一片槓片的正面。edge：前面還有一片時畫一圈深色邊，同尺寸疊在一起也分得出來
+export const plateFace = (L, x, y, kg, k = 1, edge = false) => {
+  const look = PLATE_LOOK[kg] ?? PLATE_LOOK[20];
+  const r = look.r * k;
+  if (edge) disk(L, x, y, r + 0.5, EQ.outline);
+  disk(L, x, y, r, look.c);
+  if (r > 2) {
+    disk(L, x, y, r - 0.9, look.rim);
+    disk(L, x, y, r - 1.5, look.c);
+  }
+};
+
+// 側面看槓鈴的一端：一片一片往外疊，每片往右偏 PLATE_STEP 格（斜斜看過去，同尺寸也數得出幾片）。
+// plates 沒給就是預設樣子（一片藍色）；空陣列是空槓，只看到槓頭
+export const MAX_DRAWN_PLATES = 8;
+export const plateStep = (k = 1) => Math.max(1, Math.round(2 * k));
+export const loadedBar = (L, x, y, plates, k = 1) => {
+  if (!plates) {
+    plateSide(L, x, y, 3.6 * k);
+    return;
+  }
+  const step = plateStep(k);
+  const shown = plates.slice(0, MAX_DRAWN_PLATES);
+  shown.forEach((kg, i) => plateFace(L, x + i * step, y, kg, k, i > 0));
+  const end = x + Math.max(0, shown.length - 1) * step;
+  disk(L, end, y, shown.length ? 0.8 : 1.1, shown.length ? EQ.plateHub : EQ.metal);
+};
+
+// 槓片架：一根柱子，槓片左右交錯掛（大的在下）。dx / dy 相對柱子和地板
+export const TREE_SLOTS = [
+  { kg: 20, dx: -4.1, dy: -4.8 },
+  { kg: 10, dx: 4.5, dy: -4.0 },
+  { kg: 5, dx: -2.9, dy: -12.4 },
+  { kg: 2.5, dx: 3.9, dy: -11.8 },
+  { kg: 1.25, dx: -2.3, dy: -18.6 },
+];
+export const TREE_H = 22;
+// 柱子左右各佔幾格（點擊範圍、擺位置用）
+export const TREE_SPAN = { left: 9, right: 9 };
+export const plateTree = (L, x, floorY, flip = false) => {
+  rect(L, x, floorY - TREE_H, 2, TREE_H, EQ.frame);
+  rect(L, x, floorY - TREE_H, 1, TREE_H, EQ.frameLight);
+  rect(L, x - 4, floorY - 1, 10, 1, EQ.frame);
+  for (const s of TREE_SLOTS) plateFace(L, x + 1 + (flip ? -s.dx : s.dx), floorY + s.dy, s.kg);
+};
+
 export { polygon, capsule, disk, rect, line };

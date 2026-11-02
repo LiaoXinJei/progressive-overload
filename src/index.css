@@ -235,11 +235,34 @@ input[type='number'] {
   }
 }
 
+/* 健身房模式點槓片：「+20」往上飄一點再淡掉 */
+.plate-float {
+  animation: plate-float 700ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@keyframes plate-float {
+  0% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  20% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-18px);
+  }
+}
+
 /* 減少動態效果：拿掉位移與縮放，只留淡入淡出 */
 @media (prefers-reduced-motion: reduce) {
   .check-pop,
   .mode-fade {
     animation: none;
+  }
+
+  .plate-float {
+    animation: fade-out 700ms ease-out forwards;
   }
 
   .sheet-in,

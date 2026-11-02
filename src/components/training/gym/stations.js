@@ -9,24 +9,27 @@
 import { FLOOR, FOOT_Y, STAND_HIP_Y, DIM } from './rig.js';
 import {
   EQ, stampEquip, post, beam, slab, flatBench, plateSide, dumbbellSide, dumbbellFront,
-  weightStack, cableLine, pulley, rect, disk, capsule,
+  weightStack, cableLine, pulley, rect, disk, capsule, loadedBar,
 } from './equipment.js';
+import { BARBELL, EZ_BAR, SINGLE } from './plates.js';
 
 const SEAT_TOP = FLOOR - 5; // 一般凳子高度：坐著腳剛好踩地
 const SEAT_HIP_Y = SEAT_TOP - 2.4;
 const BENCH_Y = FLOOR - 10; // 臥推凳高度
 const LYING_HIP_Y = BENCH_Y - 2.6;
 
-// 手上拿的東西畫在手的位置（最前面一層）
-const held = (kind) => (s) => {
+const EZ_K = 2.4 / 3.6; // EZ 槓的槓片畫小一點
+
+// 手上拿的東西畫在手的位置（最前面一層）。plates：槓上掛的槓片（只有選中那站有）
+const held = (kind) => (s, t, cx, plates) => {
   const hands = s.view === 'front' ? [s.armL.end, s.armR.end] : [s.armN.end];
   return {
     front: (buf) => stampEquip(buf, L => {
       for (const [hx, hy] of hands) {
         if (kind === 'db') (s.view === 'front' ? disk(L, hx, hy, 1.8, EQ.plate) : dumbbellSide(L, hx, hy));
         else if (kind === 'dbFront') dumbbellFront(L, hx, hy);
-        else if (kind === 'barbell') plateSide(L, hx, hy - 0.5, 3.6);
-        else if (kind === 'ez') plateSide(L, hx, hy, 2.4);
+        else if (kind === 'barbell') loadedBar(L, hx, hy - 0.5, plates);
+        else if (kind === 'ez') loadedBar(L, hx, hy, plates, EZ_K);
         else if (kind === 'handle') capsule(L, hx, hy - 1.2, hx, hy + 1.2, 0.7, EQ.metal);
       }
     }),
@@ -82,9 +85,11 @@ const flatPress = (implement = 'barbell') => ({
       beam(L, cx - 8, cx + 4, 7, 2);
     }
   },
-  props(L, cx) {
-    if (implement === 'barbell') plateSide(L, cx - 15.5, BENCH_Y - 14.5, 3.6);
-    if (implement === 'smith') plateSide(L, cx - 2, BENCH_Y - 16, 3.6);
+  load: implement === 'db' ? SINGLE : BARBELL,
+  bar: { barbell: [-15.5, BENCH_Y - 14.5], smith: [-2, BENCH_Y - 16] }[implement],
+  props(L, cx, plates) {
+    if (implement === 'barbell') loadedBar(L, cx - 15.5, BENCH_Y - 14.5, plates);
+    if (implement === 'smith') loadedBar(L, cx - 2, BENCH_Y - 16, plates);
     if (implement === 'db') { dumbbellSide(L, cx + 9, FLOOR - 2.3); dumbbellSide(L, cx + 13, FLOOR - 2.3); }
   },
   hooks: held(implement === 'db' ? 'db' : 'barbell'),
@@ -95,7 +100,9 @@ const skullCrusher = () => ({
   start: { ...lyingBase, armN: [-168, -95] },
   end: { ...lyingBase, armN: [-168, -170] },
   equip(L, cx) { flatBench(L, cx - 15, cx + 7, BENCH_Y); },
-  props(L, cx) { plateSide(L, cx + 11, FLOOR - 2.4, 2.4); },
+  load: EZ_BAR,
+  bar: [11, FLOOR - 2.4],
+  props(L, cx, plates) { loadedBar(L, cx + 11, FLOOR - 2.4, plates, EZ_K); },
   hooks: held('ez'),
 });
 
@@ -120,10 +127,12 @@ const inclinePress = (implement = 'db') => ({
     if (implement === 'barbell') { post(L, cx - 15, 22, FLOOR, 2); rect(L, cx - 13, 24, 2, 1, EQ.metal); }
     if (implement === 'smith') { post(L, cx - 7, 8, FLOOR, 2); post(L, cx, 8, FLOOR, 2); beam(L, cx - 9, cx + 3, 7, 2); }
   },
-  props(L, cx) {
+  load: implement === 'db' ? SINGLE : BARBELL,
+  bar: { barbell: [-11.5, 22], smith: [-3.5, 20] }[implement],
+  props(L, cx, plates) {
     if (implement === 'db') { dumbbellSide(L, cx + 11, FLOOR - 2.3); dumbbellSide(L, cx + 15, FLOOR - 2.3); }
-    if (implement === 'barbell') plateSide(L, cx - 11.5, 22, 3.6);
-    if (implement === 'smith') plateSide(L, cx - 3.5, 20, 3.6);
+    if (implement === 'barbell') loadedBar(L, cx - 11.5, 22, plates);
+    if (implement === 'smith') loadedBar(L, cx - 3.5, 20, plates);
   },
   hooks: held(implement === 'db' ? 'db' : 'barbell'),
 });
@@ -209,6 +218,7 @@ const shoulderPress = (implement = 'db') => ({
       post(L, cx - 14, 8, FLOOR, 2); post(L, cx + 12, 8, FLOOR, 2); beam(L, cx - 15, cx + 15, 7, 2);
     }
   },
+  load: implement === 'smith' ? BARBELL : SINGLE,
   props(L, cx) {
     if (implement === 'db') { dumbbellFront(L, cx - 10, FLOOR - 1.5); dumbbellFront(L, cx + 10, FLOOR - 1.5); }
     if (implement === 'smith') beam(L, cx - 13, cx + 13, 24, 1, EQ.metal, EQ.metalLight);
@@ -392,8 +402,10 @@ const chestRow = (implement = 'db') => {
       capsule(L, cx + 4, 42, cx + 6, FLOOR - 1, 0.9, EQ.frame);
       beam(L, cx - 8, cx + 9, FLOOR - 1, 1);
     },
-    props(L, cx) {
-      if (implement === 'tbar') plateSide(L, cx + 4, FLOOR - 4, 3.6);
+    // T 槓只有一頭掛槓片：點一片加一片的重量，但槓片畫得出來
+    bar: implement === 'tbar' ? [4, FLOOR - 4] : undefined,
+    props(L, cx, plates) {
+      if (implement === 'tbar') loadedBar(L, cx + 4, FLOOR - 4, plates);
       else { dumbbellSide(L, cx + 9, FLOOR - 2.3); dumbbellSide(L, cx + 13, FLOOR - 2.3); }
     },
     hooks: held(implement === 'tbar' ? 'barbell' : 'db'),
@@ -462,8 +474,10 @@ const curl = (implement = 'db') => ({
     dumbbellSide(L, cx - 19, FLOOR - 11);
     dumbbellSide(L, cx - 14, FLOOR - 11);
   },
-  props(L, cx) {
-    if (implement === 'ez') plateSide(L, cx + 10, FLOOR - 2.4, 2.4);
+  load: implement === 'ez' ? EZ_BAR : SINGLE,
+  bar: implement === 'ez' ? [10, FLOOR - 2.4] : undefined,
+  props(L, cx, plates) {
+    if (implement === 'ez') loadedBar(L, cx + 10, FLOOR - 2.4, plates, EZ_K);
     else { dumbbellSide(L, cx + 9, FLOOR - 2.3); dumbbellSide(L, cx + 13, FLOOR - 2.3); }
   },
   hooks: held(implement === 'ez' ? 'ez' : 'db'),
@@ -482,7 +496,9 @@ const preacher = () => {
       capsule(L, cx + 4, 41, cx + 3, FLOOR - 1, 0.9, EQ.frame);
       beam(L, cx - 9, cx + 7, FLOOR - 1, 1);
     },
-    props(L, cx) { plateSide(L, cx + 6.5, 40, 2.4); },
+    load: EZ_BAR,
+    bar: [6.5, 40],
+    props(L, cx, plates) { loadedBar(L, cx + 6.5, 40, plates, EZ_K); },
     hooks: held('ez'),
   };
 };
@@ -765,6 +781,7 @@ const standingCalf = (kind = 'machine') => {
   });
   return {
     start: pose(BLOCK_TOP - 0.2, 70), end: pose(BLOCK_TOP - 2.2, 125),
+    load: kind === 'smith' ? BARBELL : SINGLE,
     equip(L, cx) {
       rect(L, cx - 2, BLOCK_TOP, 8, 3, EQ.frame);
       rect(L, cx - 2, BLOCK_TOP, 8, 1, EQ.frameLight);
