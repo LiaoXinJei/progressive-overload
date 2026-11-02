@@ -3,9 +3,9 @@
 // 器材與人物的座標都在下面 64 像素高的「舞台帶」裡（FLOOR = 54）；
 // top 是舞台上方多出來的牆面高度（全螢幕時畫面比較高，多出來的地方放窗戶、燈串）。
 
-import { createBuffer, rect, setPx, blit, disk, rgb } from './pixel.js';
+import { createBuffer, clear, rect, setPx, blit, disk, rgb } from './pixel.js';
 import { FLOOR, drawFigure, solvePose, idlePose, restPose, readyPose, cheerPose, walkPose, lerpPose, repProgress } from './rig.js';
-import { stampEquip, bottle } from './equipment.js';
+import { stampEquip, bottle, plateTree, TREE_SPAN } from './equipment.js';
 
 export const SCENE_H = 64;
 
@@ -27,10 +27,6 @@ const BG = {
   bulb: rgb('#FFE8A8'),
   wire: rgb('#2B1B2E'),
   lights: [rgb('#FFD27A'), rgb('#FF8FA3'), rgb('#7FE0D6'), rgb('#B7A6FF')],
-  pot: rgb('#E07A5F'),
-  potDark: rgb('#B85C46'),
-  leaf: rgb('#5ACB8A'),
-  leafDark: rgb('#3E9E6A'),
 };
 
 // 共用記憶體的子緩衝區：舞台帶畫在 top 之下
@@ -106,18 +102,6 @@ const drawWindow = (buf, cx, pageW, floorY, top) => {
   rect(buf, cx - half - 3, y1 + 2, half * 2 + 6, 2, BG.baseTop);
 };
 
-// 站和站中間放一盆植物
-const drawPlant = (buf, x, floorY) => {
-  rect(buf, x - 3, floorY - 6, 7, 6, BG.pot);
-  rect(buf, x - 3, floorY - 6, 7, 1, BG.potDark);
-  for (const [dx, dy, r] of [[-2, -9, 2.2], [2, -10, 2.4], [0, -13, 2.4], [-3, -12, 1.6], [3, -14, 1.5]]) {
-    disk(buf, x + dx, floorY + dy, r, BG.leaf);
-  }
-  setPx(buf, x - 1, floorY - 11, BG.leafDark);
-  setPx(buf, x + 2, floorY - 9, BG.leafDark);
-  setPx(buf, x + 1, floorY - 13, BG.leafDark);
-};
-
 // 天花板一串彩色小燈
 const drawStringLights = (buf, top) => {
   const y0 = Math.max(1, Math.floor(top * 0.4));
@@ -161,24 +145,63 @@ const drawLamp = (buf, cx, floorY, top) => {
 
 export const stationCenter = (i, pageW) => Math.round((i + 0.5) * pageW);
 
-// 整條背景：一站一頁寬。top：舞台上方多出來的牆高（像素）
-export const buildWorld = (stations, pageW, top = 0) => {
+// 槓片架放哪：器材和人物（做動作的起點終點、待命、休息）旁邊，優先右邊、離中心近一點，
+// 不跟它們重疊；都會重疊就挑重疊最少的。回傳柱子相對站點中心的 dx 和要不要左右翻
+const treeScratch = {};
+const scratch = (name, w, h) => {
+  const b = treeScratch[name];
+  if (b && b.w === w && b.h === h) { clear(b); return b; }
+  treeScratch[name] = createBuffer(w, h);
+  return treeScratch[name];
+};
+export const placeTree = (family, pageW) => {
+  const w = pageW * 2;
+  const c = pageW;
+  const busy = scratch('busy', w, SCENE_H);
+  if (family.equip) stampEquip(busy, L => family.equip(L, c));
+  if (family.props) stampEquip(busy, L => family.props(L, c));
+  for (const pose of [family.start, family.end, idlePose(0), restPose(0)]) {
+    if (pose) drawFigure(busy, solvePose(pose, c));
+  }
+  const reach = Math.floor(pageW / 2) - TREE_SPAN.right - 1;
+  const candidates = [];
+  for (let dx = 18; dx <= reach; dx++) candidates.push({ dx, flip: false });
+  for (let dx = 18; dx <= reach; dx++) candidates.push({ dx: -dx - 1, flip: true });
+  let best = null;
+  for (const cand of candidates) {
+    const tree = scratch('tree', w, SCENE_H);
+    stampEquip(tree, L => plateTree(L, c + cand.dx, FLOOR, cand.flip));
+    let hits = 0;
+    for (let i = 0; i < tree.px.length; i++) if (tree.px[i] && busy.px[i]) hits++;
+    if (!best || hits < best.hits) best = { ...cand, hits };
+    if (hits === 0) break;
+  }
+  return best ?? { dx: 20, flip: false, hits: 0 };
+};
+
+// 整條背景：一站一頁寬。top：舞台上方多出來的牆高；bottom：舞台下方多出來的地板（像素）
+export const buildWorld = (stations, pageW, top = 0, bottom = 0) => {
   const w = Math.max(1, Math.ceil(stations.length * pageW) + 2);
-  const buf = createBuffer(w, top + SCENE_H);
+  const buf = createBuffer(w, top + SCENE_H + bottom);
   const floorY = top + FLOOR;
   drawRoom(buf, floorY);
   if (top >= 10) drawStringLights(buf, top);
   stations.forEach((st, i) => drawWindow(buf, stationCenter(i, pageW), pageW, floorY, top));
-  stations.forEach((st, i) => {
-    if (i > 0) drawPlant(buf, Math.round(i * pageW), floorY);
-  });
   stations.forEach((st, i) => drawLamp(buf, stationCenter(i, pageW), floorY, top >= 24 ? Math.round(top * 0.55) - 7 : Math.max(0, top - 6)));
   const stage = band(buf, top);
   stations.forEach((st, i) => {
     const cx = stationCenter(i, pageW);
     if (st.family.equip) stampEquip(stage, L => st.family.equip(L, cx));
   });
-  return { buf, pageW, stations, top };
+  // 每站一座槓片架，畫在器材前面：槓片是按鈕，要整片看得到
+  const trees = stations.map((st, i) => {
+    const cx = stationCenter(i, pageW);
+    const spot = placeTree(st.family, pageW);
+    const x = cx + spot.dx;
+    stampEquip(stage, L => plateTree(L, x, FLOOR, spot.flip));
+    return { x, flip: spot.flip };
+  });
+  return { buf, pageW, stations, top, bottom, trees };
 };
 
 // 人物這一格的姿勢。character.mode：walk / idle / lift / rest / ready / cheer
@@ -198,7 +221,9 @@ const poseFor = (character, family, time) => {
 
 // 畫一格：camX 是鏡頭左緣的世界座標（可以有小數，整數部分在這裡切，小數由 CSS 位移補）
 // pad：左邊多畫幾欄（畫面寬度不是像素整數倍時，置中後兩側不留黑邊）
-export const renderFrame = (view, world, { camX, character, time, pad = 0 }) => {
+// plates：{ index, list }，那一站的槓上掛哪些槓片（其他站畫預設樣子）
+export const renderFrame = (view, world, { camX, character, time, pad = 0, plates = null }) => {
+  const platesAt = (i) => (plates && plates.index === i ? plates.list : undefined);
   const camXi = Math.floor(camX) - pad;
   blit(view, world.buf, camXi);
   const stage = band(view, world.top ?? 0);
@@ -209,7 +234,7 @@ export const renderFrame = (view, world, { camX, character, time, pad = 0 }) => 
     const cx = stationCenter(i, pageW) - camXi;
     if (cx < -pageW || cx > view.w + pageW) return;
     const inUse = character.mode === 'lift' && character.station === i;
-    if (!inUse && st.family.props) stampEquip(stage, L => st.family.props(L, cx));
+    if (!inUse && st.family.props) stampEquip(stage, L => st.family.props(L, cx, platesAt(i)));
   });
   const station = stations[character.station];
   const x = Math.round(charX) - camXi;
@@ -218,7 +243,7 @@ export const renderFrame = (view, world, { camX, character, time, pad = 0 }) => 
   const s = solvePose(pose, x);
   let hooks = {};
   if (character.mode === 'lift' && station?.family.hooks) {
-    hooks = station.family.hooks(s, result.t, x);
+    hooks = station.family.hooks(s, result.t, x, platesAt(character.station));
   } else if (pose.bottle !== undefined) {
     // 水壺：平常直立拿在腰前，喝的時候瓶口轉向嘴巴、瓶底抬高
     const [hx, hy] = s.armN.end;
